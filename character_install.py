@@ -11,6 +11,7 @@ import applog
 import character
 import comfy_launch
 import model_download
+import node_install
 import video_install
 
 LOG_NAME = "character.log"
@@ -26,6 +27,8 @@ _state: dict = {
     "log": [],
     "restart_required": False,
     "done_steps": [],
+    "warnings": [],
+    "repair": False,
 }
 _thread: threading.Thread | None = None
 _cancel = threading.Event()
@@ -60,6 +63,22 @@ def _log(msg: str) -> None:
             pass
 
 
+RESTART_MARKER = "comfy_restart_required"
+
+
+def restart_marker_path() -> Path:
+    return Path(video_install.inbox_data_dir()) / RESTART_MARKER
+
+
+def mark_restart_required(reason: str = "") -> None:
+    try:
+        p = restart_marker_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(reason or "custom nodes", encoding="utf-8")
+    except OSError:
+        pass
+
+
 def current_status(object_info: dict | None = None) -> dict:
     caps = character.capabilities(object_info)
     snap = snapshot()
@@ -69,12 +88,12 @@ def current_status(object_info: dict | None = None) -> dict:
         "capabilities": caps,
         "git": bool(video_install.find_git()),
         "venv_python": str(comfy_launch.venv_python()),
-        "custom_nodes": str(comfy_launch.custom_nodes_dir()),
+        "custom_nodes": str(node_install.effective_custom_nodes_dir()),
+        "restart_pending": restart_marker_path().is_file(),
     }
 
 
-def start_install(kind: str = "ipadapter") -> dict:
-    global _thread
+def _normalize_kind(kind: str) -> str:
     kind = (kind or "ipadapter").strip().lower()
     if kind in {"ipa", "ip-adapter", "ip_adapter", "refs", "reference"}:
         kind = "ipadapter"
@@ -82,6 +101,12 @@ def start_install(kind: str = "ipadapter") -> dict:
         kind = "face_detailer"
     if kind not in {"ipadapter", "face_detailer"}:
         raise ValueError("Nepoznata instalacija. Koristi ipadapter ili face_detailer.")
+    return kind
+
+
+def start_install(kind: str = "ipadapter", *, repair: bool = False) -> dict:
+    global _thread
+    kind = _normalize_kind(kind)
     with _lock:
         if _state.get("status") == "running":
             raise RuntimeError("Instalacija je već u tijeku.")
@@ -91,17 +116,23 @@ def start_install(kind: str = "ipadapter") -> dict:
             status="running",
             kind=kind,
             step="start",
-            message=f"Pokrećem instalaciju: {label}…",
+            message=(f"Popravljam: {label} (provjera mape + Python paketi)…" if repair else f"Pokrećem instalaciju: {label}…"),
             error="",
             percent=1,
             log=[],
             restart_required=False,
             done_steps=[],
+            warnings=[],
+            repair=bool(repair),
         )
     t = threading.Thread(target=_run, args=(kind,), name="character-install", daemon=True)
     _thread = t
     t.start()
     return snapshot()
+
+
+def start_repair(kind: str = "ipadapter") -> dict:
+    return start_install(kind, repair=True)
 
 
 def _mark(step_id: str) -> None:
@@ -112,16 +143,31 @@ def _mark(step_id: str) -> None:
         _state["done_steps"] = done
 
 
-def _clone_repo(git: str, url: str, dirname: str) -> None:
-    dest = comfy_launch.custom_nodes_dir() / dirname
-    video_install._clone_or_pull(git, url, dest)
-    req = dest / "requirements.txt"
-    try:
-        video_install._pip_requirements(req)
-    except RuntimeError as exc:
-        # Face Detailer (i ponekad IP-Adapter) može pasti na pip/Windows/AMD.
-        _log(f"pip za {dirname} nije uspio: {exc}")
-        raise
+def _warn(msg: str) -> None:
+    with _lock:
+        w = list(_state.get("warnings") or [])
+        w.append(msg)
+        _state["warnings"] = w[-10:]
+    _log("UPOZORENJE: " + msg)
+
+
+def _clone_repo(git: str, url: str, dirname: str, *, run_install_py: bool = False) -> None:
+    """Čvor u stvarnu custom_nodes mapu + Python paketi u ComfyUI venv (bez diranja torcha)."""
+    nodes = node_install.effective_custom_nodes_dir()
+    state = node_install.ensure_node(url, dirname, git=git or "", nodes_dir=nodes, log=_log)
+    dest = Path(state["path"])
+    py = comfy_launch.venv_python()
+    if not Path(py).is_file():
+        _warn(f"Nema ComfyUI venv Pythona ({py}) — preskačem Python pakete za {dirname}.")
+    else:
+        try:
+            failed = node_install.install_requirements(dest, py, log=_log)
+        except Exception as exc:
+            failed = [str(exc)[:200]]
+        if failed:
+            _warn(f"{dirname}: neki Python paketi nisu instalirani ({', '.join(failed)[:300]}).")
+        if run_install_py and not node_install.run_install_script(dest, py, log=_log):
+            _warn(f"{dirname}: install.py nije uspio (vidi data\\logs\\character.log).")
     _mark(dirname)
 
 
@@ -156,12 +202,10 @@ def _run(kind: str) -> None:
     try:
         git = video_install.find_git()
         if not git:
-            raise RuntimeError(
-                "Git nije pronađen. Instaliraj Git for Windows i ponovo pokreni, "
-                "ili kloniraj ručno u C:\\ComfyUI-Zluda\\custom_nodes."
-            )
-        nodes = comfy_launch.custom_nodes_dir()
+            _log("Git nije pronađen — čvorove preuzimam kao zip s GitHuba.")
+        nodes = node_install.effective_custom_nodes_dir()
         nodes.mkdir(parents=True, exist_ok=True)
+        _log(f"ComfyUI custom_nodes: {nodes}")
 
         if kind == "ipadapter":
             _log("Instalacija IP-Adapter Plus Face (čvor cubiq + CLIP Vision + Plus Face modeli).")
@@ -183,7 +227,7 @@ def _run(kind: str) -> None:
             _log("Instalacija Face Detailera (Impact Pack + Subpack + face_yolov8m.pt).")
             _set(step="clone:impact", percent=10)
             try:
-                _clone_repo(git, character.IMPACT_PACK_URL, character.IMPACT_PACK_DIR)
+                _clone_repo(git, character.IMPACT_PACK_URL, character.IMPACT_PACK_DIR, run_install_py=True)
             except Exception as exc:
                 raise RuntimeError(
                     "Instalacija Impact Packa nije uspjela, pa Face Detailer ostaje nedostupan. "
@@ -191,7 +235,7 @@ def _run(kind: str) -> None:
                 ) from exc
             _set(step="clone:subpack", percent=35)
             try:
-                _clone_repo(git, character.IMPACT_SUBPACK_URL, character.IMPACT_SUBPACK_DIR)
+                _clone_repo(git, character.IMPACT_SUBPACK_URL, character.IMPACT_SUBPACK_DIR, run_install_py=True)
             except Exception as exc:
                 raise RuntimeError(
                     "Impact-Subpack (detektor lica) nije se instalirao. Face Detailer ostaje skriven. "
@@ -215,6 +259,10 @@ def _run(kind: str) -> None:
                     "Na RX 6600 (8 GB) ostavi opciju isključenom osim kad baš želiš dodatni prolaz po licu."
                 ),
             )
+        mark_restart_required(kind)
+        warns = list(_state.get("warnings") or [])
+        if warns:
+            _set(message=_state["message"] + " Upozorenja: " + " ".join(warns)[:500])
         _log(_state["message"])
     except Exception as exc:
         _set(

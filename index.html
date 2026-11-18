@@ -211,6 +211,9 @@
     .ref-slot .ref-actions button { flex: 1; padding: 4px 0; font-size: 0.72rem; }
     .char-install { margin-top: 22px; padding-top: 8px; }
     .char-install .actions { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; }
+    .lora-pick { display: flex; gap: 8px; align-items: stretch; }
+    .lora-pick select { flex: 1; min-width: 0; }
+    .lora-pick .ghost { padding: 0 12px; white-space: nowrap; }
     .range-row {
       display: flex;
       align-items: center;
@@ -862,14 +865,17 @@
             </div>
             <div class="field" id="loraField">
               <label class="lbl" for="lora">LoRA</label>
-              <select id="lora">
-                <option value="">Bez LoRA-e</option>
-              </select>
+              <div class="lora-pick">
+                <select id="lora">
+                  <option value="">Bez LoRA-e</option>
+                </select>
+                <button type="button" class="ghost" id="loraRefresh" title="Ponovno pročitaj models/loras">↻ Osvježi</button>
+              </div>
               <div class="range-row" id="loraStrengthRow">
                 <input type="range" id="loraStrength" min="0" max="1.5" step="0.05" value="0.8" />
                 <span class="range-val" id="loraStrengthVal">0.8</span>
               </div>
-              <div class="hint" id="loraHint">LoRA-e iz models/loras, usklađene s odabranim modelom. Nepoznate su pod Ostalo. Turbo LoRA se dodaje zasebno kad uključiš Turbo.</div>
+              <div class="hint" id="loraHint">LoRA-e iz models/loras (i podmapa). Prvo su one za odabrani model, ostale su pod "Ostalo / možda nekompatibilno". Turbo LoRA se dodaje zasebno kad uključiš Turbo.</div>
             </div>
             <div class="field" id="appearWeightField">
               <label class="lbl" for="appearWeight">Težina opisa izgleda</label>
@@ -888,6 +894,7 @@
               <div class="hint" id="ipaHint">IP-Adapter Plus Face primjenjuje do 8 slika lica s profila osobe. Nije dostupno uz Krea 2. Ako paket ili čvor nedostaje, pojavi se gumb za instalaciju.</div>
               <div class="actions" id="ipaInstallRow" hidden style="margin-top:8px">
                 <button type="button" class="btn primary" id="installIpaAdv">Instaliraj IP-Adapter</button>
+                <button type="button" class="btn" id="repairIpaAdv" hidden>Popravi</button>
               </div>
             </div>
             <div class="field" id="faceDetailerField" hidden>
@@ -895,6 +902,7 @@
               <div class="hint" id="faceHint">Po zadanom isključeno. Na RX 6600 (8 GB) može biti sporo i tijesno s memorijom.</div>
               <div class="actions" id="faceInstallRow" hidden style="margin-top:8px">
                 <button type="button" class="btn" id="installFaceAdv">Instaliraj Face Detailer</button>
+                <button type="button" class="btn" id="repairFaceAdv" hidden>Popravi</button>
               </div>
             </div>
             <div class="field">
@@ -1101,10 +1109,12 @@
           <p class="hint" id="ipaStatusText">Za iste crte lica kroz slike treba čvor ComfyUI_IPAdapter_plus i paket modela (CLIP Vision + Plus Face, oko 3,2 GB). Treba Git.</p>
           <div class="actions">
             <button type="button" class="btn primary" id="installIpa">Instaliraj IP-Adapter</button>
+            <button type="button" class="btn" id="repairIpa" hidden title="Ponovno provjeri mapu čvora i instaliraj Python pakete u ComfyUI venv">Popravi</button>
           </div>
           <p class="hint" id="faceStatusText" style="margin-top:14px">Face Detailer je opcionalan (Impact Pack + Subpack + face_yolov8m.pt) i po zadanom je isključen jer na 8 GB može biti tijesan.</p>
           <div class="actions">
             <button type="button" class="btn" id="installFace">Instaliraj Face Detailer</button>
+            <button type="button" class="btn" id="repairFace" hidden title="Ponovno provjeri mape čvorova i instaliraj Python pakete u ComfyUI venv">Popravi</button>
           </div>
           <div class="progress-block" id="charInstWrap" hidden style="margin-top:12px">
             <div class="progress-label"><span id="charInstText">Instalacija…</span><span id="charInstPct">0%</span></div>
@@ -1352,6 +1362,7 @@
       document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
       document.querySelectorAll(".tab-panel").forEach((p) => p.classList.toggle("on", p.id === "tab-" + name));
       if (name === "video") loadVideoCaps();
+      if (name === "slike" && typeof refreshLoras === "function") refreshLoras(false);
       if (name === "modeli") refreshModelsPanel();
       if (location.hash !== "#" + name) {
         try { history.replaceState(null, "", "#" + name); } catch (e) {}
@@ -1794,6 +1805,8 @@
         const r = await fetch("/api/models", { cache: "no-store" });
         const d = await r.json();
         if (d.loras_info) { window._loras = d.loras_info; }
+        if (d.loras_dir) window._lorasDir = d.loras_dir;
+        if (d.loras_turbo_present != null) window._turboLoraPresent = !!d.loras_turbo_present;
         if (d.turbo) window._turbo = d.turbo;
         if (d.character) window._character = d.character;
         if (!d.ok) { setStatus(false, d.error || ""); fillLoraSelect(); updateConsistencyUi(); return; }
@@ -1888,6 +1901,44 @@
       };
       saveLoraMemory(map);
     }
+    const ARCH_LABEL = { sdxl: "SDXL", sd15: "SD 1.5", krea2: "Krea 2", unknown: "nepoznato" };
+    function loraOptionGroups(all, arch, turboName) {
+      // 1.0.19: ništa se ne skriva. Kompatibilne prve, sve ostalo u "Ostalo / možda nekompatibilno".
+      const compatible = [], other = [];
+      (all || []).forEach((item) => {
+        const name = String((item && (item.name || item)) || "");
+        if (!name) return;
+        const base = name.replace(/\\/g, "/").split("/").pop().toLowerCase();
+        if (turboName && base === turboName) return;
+        const a = String((item && item.arch) || "unknown").toLowerCase();
+        const supported = !(item && item.supported === false);
+        if (supported && a === arch) {
+          compatible.push({ name: name, label: name });
+        } else {
+          let label = name;
+          if (!supported) label += "  ·  ComfyUI ga možda ne učita";
+          else if (a !== "unknown" && a !== "ostalo" && a !== arch) label += "  ·  " + (ARCH_LABEL[a] || a);
+          other.push({ name: name, label: label });
+        }
+      });
+      return { compatible: compatible, other: other };
+    }
+    function updateLoraHint(userCount) {
+      const hint = $("loraHint");
+      if (!hint) return;
+      const dir = window._lorasDir || "models\\loras";
+      hint.classList.remove("hint-warn");
+      if (userCount > 0) {
+        hint.textContent = "LoRA-e iz models/loras (i podmapa). Prvo su one za odabrani model, ostale su pod \"Ostalo / možda nekompatibilno\". Turbo LoRA se dodaje zasebno kad uključiš Turbo.";
+        return;
+      }
+      hint.classList.add("hint-warn");
+      if (window._turboLoraPresent) {
+        hint.textContent = "U " + dir + " imaš samo Turbo LoRA (Hyper-SDXL). Ona se ne bira ovdje, nego se uključi gore pod Brzina → Turbo. Za vlastitu LoRA-u ubaci .safetensors datoteku u tu mapu i klikni ↻ Osvježi.";
+      } else {
+        hint.textContent = "Nema LoRA datoteka u " + dir + ". Ubaci .safetensors datoteku u tu mapu i klikni ↻ Osvježi.";
+      }
+    }
     function fillLoraSelect() {
       if (!loraEl) return;
       const arch = currentArch;
@@ -1901,37 +1952,53 @@
       }
       const all = window._loras || [];
       const turboName = ((window._turbo && window._turbo.lora_filename) || "Hyper-SDXL-8steps-CFG-lora.safetensors").toLowerCase();
-      const compatible = all.filter((item) => {
-        const name = (item.name || item || "").toString();
-        if (!name || name.toLowerCase() === turboName) return false;
-        const a = (item.arch || "unknown").toLowerCase();
-        return a === "unknown" || a === "ostalo" || a === arch;
-      });
-      const groups = { sdxl: [], sd15: [], unknown: [] };
-      compatible.forEach((item) => {
-        const name = item.name || item;
-        const a = (item.arch || "unknown").toLowerCase();
-        (groups[a] || groups.unknown).push({ name: name, group: item.group || (a === "sdxl" ? "SDXL" : (a === "sd15" ? "SD 1.5" : "Ostalo")) });
-      });
+      const groups = loraOptionGroups(all, arch, turboName);
       const remembered = (loadLoraMemory()[modelEl.value] || {});
       const prev = (remembered.name != null ? remembered.name : loraEl.value) || "";
       let html = '<option value="">Bez LoRA-e</option>';
-      [["sdxl", "SDXL"], ["sd15", "SD 1.5"], ["unknown", "Ostalo"]].forEach(([key, label]) => {
-        const list = groups[key] || [];
-        if (!list.length) return;
-        html += '<optgroup label="' + label + '">';
-        list.forEach((item) => {
-          html += '<option value="' + escapeHtml(item.name) + '">' + escapeHtml(item.name) + "</option>";
+      if (groups.compatible.length) {
+        html += '<optgroup label="' + escapeHtml((ARCH_LABEL[arch] || arch) + " (za ovaj model)") + '">';
+        groups.compatible.forEach((item) => {
+          html += '<option value="' + escapeHtml(item.name) + '">' + escapeHtml(item.label) + "</option>";
         });
         html += "</optgroup>";
-      });
+      }
+      if (groups.other.length) {
+        html += '<optgroup label="Ostalo / možda nekompatibilno">';
+        groups.other.forEach((item) => {
+          html += '<option value="' + escapeHtml(item.name) + '">' + escapeHtml(item.label) + "</option>";
+        });
+        html += "</optgroup>";
+      }
       loraEl.innerHTML = html;
       const exists = Array.from(loraEl.options).some((o) => o.value === prev);
       loraEl.value = exists ? prev : "";
       if (loraStrengthEl && remembered.strength != null && !Number.isNaN(Number(remembered.strength))) {
         loraStrengthEl.value = String(remembered.strength);
       }
+      updateLoraHint(groups.compatible.length + groups.other.length);
       syncLoraStrengthUi();
+    }
+    async function refreshLoras(showMsg) {
+      const btn = $("loraRefresh");
+      if (btn) btn.disabled = true;
+      try {
+        const r = await fetch("/api/loras", { cache: "no-store" });
+        const d = await r.json();
+        if (d && Array.isArray(d.loras)) window._loras = d.loras;
+        if (d && d.loras_dir) window._lorasDir = d.loras_dir;
+        if (d && d.turbo_present != null) window._turboLoraPresent = !!d.turbo_present;
+        fillLoraSelect();
+        fillProfileModelSelects();
+        if (showMsg) {
+          const n = (window._loras || []).length;
+          showToast(n ? ("Pronađeno LoRA-a: " + n + ".") : "Nema vlastitih LoRA-a u models/loras.");
+        }
+      } catch (e) {
+        if (showMsg) showToast("Ne mogu osvježiti popis LoRA-a: " + e);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
     }
     function syncLoraStrengthUi() {
       const n = loraStrengthEl ? Number(loraStrengthEl.value) : 0.8;
@@ -2329,6 +2396,7 @@
     setRangeVal("appearWeight", "appearWeightVal", 2);
     setRangeVal("ipaWeight", "ipaWeightVal", 2);
     if (loraEl) loraEl.addEventListener("change", () => { syncLoraStrengthUi(); rememberLoraForModel(); });
+    if ($("loraRefresh")) $("loraRefresh").addEventListener("click", () => refreshLoras(true));
     if (loraStrengthEl) loraStrengthEl.addEventListener("input", () => { syncLoraStrengthUi(); rememberLoraForModel(); });
     if ($("qualityPrefix")) $("qualityPrefix").addEventListener("input", updateTokenCount);
     updateTokenCount();
@@ -2921,6 +2989,10 @@
       const face = caps.face_detailer || {};
       if ($("ipaStatusText")) $("ipaStatusText").textContent = ipa.message || $("ipaStatusText").textContent;
       if ($("faceStatusText")) $("faceStatusText").textContent = face.message || $("faceStatusText").textContent;
+      const ipaRepair = !!(ipa.repair || (ipa.nodes === false && ipa.nodes_on_disk));
+      const faceRepair = !!(face.repair || (face.nodes === false && face.nodes_on_disk));
+      ["repairIpa", "repairIpaAdv"].forEach((id) => { if ($(id)) $(id).hidden = !ipaRepair || !!(ipa.nodes === true); });
+      ["repairFace", "repairFaceAdv"].forEach((id) => { if ($(id)) $(id).hidden = !faceRepair || !!(face.nodes === true); });
     }
 
     let charPoll = null;
@@ -2954,9 +3026,9 @@
       } catch (e) { /* tišina */ }
     }
 
-    async function startCharacterInstall(kind) {
+    async function startCharacterInstall(kind, repair) {
       try {
-        const r = await fetch("/api/character/install", {
+        const r = await fetch(repair ? "/api/character/repair" : "/api/character/install", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ kind: kind })
@@ -3139,6 +3211,14 @@
     ["installFace", "installFaceAdv"].forEach((id) => {
       const el = $(id);
       if (el) el.addEventListener("click", () => startCharacterInstall("face_detailer"));
+    });
+    ["repairIpa", "repairIpaAdv"].forEach((id) => {
+      const el = $(id);
+      if (el) el.addEventListener("click", () => startCharacterInstall("ipadapter", true));
+    });
+    ["repairFace", "repairFaceAdv"].forEach((id) => {
+      const el = $(id);
+      if (el) el.addEventListener("click", () => startCharacterInstall("face_detailer", true));
     });
 
     loadHistory();

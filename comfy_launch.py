@@ -80,8 +80,26 @@ def input_dir() -> Path:
     return Path(raw) if raw else comfy_dir() / "input"
 
 
+def comfy_root() -> Path:
+    """Mapa s ComfyUI main.py (gdje su custom_nodes). Obično = comfy_dir().
+
+    Ako comfy_dir() nema main.py, a ima ga podmapa (npr. C:\\ComfyUI-Zluda\\ComfyUI), koristi nju.
+    """
+    base = comfy_dir()
+    if (base / "main.py").is_file() or not base.is_dir():
+        return base
+    for name in ("ComfyUI", "ComfyUI-Zluda", "comfyui"):
+        cand = base / name
+        if (cand / "main.py").is_file():
+            return cand
+    return base
+
+
 def custom_nodes_dir() -> Path:
-    return comfy_dir() / "custom_nodes"
+    raw = (os.environ.get("COMFYUI_CUSTOM_NODES_DIR") or "").strip()
+    if raw:
+        return Path(raw)
+    return comfy_root() / "custom_nodes"
 
 
 def venv_python() -> Path:
@@ -105,6 +123,41 @@ def list_files(folder: Path, suffixes: tuple[str, ...] = (".safetensors", ".ckpt
     except OSError:
         return []
     return sorted(names)
+
+
+LORA_SUFFIXES = (".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".sft", ".gguf")
+# ComfyUI LoraLoader učitava samo ove nastavke; ostale prikazujemo, ali označene.
+COMFY_LORA_SUFFIXES = (".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".sft", ".pt2", ".pkl")
+
+
+def list_files_recursive(
+    folder: Path,
+    suffixes: tuple[str, ...] = LORA_SUFFIXES,
+    max_depth: int = 5,
+) -> list[str]:
+    """Relativne putanje (s os.sep, kao što ih ComfyUI vraća) svih datoteka u mapi i podmapama."""
+    folder = Path(folder)
+    if not folder.is_dir():
+        return []
+    out: list[str] = []
+    try:
+        for dirpath, dirnames, filenames in os.walk(folder, followlinks=True):
+            rel_dir = os.path.relpath(dirpath, folder)
+            depth = 0 if rel_dir in (".", "") else len(Path(rel_dir).parts)
+            dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and d != "__pycache__")
+            if depth >= max_depth:
+                dirnames[:] = []
+            for fname in filenames:
+                if fname.startswith("."):
+                    continue
+                if Path(fname).suffix.lower() not in suffixes:
+                    continue
+                if not (Path(dirpath) / fname).is_file():
+                    continue
+                out.append(fname if depth == 0 else os.path.join(rel_dir, fname))
+    except OSError:
+        return sorted(out, key=str.lower)
+    return sorted(out, key=str.lower)
 
 
 def setting_on(raw: str | None, default: bool = True) -> bool:

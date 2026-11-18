@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from comfy_launch import list_files, loras_dir
+from comfy_launch import COMFY_LORA_SUFFIXES, list_files, list_files_recursive, loras_dir
 
 QUALITY_PREFIX = "RAW photo, best quality, highly detailed skin"
 DEFAULT_NEGATIVE = (
@@ -77,18 +77,42 @@ TURBO_SDXL = {
 }
 
 
+def lora_key(name: str) -> str:
+    """Usporedivi ključ LoRA imena: / umjesto \\, mala slova."""
+    return (name or "").strip().replace("\\", "/").strip("/").lower()
+
+
+def _lora_path(folder: Path, name: str) -> Path:
+    parts = [p for p in (name or "").replace("\\", "/").split("/") if p and p not in (".", "..")]
+    return Path(folder).joinpath(*parts) if parts else Path(folder)
+
+
 def lora_available(name: str, folder: Path | None = None) -> bool:
     name = (name or "").strip()
     if not name:
         return False
     folder = Path(folder) if folder is not None else loras_dir()
-    if (folder / name).is_file():
+    if _lora_path(folder, name).is_file():
         return True
-    return name in set(list_files(folder))
+    key = lora_key(name)
+    return any(lora_key(n) == key for n in list_files_recursive(folder))
 
 
 def list_loras() -> list[str]:
-    return list_files(loras_dir())
+    """Sve LoRA datoteke u models/loras, uključujući podmape (isti izvor kao kartica Modeli)."""
+    return list_files_recursive(loras_dir())
+
+
+def merge_lora_names(comfy_names: list[str] | None, fs_names: list[str] | None) -> list[str]:
+    """Spoji popis iz ComfyUI-ja i s diska; za iste datoteke zadrži ComfyUI zapis imena."""
+    merged: dict[str, str] = {}
+    for name in comfy_names or []:
+        if name and lora_key(name) not in merged:
+            merged[lora_key(name)] = str(name)
+    for name in fs_names or []:
+        if name and lora_key(name) not in merged:
+            merged[lora_key(name)] = str(name)
+    return sorted(merged.values(), key=lambda n: lora_key(n))
 
 
 def is_turbo_lora_file(name: str) -> bool:
@@ -161,12 +185,21 @@ def detect_lora_arch(name: str, metadata: dict | None = None) -> str:
     return "unknown"
 
 
-def classify_loras(names: list[str] | None, metadata_fn=None) -> list[dict]:
-    """Popis korisničkih LoRA-a (bez interne Turbo datoteke) s arhitekturom i grupom."""
+def classify_loras(names: list[str] | None, metadata_fn=None, comfy_names: list[str] | None = None) -> list[dict]:
+    """Popis korisničkih LoRA-a (bez interne Turbo datoteke) s arhitekturom i grupom.
+
+    Ništa se ne skriva: nepoznata ili možda nekompatibilna arhitektura samo mijenja grupu.
+    """
     out: list[dict] = []
+    comfy_keys = {lora_key(n) for n in (comfy_names or [])}
+    seen: set[str] = set()
     for name in names or []:
         if not name or is_turbo_lora_file(name):
             continue
+        key = lora_key(name)
+        if key in seen:
+            continue
+        seen.add(key)
         meta: dict = {}
         arch = detect_lora_arch(name)
         if arch == "unknown":
@@ -176,26 +209,37 @@ def classify_loras(names: list[str] | None, metadata_fn=None) -> list[dict]:
                 except Exception:
                     meta = {}
             if not meta:
-                folder = loras_dir()
-                meta = read_safetensors_metadata(folder / Path(str(name).replace("\\", "/")).name)
+                meta = read_safetensors_metadata(_lora_path(loras_dir(), str(name)))
             if meta:
                 arch = detect_lora_arch(name, meta)
         group = "SDXL" if arch == "sdxl" else ("SD 1.5" if arch == "sd15" else "Ostalo")
-        out.append({"name": name, "arch": arch, "group": group})
+        suffix = Path(str(name)).suffix.lower()
+        out.append({
+            "name": name,
+            "arch": arch,
+            "group": group,
+            "supported": suffix in COMFY_LORA_SUFFIXES,
+            "in_comfy": (key in comfy_keys) if comfy_names is not None else None,
+        })
     return out
 
 
 def loras_for_arch(entries: list[dict] | None, model_arch: str) -> list[dict]:
-    """LoRA-e kompatibilne s modelom; 'unknown' (Ostalo) ide uz svaki SD model. Krea 2: prazno."""
+    """Sve korisničke LoRA-e za model: prvo kompatibilne, zatim Ostalo / možda nekompatibilno.
+
+    Ništa se ne skriva (1.0.19). Krea 2 nema LoRA izbornik.
+    """
     arch = (model_arch or "").strip().lower()
     if arch in {"krea2", "krea", "krea_2"}:
         return []
-    out: list[dict] = []
+    first: list[dict] = []
+    rest: list[dict] = []
     for item in entries or []:
         a = (item.get("arch") or "unknown").strip().lower()
-        if a in {"unknown", "", "ostalo"} or a == arch:
-            out.append(item)
-    return out
+        row = dict(item)
+        row["compatible"] = bool(a == arch and item.get("supported", True) is not False)
+        (first if row["compatible"] else rest).append(row)
+    return first + rest
 
 
 def detect_model_arch(name: str, override: str = "") -> str:

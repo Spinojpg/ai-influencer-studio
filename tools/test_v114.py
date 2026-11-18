@@ -89,10 +89,12 @@ def test_detect_lora_arch():
     sdxl_names = {e["name"] for e in sdxl_list}
     check("add-detail-xl.safetensors" in sdxl_names, "SDXL vidi XL LoRA")
     check("mystery-style.safetensors" in sdxl_names, "SDXL vidi Ostalo")
-    check("film-grain-sd15.safetensors" not in sdxl_names, "SDXL ne vidi SD 1.5 LoRA")
+    # 1.0.19: ništa se ne skriva — SD 1.5 LoRA je uz SDXL model na kraju, kao nekompatibilna.
+    check("film-grain-sd15.safetensors" in sdxl_names, "SDXL vidi i SD 1.5 LoRA (Ostalo / možda nekompatibilno)")
+    check(sdxl_list[0]["name"] == "add-detail-xl.safetensors" and sdxl_list[0]["compatible"] is True, "kompatibilna je prva")
+    check([e for e in sdxl_list if e["name"] == "film-grain-sd15.safetensors"][0]["compatible"] is False, "SD 1.5 uz SDXL označena kao nekompatibilna")
     sd15_list = image_gen.loras_for_arch(entries, "sd15")
-    sd15_names = {e["name"] for e in sd15_list}
-    check("film-grain-sd15.safetensors" in sd15_names and "add-detail-xl.safetensors" not in sd15_names, "SD 1.5 filter")
+    check(sd15_list[0]["name"] == "film-grain-sd15.safetensors" and len(sd15_list) == 3, "SD 1.5: kompatibilna prva, ostale ostaju")
     check(image_gen.loras_for_arch(entries, "krea2") == [], "Krea 2 nema LoRA izbornik")
 
     with tempfile.TemporaryDirectory() as tmp:

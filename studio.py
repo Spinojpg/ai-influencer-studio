@@ -178,37 +178,61 @@ def parse_lora_list(data) -> list[str]:
     return []
 
 
-def list_lora_names() -> list[str]:
+def comfy_lora_names() -> list[str] | None:
+    """Popis LoRA-a kako ga vidi ComfyUI; None ako ComfyUI ne odgovara."""
+    answered = False
     for path in ("/models/loras", "/object_info/LoraLoader"):
         try:
             data, _, _ = comfy_request(path, timeout=8)
+            answered = True
             names = parse_lora_list(data)
             if names:
                 return names
         except Exception:
             continue
-    return image_gen.list_loras()
+    return [] if answered else None
+
+
+def list_lora_names(comfy_ok: bool | None = None, comfy_names: list[str] | None = None) -> list[str]:
+    """Disk (models/loras s podmapama, kao kartica Modeli) spojen s ComfyUI popisom.
+
+    Prije 1.0.19 se vraćao samo ComfyUI popis kad nije bio prazan, a disk tek kao rezerva
+    (bez podmapa) — pa je izbornik mogao biti prazan dok Modeli pokazuju datoteke.
+    """
+    if comfy_names is None and comfy_ok is not False:
+        comfy_names = comfy_lora_names()
+    return image_gen.merge_lora_names(comfy_names or [], image_gen.list_loras())
 
 
 def fetch_lora_metadata(name: str) -> dict:
-    """Metapodaci LoRA-e: prvo ComfyUI /view_metadata/loras, zatim lokalna datoteka."""
-    filename = (name or "").replace("\\", "/").split("/")[-1]
-    if not filename:
+    """Metapodaci LoRA-e: prvo lokalna datoteka (brzo), zatim ComfyUI /view_metadata/loras."""
+    rel = (name or "").strip()
+    if not rel:
         return {}
+    local = image_gen.read_safetensors_metadata(image_gen._lora_path(comfy_launch.loras_dir(), rel))
+    if local:
+        return local
     try:
-        qs = urllib.parse.urlencode({"filename": filename})
+        qs = urllib.parse.urlencode({"filename": rel})
         data, _, _ = comfy_request("/view_metadata/loras?" + qs, timeout=6)
         if isinstance(data, dict) and data:
             return data
     except Exception:
         pass
-    return image_gen.read_safetensors_metadata(comfy_launch.loras_dir() / filename)
+    return {}
 
 
-def lora_entries(names: list[str] | None = None) -> list[dict]:
+def lora_entries(names: list[str] | None = None, comfy_ok: bool | None = None) -> list[dict]:
+    comfy_names = None
     if names is None:
-        names = list_lora_names()
-    return image_gen.classify_loras(names, metadata_fn=fetch_lora_metadata)
+        if comfy_ok is not False:
+            comfy_names = comfy_lora_names()
+        names = list_lora_names(comfy_ok=comfy_ok, comfy_names=comfy_names or [])
+    return image_gen.classify_loras(names, metadata_fn=fetch_lora_metadata, comfy_names=comfy_names)
+
+
+def turbo_lora_present() -> bool:
+    return image_gen.lora_available(image_gen.TURBO_SDXL["lora_filename"])
 
 
 def resolve_generation_profile(body: dict, fallback: dict | None = None) -> dict | None:
@@ -368,11 +392,27 @@ def studio_busy_payload() -> dict:
     }
 
 
-def cached_object_info() -> dict:
-    global _OBJECT_INFO_CACHE
-    if _OBJECT_INFO_CACHE is None:
+_OBJECT_INFO_AT = 0.0
+OBJECT_INFO_TTL_S = 30.0
+
+
+def cached_object_info(max_age: float | None = None) -> dict:
+    """object_info s kratkim TTL-om (1.0.19): prije se pamtio zauvijek, pa nakon ponovnog
+    pokretanja ComfyUI-ja (ili praznog odgovora dok se pali) Studio nije vidio nove čvorove."""
+    global _OBJECT_INFO_CACHE, _OBJECT_INFO_AT
+    ttl = OBJECT_INFO_TTL_S if max_age is None else max_age
+    now = time.time()
+    limit = ttl if _OBJECT_INFO_CACHE else min(ttl, 5.0)  # prazan odgovor (ComfyUI se pali) kratko
+    if _OBJECT_INFO_CACHE is None or (now - _OBJECT_INFO_AT) > limit:
         _OBJECT_INFO_CACHE = object_info()
+        _OBJECT_INFO_AT = now
     return _OBJECT_INFO_CACHE or {}
+
+
+def invalidate_object_info() -> None:
+    global _OBJECT_INFO_CACHE, _OBJECT_INFO_AT
+    _OBJECT_INFO_CACHE = None
+    _OBJECT_INFO_AT = 0.0
 
 
 def video_capabilities() -> dict:
@@ -1132,7 +1172,8 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/character" or path == "/api/character/status":
-            self._json(200, character_install.current_status(cached_object_info()))
+            fresh = (query.get("fresh") or ["0"])[0] in {"1", "true"}
+            self._json(200, character_install.current_status(cached_object_info(0 if fresh else None)))
             return
 
         if path == "/api/character/install":
@@ -1352,10 +1393,12 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._json(200, {"ok": True, "active_profile_id": pid, "profile": inbox.get_profile(pid)})
             return
 
-        if path == "/api/character/install":
+        if path in ("/api/character/install", "/api/character/repair"):
             kind = (body.get("kind") or body.get("what") or "ipadapter")
+            repair = path.endswith("/repair") or bool(body.get("repair"))
+            invalidate_object_info()
             try:
-                snap = character_install.start_install(str(kind))
+                snap = character_install.start_install(str(kind), repair=repair)
             except ValueError as exc:
                 self._json(400, {"ok": False, "error": str(exc)})
                 return
@@ -1897,11 +1940,14 @@ class StudioHandler(BaseHTTPRequestHandler):
 
 
     def _loras_payload(self) -> None:
-        entries = lora_entries()
+        ok, _ = comfy_up()
+        entries = lora_entries(comfy_ok=ok)
         self._json(200, {
             "ok": True,
+            "comfy_ok": ok,
             "loras": entries,
             "loras_dir": str(comfy_launch.loras_dir()),
+            "turbo_present": turbo_lora_present(),
             "excluded": [image_gen.TURBO_SDXL["lora_filename"]],
         })
 
@@ -1943,7 +1989,8 @@ class StudioHandler(BaseHTTPRequestHandler):
             "krea2_files": krea2_file_status(),
             "loras_dir": str(comfy_launch.loras_dir()),
             "loras": image_gen.list_loras(),
-            "loras_info": lora_entries(),
+            "loras_info": lora_entries(comfy_ok=ok),
+            "loras_turbo_present": turbo_lora_present(),
             "turbo": image_gen.TURBO_SDXL,
             "turbo_ready": image_gen.lora_available(image_gen.TURBO_SDXL["lora_filename"]),
             "character": character_install.current_status(cached_object_info() if ok else {}),

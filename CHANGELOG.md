@@ -1,5 +1,15 @@
 # Promjene
 
+## 1.0.19 — 2026-11-18
+- LoRA izbornik u Slikama (Napredno) sada pokazuje iste LoRA-e kao kartica Modeli. Prije je popis dolazio samo iz ComfyUI-ja (ili s diska bez podmapa) i zatim se filtrirao po arhitekturi, pa su LoRA-e prepoznate kao SD 1.5 (ili SDXL dok ComfyUI još nije spreman) bile skrivene.
+- Popis LoRA-a čita models\loras s podmapama i spaja ga s popisom iz ComfyUI-ja. Ništa se više ne skriva: prvo su LoRA-e za odabrani model, ostale su pod „Ostalo / možda nekompatibilno”. Interna Turbo LoRA i dalje ide samo preko Brzina → Turbo.
+- Uz izbornik je gumb „↻ Osvježi”, a popis se osvježi i kad otvoriš karticu Slike. Ako u mapi imaš samo Turbo LoRA ili nijednu, ispod piše što napraviti.
+- IP-Adapter i Face Detailer: čvorovi se uvijek instaliraju u custom_nodes mapu koju ComfyUI stvarno učitava (provjerava se i u comfyui.log), uz provjeru __init__.py. Ugniježđene mape se izravnaju, a nepotpune preimenuju u .disabled (ComfyUI-Manager i ostali čvorovi ostaju netaknuti).
+- Bez Gita se čvorovi preuzimaju kao zip s GitHuba.
+- Python paketi čvorova (requirements.txt i install.py za Impact Pack/Subpack) instaliraju se u ComfyUI venv, a torch i numpy ostaju zaključani na postojećim verzijama.
+- Novi gumb „Popravi” ponovno provjeri mapu čvora i instalira pakete. Ako ComfyUI ne učita čvor, Studio iz comfyui.log pokaže točan razlog (npr. nedostaje Python paket) ili javi da ComfyUI mapu uopće nije vidio.
+- Pri pokretanju Studio ugasi zaostali ComfyUI iz prošle sesije (ili onaj koji čeka restart nakon instalacije čvorova) i pokrene novi, da se novi čvorovi stvarno učitaju. Studio sada svakih 30 sekundi ponovno provjerava popis čvorova u ComfyUI-ju.
+
 ## 1.0.18 — 2026-11-18
 - Referentne slike lica: sada do 8 po osobi (prije 3). Možeš odabrati više odjednom ili ih ispustiti u okvir, poredati, obrisati i uključiti/isključiti svaku.
 - Najbolje su 4-8 jasnih slika lica, različiti kutovi i svjetlo, bez naočala/filtera.

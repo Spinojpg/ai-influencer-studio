@@ -408,6 +408,12 @@ def main(argv: list[str] | None = None) -> int:
 def start_app_windows(data_dir: Path) -> int:
     """Studio i preglednik čim :7860 odgovori; ComfyUI u pozadini, skriven. Čekamo zatvaranje prozora pa gasimo sesiju."""
     app_session.clear_heartbeat(data_dir)
+    try:
+        # 1.0.19: zaostali ComfyUI (ili onaj koji čeka restart zbog novih čvorova) se gasi,
+        # inače novi custom nodeovi (IP-Adapter, Impact Pack) nikad ne uđu.
+        app_session.ensure_fresh_comfy(data_dir, comfy_url=COMFY_URL, url_ok=url_ok)
+    except Exception as exc:
+        print("Provjera starog ComfyUI-ja nije uspjela:", exc)
     comfy_proc = start_comfy_if_needed(wait=False)
     we_started_comfy = comfy_proc is not None
     if we_started_comfy:

@@ -177,9 +177,23 @@ def _exists_file(folder: Path, name: str) -> bool:
     return name in set(comfy_launch.list_files(folder))
 
 
+def node_state(dirname: str) -> dict:
+    import node_install
+    return node_install.node_state(dirname, node_install.effective_custom_nodes_dir())
+
+
 def _node_dir_present(dirname: str) -> bool:
-    path = comfy_launch.custom_nodes_dir() / dirname
-    return path.is_dir() and any(path.iterdir()) if path.is_dir() else False
+    """Ispravno instaliran čvor: <custom_nodes>/<ime>/__init__.py (ista mapa koju skenira ComfyUI)."""
+    return bool(node_state(dirname).get("valid"))
+
+
+def node_diagnostic(dirname: str, label: str = "") -> str:
+    try:
+        import comfy_log
+        import node_install
+        return comfy_log.diagnose(dirname, node_install.comfy_log_info(), node_state(dirname), label)
+    except Exception:
+        return ""
 
 
 def file_status() -> dict:
@@ -236,19 +250,22 @@ def capabilities(object_info: dict | None = None) -> dict:
     files = file_status()
     ipa_nodes = ipadapter_nodes_ok(object_info)
     face_nodes = face_detailer_nodes_ok(object_info)
-    ipa_dir = _node_dir_present(IPADAPTER_NODE_DIR)
-    impact_dir = _node_dir_present(IMPACT_PACK_DIR)
-    subpack_dir = _node_dir_present(IMPACT_SUBPACK_DIR)
+    ipa_state = node_state(IPADAPTER_NODE_DIR)
+    impact_state = node_state(IMPACT_PACK_DIR)
+    subpack_state = node_state(IMPACT_SUBPACK_DIR)
+    ipa_dir = bool(ipa_state.get("valid"))
+    impact_dir = bool(impact_state.get("valid"))
+    subpack_dir = bool(subpack_state.get("valid"))
 
     if ipa_nodes is True and files["ready"]:
         ipa_msg = "IP-Adapter Plus Face je spreman za SDXL i SD 1.5."
     elif ipa_nodes is True and (files["ready_sdxl"] or files["ready_sd15"]):
         missing = ", ".join(files["missing"])
         ipa_msg = "Čvorovi su tu, ali nedostaju datoteke: " + missing + ". Preuzmi paket u kartici Modeli."
-    elif ipa_dir and ipa_nodes is False:
-        ipa_msg = (
+    elif ipa_nodes is False and (ipa_dir or ipa_state.get("exists")):
+        ipa_msg = node_diagnostic(IPADAPTER_NODE_DIR, "ComfyUI_IPAdapter_plus") or (
             "Čvor ComfyUI_IPAdapter_plus je na disku, ali ComfyUI ga još nije učitao. "
-            "Zatvori Studio i ponovo ga pokreni."
+            "Zatvori Studio i ponovo ga pokreni. Ako se ponavlja, klikni „Popravi”."
         )
     elif ipa_nodes is False or not ipa_dir:
         ipa_msg = (
@@ -263,10 +280,14 @@ def capabilities(object_info: dict | None = None) -> dict:
             "Face Detailer je spreman. Na RX 6600 (8 GB) ostavi ga isključenim osim ako želiš "
             "dodatni prolaz po licu (sporije, više VRAM-a)."
         )
-    elif (impact_dir or subpack_dir) and face_nodes is False:
+    elif face_nodes is False and (impact_dir or subpack_dir or impact_state.get("exists") or subpack_state.get("exists")):
         face_msg = (
-            "Čvorovi Impact Packa su na disku, ali ComfyUI ih još nije učitao. "
-            "Ponovo pokreni Studio. Ako se ne pojave, instalacija možda nije uspjela — vidi data\\logs\\character.log."
+            node_diagnostic(IMPACT_PACK_DIR, "ComfyUI-Impact-Pack")
+            or node_diagnostic(IMPACT_SUBPACK_DIR, "ComfyUI-Impact-Subpack")
+            or (
+                "Čvorovi Impact Packa su na disku, ali ComfyUI ih još nije učitao. "
+                "Ponovo pokreni Studio. Ako se ne pojave, klikni „Popravi” (vidi i data\\logs\\character.log)."
+            )
         )
     elif face_nodes is True and not files["yolo"]:
         face_msg = "Čvorovi su tu, ali nedostaje face_yolov8m.pt. Preuzmi ga u kartici Modeli (Face Detailer)."
@@ -281,6 +302,8 @@ def capabilities(object_info: dict | None = None) -> dict:
         "ipadapter": {
             "nodes": ipa_nodes,
             "nodes_on_disk": ipa_dir,
+            "node": ipa_state,
+            "repair": bool(ipa_state.get("exists") or (ipa_nodes is False and ipa_dir)),
             "files": {
                 "clip_vision": files["clip_vision"],
                 "sdxl": files["sdxl"],
@@ -297,6 +320,9 @@ def capabilities(object_info: dict | None = None) -> dict:
         "face_detailer": {
             "nodes": face_nodes,
             "nodes_on_disk": impact_dir and subpack_dir,
+            "node": impact_state,
+            "subpack": subpack_state,
+            "repair": bool(impact_state.get("exists") or subpack_state.get("exists")),
             "model": files["yolo"],
             "ready": bool(face_nodes is not False and files["yolo"]),
             "message": face_msg,

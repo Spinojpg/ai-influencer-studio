@@ -578,3 +578,135 @@ def wait_for_app_close(
             pending = None
 
         sleep_fn(poll_s)
+
+
+# ---------------------------------------------------------------- 1.0.19: svjež ComfyUI pri pokretanju
+
+RESTART_MARKER_NAME = "comfy_restart_required"
+COMFY_IMAGE_NAMES = {"cmd.exe", "python.exe", "pythonw.exe"}
+
+
+def restart_marker(data_dir: Path) -> Path:
+    return Path(data_dir) / RESTART_MARKER_NAME
+
+
+def pid_alive(pid: int, *, run=None) -> bool:
+    pid = int(pid or 0)
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        try:
+            r = (run or subprocess.run)(
+                ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
+                capture_output=True, text=True, timeout=15,
+            )
+            out = r.stdout or ""
+            if f'"{pid}"' not in out:
+                return False
+            # PID se na Windowsu reciklira: prihvati samo proces koji može biti ComfyUI stablo.
+            image = out.strip().split(",", 1)[0].strip('"').lower()
+            return image in COMFY_IMAGE_NAMES
+        except Exception:
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def parse_netstat_listening(text: str, port: int) -> int:
+    """PID procesa koji sluša na portu (netstat -ano)."""
+    for line in (text or "").splitlines():
+        parts = line.split()
+        if len(parts) >= 5 and parts[0].upper().startswith("TCP") and "LISTEN" in parts[3].upper():
+            local = parts[1]
+            if local.rsplit(":", 1)[-1] == str(port):
+                try:
+                    return int(parts[4])
+                except ValueError:
+                    continue
+    return 0
+
+
+def listening_pid(port: int, *, run=None) -> int:
+    if sys.platform != "win32":
+        return 0
+    try:
+        r = (run or subprocess.run)(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True, timeout=20)
+        return parse_netstat_listening(r.stdout or "", port)
+    except Exception:
+        return 0
+
+
+def comfy_start_action(*, running: bool, pid: int, alive: bool, marker: bool) -> str:
+    """start | reuse | restart_pid | restart_port.
+
+    - ComfyUI ne radi -> start
+    - radi, a PID iz prošle Studio sesije je živ -> restart_pid (inače novi čvorovi nikad ne uđu)
+    - radi bez našeg PID-a, ali instalacija čvorova traži restart -> restart_port
+    - inače -> reuse (tuđi ComfyUI ne diramo)
+    """
+    if not running:
+        return "start"
+    if pid and alive:
+        return "restart_pid"
+    if marker:
+        return "restart_port"
+    return "reuse"
+
+
+def ensure_fresh_comfy(
+    data_dir: Path,
+    *,
+    comfy_url: str = COMFY_URL_DEFAULT,
+    url_ok=None,
+    kill=kill_process_tree,
+    alive_fn=pid_alive,
+    port_pid_fn=listening_pid,
+    sleep=time.sleep,
+    log=print,
+    wait_s: float = 30.0,
+) -> str:
+    """Prije pokretanja: ugasi zaostali ComfyUI (comfy.pid) ili onaj koji čeka restart zbog novih čvorova."""
+    def _up() -> bool:
+        if url_ok is not None:
+            return bool(url_ok(comfy_url.rstrip("/") + "/system_stats"))
+        try:
+            with urllib.request.urlopen(comfy_url.rstrip("/") + "/system_stats", timeout=2) as resp:
+                return 200 <= resp.status < 500
+        except Exception:
+            return False
+
+    running = _up()
+    pid = read_comfy_pid(data_dir)
+    alive = alive_fn(pid) if pid else False
+    marker = restart_marker(data_dir).is_file()
+    action = comfy_start_action(running=running, pid=pid, alive=alive, marker=marker)
+    log(f"ComfyUI pri pokretanju: running={running} pid={pid} alive={alive} restart_marker={marker} -> {action}")
+    if action in {"restart_pid", "restart_port"}:
+        target = pid if action == "restart_pid" else 0
+        if not target:
+            try:
+                port = int(comfy_url.rstrip("/").rsplit(":", 1)[-1])
+            except ValueError:
+                port = 8188
+            target = port_pid_fn(port)
+        if target:
+            log(f"Gasim stari ComfyUI (PID {target}) da se učitaju novi čvorovi.")
+            kill(target, log=log)
+            deadline = time.time() + wait_s
+            while time.time() < deadline and _up():
+                sleep(0.5)
+        else:
+            log("Ne znam PID starog ComfyUI-ja — ne mogu ga ugasiti. Zatvori ComfyUI prozor ručno.")
+            return "reuse"
+        clear_comfy_pid(data_dir)
+    if action == "start" or (action.startswith("restart") and not _up()):
+        try:
+            restart_marker(data_dir).unlink()
+        except OSError:
+            pass
+    elif pid and not alive:
+        clear_comfy_pid(data_dir)
+    return action
