@@ -1,5 +1,8 @@
 # Promjene
 
+## 1.0.10 — 2026-11-18
+- Popravak: 'Unutarnja greška poslužitelja' pri generiranju (Turbo i Kvaliteta) u 1.0.9.
+
 ## 1.0.9 — 2026-11-18
 - Kartica Video: na RX 6600 (8 GB) realan je AnimateDiff-Evolved + SD 1.5 (Realistic Vision) + mm_sd_v15_v2, 512×512, 16 sličica / 2 s. Gumb „Instaliraj video podršku” klonira čvorove, instalira requirements u venv i preuzima modele; zatim ponovo pokreni ComfyUI. Klip iz zadnje slike ili opisa, sprema se mp4. LTX-Video / Wan / SVD-XT nisu praktični na 8 GB.
 - Turbo (8 koraka): Hyper-SDXL CFG LoRA u kartici Modeli (~750 MB), euler + sgm_uniform, cfg 5. Na RX 6600 (~17 s/korak) slika padne s ~8–9 min na ~2–2,5 min. Triton test (nema stdio.h / Visual Studio) nije ključan za brzinu.

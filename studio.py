@@ -231,35 +231,9 @@ def video_capabilities() -> dict:
     return classified
 
 
-def build_workflow(
-    *,
-    prompt: str,
-    negative: str,
-    model: str,
-    width: int,
-    height: int,
-    batch: int,
-    seed: int,
-    steps: int,
-    cfg: float | None = None,
-    arch: str = "sd15",
-    hires: bool = False,
-    object_info: dict | None = None,
-) -> dict:
-    return image_gen.build_workflow(
-        prompt=prompt,
-        negative=negative,
-        model=model,
-        width=width,
-        height=height,
-        batch=batch,
-        seed=seed,
-        steps=steps,
-        cfg=cfg,
-        arch=arch,
-        hires=hires,
-        object_info=object_info,
-    )
+def build_workflow(**kwargs) -> dict:
+    """Thin passthrough to image_gen.build_workflow (accepts all its kwargs)."""
+    return image_gen.build_workflow(**kwargs)
 
 
 def extract_images(hist_entry: dict) -> list[dict]:
