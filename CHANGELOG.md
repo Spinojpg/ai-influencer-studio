@@ -1,5 +1,11 @@
 # Promjene
 
+## 1.0.3 — 2026-11-18
+- Ispravak updatera: datoteke se zamjenjuju pojedinačno (os.replace s ponovnim pokušajima). Mapa app se više ne preimenuje — na Windowsu preimenovanje često padne ako je mapa radni dir ili ima otvorene datoteke, pa se stara verzija vratila nakon restarta.
+- Primjena ide iz zasebnog helper procesa u mapi data, tek nakon što Studio i launcher izađu. Uspjeh se javlja samo ako version.json na disku odgovara novoj verziji. Koraci su u data/logs/updater.log.
+- Sučelje prikazuje verziju isključivo iz version.json i ne tvrdi da je update uspio prije potvrde s diska.
+- Ako si na 1.0.1 ili 1.0.2, update unutar aplikacije možda opet neće ostati jer stari updater ima isti bug. Raspakiraj ovaj paket i pokreni popravi_update.bat ili instaliraj.bat — instalira 1.0.3 u AppData, tvoji podaci ostaju.
+
 ## 1.0.2 — 2026-11-18
 - cuDNN se isključuje u okruženju ComfyUI procesa (TORCH_BACKENDS_CUDNN_ENABLED=0); wrapper comfyui-studio.bat nastaje iz comfyui-n.bat bez --auto-launch, original ostaje netaknut.
 - Napredak slike ide preko ComfyUI websocketa; ako progres nema, animirana traka i proteklo vrijeme, plus upozorenje da prvo pokretanje može trajati dulje.

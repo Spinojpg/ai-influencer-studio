@@ -150,9 +150,18 @@ Otvori log
   se ComfyUI nije upalio. ComfyUI ide u zasebni minimizirani konzolni
   prozor (comfyui-n.bat, ostaje upaljen); pogledaj i programsku traku.
 
-Ažuriranje ne radi
-  Provjeri data\update.json (owner i repo). Za privatni repo treba
-  GITHUB_TOKEN u data\.env. Gumb "Provjeri update" pokaže poruku greške.
+Ažuriranje ne radi / nakon updatea se vrati stara verzija
+  Provjeri data\update.json (owner i repo) i GITHUB_TOKEN u data\.env.
+  Log je u data\logs\updater.log. Verzija u zaglavlju dolazi isključivo
+  iz version.json na disku.
+
+  Ako si na 1.0.1 ili 1.0.2 i update "uspio" pa se nakon zatvaranja
+  vratio: stari updater je pokušao preimenovati cijelu app mapu dok je
+  program još držao tu mapu kao radni dir, pa Windows to odbije.
+  Popravak: raspakiraj novi simple-studio.zip i dvoklik na
+  popravi_update.bat  ili  instaliraj.bat
+  To stavi 1.0.3+ u %LOCALAPPDATA%\AIInfluencerStudio\app, podaci ostaju.
+  Od 1.0.3 update zamjenjuje datoteke pojedinačno, iz procesa u mapi data.
 
 ComfyUI zapinje na "Compilation is in progress"
   Studio pri paljenju ComfyUI-ja u okruženje procesa stavlja

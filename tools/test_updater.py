@@ -48,6 +48,12 @@ def py_compile_all() -> None:
         ROOT / "video.py",
         ROOT / "tools" / "make_icon.py",
         ROOT / "tools" / "test_updater.py",
+        ROOT / "apply_helper.py",
+        ROOT / "applog.py",
+        ROOT / "comfy_ws.py",
+        ROOT / "comfy_launch.py",
+        ROOT / "image_gen.py",
+        ROOT / "model_download.py",
     ]
     for f in files:
         py_compile.compile(str(f), doraise=True)
@@ -349,32 +355,35 @@ def test_corrupt_and_bad_sha(tmp: Path) -> None:
     finally:
         httpd.shutdown()
 
-    # 3) rollback mid-apply (rename staging fails after app moved aside)
-    print("== rollback ako zamjena mape padne ==")
+    # 3) rollback mid-apply (os.replace pada na jednoj novoj datoteci)
+    print("== rollback ako zamjena datoteke padne usred primjene ==")
     new_src = tmp / "new-roll"
     make_app_tree(new_src, "2.0.0")
     zpath = tmp / "payloads3" / "studio.zip"
     zip_tree(new_src, zpath, wrap_root=None)
-    orig_rename = Path.rename
+    orig_replace = os.replace
 
-    def flaky(self, target):
-        if self.name.startswith(".app-staging"):
-            raise OSError("simulated staging rename failure")
-        return orig_rename(self, target)
+    def flaky(a, b):
+        if Path(b).name == "marker-2.0.0.txt":
+            raise PermissionError("simulated file lock mid-apply")
+        return orig_replace(a, b)
 
-    Path.rename = flaky  # type: ignore[method-assign]
+    os.replace = flaky  # type: ignore[assignment]
     try:
+        raised = False
         try:
-            updater.apply_zip(zpath, app, inst / "backup")
-            check(False, "apply_zip je trebao pasti")
-        except OSError as exc:
-            check("simulated" in str(exc), "očekivana simulirana greška")
+            updater.apply_zip(zpath, app, inst / "backup", data_dir=data)
+        except Exception as exc:
+            raised = True
+            check("simulated" in str(exc) or "zamijeniti" in str(exc), f"očekivana simulirana greška ({exc})")
+        check(raised, "apply_zip pada kad je datoteka zaključana")
         check((app / "version.json").is_file(), "app dir postoji nakon rollbacka")
         check((app / "version.json").read_text(encoding="utf-8").find("1.0.0") >= 0, "rollback vratio 1.0.0")
-        check((app / "keep.txt").read_text(encoding="utf-8") == "old-app", "rollback vratio stare datoteke")
+        check((app / "keep.txt").is_file() and (app / "keep.txt").read_text(encoding="utf-8") == "old-app", "rollback vratio stare datoteke")
         check((data / "studio.db").read_text(encoding="utf-8") == "USER-DB-BYTES", "data netaknut nakon rollbacka")
+        check(not (app / "marker-2.0.0.txt").is_file(), "djelomično nova datoteka nije ostala")
     finally:
-        Path.rename = orig_rename  # type: ignore[method-assign]
+        os.replace = orig_replace  # type: ignore[assignment]
 
 
 def test_token_redaction() -> None:
@@ -447,8 +456,138 @@ def test_default_source_and_private_token(tmp: Path) -> None:
     check(TOKEN not in f"log {updater._safe_err('x', tok)}".replace(updater._redact(TOKEN), ""), "redakcija i dalje radi")
 
 
+def test_rename_blocked_still_applies(tmp: Path) -> None:
+    print("== in-place apply kad preimenovanje app mape padne (Windows cwd) ==")
+    app = tmp / "inst" / "app"
+    data = tmp / "inst" / "data"
+    make_app_tree(app, "1.0.1")
+    data.mkdir(parents=True)
+    (data / "user.txt").write_text("keep", encoding="utf-8")
+    new_src = tmp / "new"
+    make_app_tree(new_src, "1.0.3", extra={"novo.py": "print('ok')\n"})
+    zpath = tmp / "studio.zip"
+    zip_tree(new_src, zpath)
+
+    real_rename = Path.rename
+    blocked = {"count": 0}
+
+    def guarded(self, target):
+        if self.resolve() == app.resolve() or Path(target).resolve() == app.resolve():
+            blocked["count"] += 1
+            raise PermissionError(13, "simulated Windows cwd lock")
+        return real_rename(self, target)
+
+    Path.rename = guarded  # type: ignore[method-assign]
+    try:
+        backup = updater.apply_zip(
+            zpath, app, tmp / "backup", expected_version="1.0.3", data_dir=data
+        )
+        ver = json.loads((app / "version.json").read_text(encoding="utf-8"))["version"]
+        check(ver == "1.0.3", f"version.json na disku je 1.0.3 ({ver})")
+        check((app / "novo.py").is_file(), "nova datoteka je tu")
+        check(not (app / "marker-1.0.1.txt").is_file(), "stari marker je uklonjen")
+        check((data / "user.txt").read_text(encoding="utf-8") == "keep", "data nije dirana")
+        check(app.is_dir() and app.resolve() == (tmp / "inst" / "app").resolve(), "app_dir nije preimenovan")
+        check(backup.is_dir(), "backup postoji")
+        log = data / "logs" / "updater.log"
+        check(log.is_file() and "apply_zip OK" in log.read_text(encoding="utf-8"), "korak je u updater.log")
+        # apply_zip ne smije ovisiti o rename mape: ako je rename bio pozvan, ostao je u except
+        check(True, "apply nije pao usprkos zabranjenom renameu app mape")
+    finally:
+        Path.rename = real_rename  # type: ignore[method-assign]
+
+
+def test_expected_version_rollback(tmp: Path) -> None:
+    print("== rollback kad version.json ne odgovara expected ==")
+    app = tmp / "app"
+    data = tmp / "data"
+    make_app_tree(app, "1.0.1")
+    (app / "keep-old.py").write_text("old", encoding="utf-8")
+    data.mkdir(parents=True)
+    new_src = tmp / "new"
+    make_app_tree(new_src, "9.9.9")
+    zpath = tmp / "studio.zip"
+    zip_tree(new_src, zpath)
+    raised = False
+    try:
+        updater.apply_zip(zpath, app, tmp / "backup", expected_version="1.0.3", data_dir=data)
+    except RuntimeError as exc:
+        raised = True
+        check("očekivano" in str(exc) or "ocekivano" in str(exc).lower() or "1.0.3" in str(exc), f"poruka: {exc}")
+    check(raised, "apply_zip diže grešku pri krivoj verziji")
+    ver = json.loads((app / "version.json").read_text(encoding="utf-8"))["version"]
+    check(ver == "1.0.1", f"rollback vratio 1.0.1 ({ver})")
+    check((app / "keep-old.py").is_file(), "stara datoteka vraćena")
+    check(not (app / "marker-9.9.9.txt").is_file(), "nova verzija nije ostala")
+
+
+def test_replace_retries(tmp: Path) -> None:
+    print("== os.replace retry na PermissionError ==")
+    tmp.mkdir(parents=True, exist_ok=True)
+    src = tmp / "src.txt"
+    dest = tmp / "dest.txt"
+    src.write_text("NEW", encoding="utf-8")
+    dest.write_text("OLD", encoding="utf-8")
+    real = os.replace
+    hits = {"n": 0}
+
+    def flaky(a, b):
+        hits["n"] += 1
+        if hits["n"] <= 2:
+            raise PermissionError(32, "simulated lock")
+        return real(a, b)
+
+    os.replace = flaky  # type: ignore[assignment]
+    try:
+        updater.replace_file(src, dest, retries=8, delay=0.01)
+        check(dest.read_text(encoding="utf-8") == "NEW", "datoteka zamijenjena nakon retryja")
+        check(hits["n"] == 3, f"dva neuspjeha pa uspjeh ({hits['n']})")
+    finally:
+        os.replace = real  # type: ignore[assignment]
+
+
+def test_apply_helper_process(tmp: Path) -> None:
+    print("== apply_helper iz data mape primijeni pending zip ==")
+    inst = tmp / "AIInfluencerStudio"
+    app = inst / "app"
+    data = inst / "data"
+    make_app_tree(app, "1.0.1", extra={"launcher.py": "open('launched.txt','w').write('1')\n"})
+    data.mkdir(parents=True)
+    new_src = tmp / "new"
+    make_app_tree(new_src, "1.0.3")
+    pending = data / "pending-update"
+    pending.mkdir(parents=True)
+    zpath = pending / "studio.zip"
+    zip_tree(new_src, zpath)
+    (pending / "meta.json").write_text(
+        json.dumps({"zip_path": str(zpath), "latest": "1.0.3", "notes": "ok"}),
+        encoding="utf-8",
+    )
+    os.environ["STUDIO_APP_DIR"] = str(app)
+    os.environ["STUDIO_DATA_DIR"] = str(data)
+    os.environ.pop("STUDIO_WAIT_PIDS", None)
+    here = Path.cwd()
+    import apply_helper
+
+    # ne pokreći pravi launcher
+    apply_helper.APP_DIR = app
+    apply_helper.DATA_DIR = data
+    started = {"n": 0}
+    apply_helper.start_app = lambda: started.__setitem__("n", started["n"] + 1)
+    rc = apply_helper.main()
+    check(rc == 0, f"helper exit 0 ({rc})")
+    ver = json.loads((app / "version.json").read_text(encoding="utf-8"))["version"]
+    check(ver == "1.0.3", f"helper je zapisao 1.0.3 ({ver})")
+    result = json.loads((data / "update-result.json").read_text(encoding="utf-8"))
+    check(result.get("applied") is True and result.get("updated_to") == "1.0.3", "update-result istinit")
+    check(started["n"] == 1, "helper je pokrenuo aplikaciju nakon uspjeha")
+    check(not pending.exists() or not (pending / "studio.zip").is_file(), "pending je očišćen")
+    os.chdir(here)
+
+
 def test_make_release(tmp: Path) -> None:
     print("== make_release.sh (u kopiji) ==")
+    orig_before = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))["version"]
     copy = tmp / "relsrc"
     shutil.copytree(
         ROOT,
@@ -483,7 +622,9 @@ def test_make_release(tmp: Path) -> None:
     check(ver == "1.0.1", f"kopija bumpana na 1.0.1 ({ver})")
     # original tree remains 1.0.0
     orig = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))["version"]
-    check(orig == "1.0.0", f"izvorni version.json ostaje 1.0.0 ({orig})")
+    check(orig == orig_before, f"izvorni version.json ostaje {orig_before} ({orig})")
+    check(any(n.endswith("apply_helper.py") for n in names), "zip sadrži apply_helper.py")
+    check(any(n.endswith("popravi_update.bat") for n in names), "zip sadrži popravi_update.bat")
 
 
 def main() -> int:
@@ -498,6 +639,10 @@ def main() -> int:
             test_default_source_and_private_token(tmp / "defaults")
             test_successful_update(tmp / "ok")
             test_corrupt_and_bad_sha(tmp / "bad")
+            test_rename_blocked_still_applies(tmp / "winlock")
+            test_expected_version_rollback(tmp / "rollback")
+            test_replace_retries(tmp / "retry")
+            test_apply_helper_process(tmp / "helper")
             test_make_release(tmp)
         except Exception:
             traceback.print_exc()

@@ -509,7 +509,8 @@ class StudioHandler(BaseHTTPRequestHandler):
             ok, msg = comfy_up()
             state = inbox.app_state()
             state["comfy"] = {"ok": ok, "message": msg, "url": COMFY_BASE}
-            state["version"] = updater.load_version(ROOT).get("version") or "0.0.0"
+            state["version"] = updater.load_version(Path(__file__).resolve().parent).get("version") or "0.0.0"
+            state["app_dir"] = str(Path(__file__).resolve().parent)
             state["update"] = updater.read_update_result(inbox.DATA_DIR)
             state["presets"] = {"sd15": image_gen.SD15_PRESETS, "sdxl": image_gen.SDXL_PRESETS}
             state["lowvram_note"] = image_gen.LOWVRAM_NOTE
@@ -804,12 +805,18 @@ class StudioHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._json(400, {"ok": False, "error": updater._safe_err(str(exc), token)})
             return
-        _spawn_updater_and_exit()
+        zip_path = Path(downloaded["zip_path"])
+        updater.updater_log(inbox.DATA_DIR, f"UI apply preuzeo {info.get('latest')}, spawn helper")
+        updater.spawn_apply_helper(ROOT, inbox.DATA_DIR, zip_path)
+        _schedule_studio_exit()
         self._json(200, {
             "ok": True,
+            "applied": False,
             "restarting": True,
-            "message": "Preuzeto. Aplikacija će se sada restartati i instalirati ažuriranje.",
+            "pending": True,
+            "current": updater.load_version(Path(__file__).resolve().parent).get("version"),
             "latest": info.get("latest"),
+            "message": "Paket je preuzet. Ažuriranje se sada primjenjuje u pozadini; verzija će se potvrditi s diska nakon restarta.",
         })
 
     def _handle_put(self) -> None:
@@ -1184,34 +1191,18 @@ def _clear_pid() -> None:
             pass
 
 
-def _spawn_updater_and_exit() -> None:
-    """Pokreni launcher --apply-pending i ugasi ovaj poslužitelj."""
-    cmd = [sys.executable, str(ROOT / "launcher.py"), "--apply-pending"]
-    env = os.environ.copy()
-    env["STUDIO_APP_DIR"] = str(ROOT)
-    env["STUDIO_DATA_DIR"] = str(inbox.DATA_DIR)
-    env["STUDIO_SKIP_UPDATE"] = "1"
-    kwargs = {"cwd": str(ROOT), "env": env, "close_fds": True}
-    if sys.platform == "win32":
-        flags = getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
-        flags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
-        flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-        kwargs["creationflags"] = flags
-        kwargs["stdin"] = subprocess.DEVNULL
-        kwargs["stdout"] = subprocess.DEVNULL
-        kwargs["stderr"] = subprocess.DEVNULL
-    else:
-        kwargs["start_new_session"] = True
-    subprocess.Popen(cmd, **kwargs)
-
+def _schedule_studio_exit() -> None:
+    """Ugasi ovaj poslužitelj da helper može zamijeniti datoteke."""
     def _later():
-        time.sleep(0.8)
+        time.sleep(0.6)
         httpd = _httpd
         if httpd is not None:
             try:
                 httpd.shutdown()
             except Exception:
                 os._exit(0)
+        else:
+            os._exit(0)
 
     threading.Thread(target=_later, daemon=True).start()
 

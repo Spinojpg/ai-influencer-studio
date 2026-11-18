@@ -10,6 +10,8 @@ import json
 import os
 import re
 import shutil
+import sys
+import subprocess
 import tempfile
 import time
 import urllib.error
@@ -358,58 +360,218 @@ def extract_app_zip(zip_path: Path, dest_dir: Path) -> None:
                 shutil.copyfileobj(src, out)
 
 
-def apply_zip(zip_path: Path, app_dir: Path, backup_dir: Path) -> Path:
+def updater_log(data_dir: Path | None, msg: str) -> None:
+    """Zapiši korak u data/logs/updater.log. Nikad ne ispisuj tokene."""
+    if not data_dir:
+        return
+    try:
+        log_dir = Path(data_dir) / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        line = time.strftime("%Y-%m-%d %H:%M:%S") + " " + str(msg).replace("\n", " ") + "\n"
+        with (log_dir / "updater.log").open("a", encoding="utf-8") as fh:
+            fh.write(line)
+    except OSError:
+        pass
+
+
+PROTECTED_DIR_NAMES = {
+    "data",
+    "logs",
+    "pending-update",
+    "update-helper",
+    "backup",
+    ".app-staging",
+    ".app-previous",
+}
+PROTECTED_FILE_NAMES = {
+    ".env",
+    "studio.pid",
+    "launcher.pid",
+    "update-result.json",
+    "studio.db",
+    "profiles.json",
+    "persona.json",
+}
+
+
+def _is_protected_rel(rel: Path) -> bool:
+    parts = rel.parts
+    if not parts:
+        return True
+    if parts[0] in PROTECTED_DIR_NAMES or parts[0].startswith(".app-"):
+        return True
+    if rel.name in PROTECTED_FILE_NAMES:
+        return True
+    if rel.as_posix().lower() in {".env", "data/.env"}:
+        return True
+    return False
+
+
+def iter_files(root: Path) -> list[Path]:
+    if not root.is_dir():
+        return []
+    out = []
+    for p in root.rglob("*"):
+        if p.is_file():
+            out.append(p)
+    return out
+
+
+def replace_file(src: Path, dest: Path, *, retries: int = 20, delay: float = 0.2) -> None:
+    """Kopiraj pa os.replace, s ponovnim pokušajima (Windows zaključane datoteke)."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.name + ".newtmp")
+    shutil.copy2(src, tmp)
+    last: Exception | None = None
+    for i in range(retries):
+        try:
+            os.replace(str(tmp), str(dest))
+            return
+        except PermissionError as exc:
+            last = exc
+            time.sleep(delay * (1 + i * 0.15))
+        except OSError as exc:
+            last = exc
+            # WinError 5 / 32
+            if getattr(exc, "winerror", None) in {5, 32} or exc.errno in {13, 11, 16}:
+                time.sleep(delay * (1 + i * 0.15))
+                continue
+            if tmp.exists():
+                tmp.unlink(missing_ok=True)
+            raise
+    if tmp.exists():
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+    raise RuntimeError(f"Ne mogu zamijeniti {dest}: {last}")
+
+
+def _rollback_from_backup(backup: Path, app_dir: Path, new_files: list[Path], data_dir: Path | None) -> None:
+    updater_log(data_dir, f"ROLLBACK iz {backup}")
+    if backup.is_dir():
+        for src in iter_files(backup):
+            rel = src.relative_to(backup)
+            if _is_protected_rel(rel):
+                continue
+            try:
+                replace_file(src, app_dir / rel, retries=8, delay=0.15)
+            except Exception as exc:
+                updater_log(data_dir, f"rollback nije mogao vratiti {rel}: {exc}")
+    for path in new_files:
+        try:
+            rel = path.relative_to(app_dir)
+        except ValueError:
+            continue
+        if _is_protected_rel(rel):
+            continue
+        bak = backup / rel
+        if not bak.is_file() and path.is_file():
+            try:
+                path.unlink()
+                updater_log(data_dir, f"rollback uklonio novu datoteku {rel}")
+            except OSError as exc:
+                updater_log(data_dir, f"rollback nije uklonio {rel}: {exc}")
+
+
+def apply_zip(
+    zip_path: Path,
+    app_dir: Path,
+    backup_dir: Path,
+    *,
+    expected_version: str | None = None,
+    data_dir: Path | None = None,
+) -> Path:
     """
-    Zamijeni datoteke u app_dir sadržajem ZIP-a.
-    data/ se ne dira (nije unutar app_dir ako je instalacija ispravna).
-    Pri grešci vraća prethodnu mapu.
+    Zamijeni datoteke u app_dir sadržajem ZIP-a, datoteku po datoteku.
+    Nikad ne preimenuje app_dir (na Windowsu to padne ako je cwd ili ima otvorene fajlove).
+    Uspjeh se javlja tek nakon što version.json na disku odgovara očekivanoj verziji.
     """
     app_dir = Path(app_dir).resolve()
     backup_dir = Path(backup_dir).resolve()
     backup_dir.mkdir(parents=True, exist_ok=True)
     verify_zip(zip_path)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    ver = load_version(app_dir).get("version", "unknown")
-    backup = backup_dir / f"app-{ver}-{stamp}"
-    staging = app_dir.parent / f".app-staging-{os.getpid()}-{stamp}"
-    previous = app_dir.parent / f".app-previous-{os.getpid()}-{stamp}"
+    old_ver = load_version(app_dir).get("version", "unknown")
+    updater_log(data_dir, f"apply_zip start app={app_dir} zip={zip_path} old={old_ver} expected={expected_version}")
+    backup = backup_dir / f"app-{old_ver}-{stamp}"
+    # Staging UVIJEK izvan app_dir (parent ili backup_dir).
+    staging = backup_dir / f".staging-{os.getpid()}-{stamp}"
     try:
         extract_app_zip(zip_path, staging)
         if not (staging / "studio.py").is_file() and not (staging / "version.json").is_file():
             raise RuntimeError("Raspakirani update nema studio.py.")
+        staged = [p for p in iter_files(staging) if not _is_protected_rel(p.relative_to(staging))]
+        updater_log(data_dir, f"staging {staging} datoteka={len(staged)}")
+
         if app_dir.exists():
-            shutil.copytree(app_dir, backup)
-            app_dir.rename(previous)
-        else:
-            previous = None
-        staging.rename(app_dir)
-        # Ako je data/.env bilo unutar app mape (prijenosni način), vrati ih.
-        if previous and previous.exists():
-            for name in ("data", ".env", "uploads", "outputs", "persona.json", "profiles.json", "studio.db"):
-                src = previous / name
-                dest = app_dir / name
-                if src.exists() and not dest.exists():
-                    src.rename(dest)
-            shutil.rmtree(previous, ignore_errors=True)
+            backup.mkdir(parents=True, exist_ok=True)
+            for src in iter_files(app_dir):
+                rel = src.relative_to(app_dir)
+                if _is_protected_rel(rel):
+                    continue
+                dest = backup / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
+            updater_log(data_dir, f"backup {backup}")
+
+        new_written: list[Path] = []
+        for src in staged:
+            rel = src.relative_to(staging)
+            dest = app_dir / rel
+            updater_log(data_dir, f"zamjena {rel}")
+            replace_file(src, dest)
+            new_written.append(dest)
+
+        staged_rels = {p.relative_to(staging).as_posix() for p in staged}
+        if app_dir.is_dir():
+            for existing in iter_files(app_dir):
+                rel = existing.relative_to(app_dir)
+                if _is_protected_rel(rel):
+                    continue
+                if rel.as_posix() not in staged_rels:
+                    try:
+                        existing.unlink()
+                        updater_log(data_dir, f"uklonjena stara {rel}")
+                    except OSError as exc:
+                        updater_log(data_dir, f"nisam uklonio {rel}: {exc}")
+
+        manifest = {
+            "version": load_version(app_dir).get("version"),
+            "files": sorted(staged_rels),
+            "ts": time.time(),
+        }
+        (app_dir / "update-manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+        new_ver = load_version(app_dir).get("version") or ""
+        updater_log(data_dir, f"version.json na disku: {new_ver}")
+        if expected_version:
+            want = expected_version
+            if want.lower().startswith("v") and want[1:2].isdigit():
+                want_cmp = want[1:]
+            else:
+                want_cmp = want
+            got_cmp = new_ver[1:] if new_ver.lower().startswith("v") and new_ver[1:2].isdigit() else new_ver
+            if parse_version(got_cmp) != parse_version(want_cmp):
+                raise RuntimeError(
+                    f"Nakon primjene version.json je {new_ver!r}, očekivano {expected_version!r}."
+                )
+        if not new_ver:
+            raise RuntimeError("Nakon primjene nema version.json.")
+        updater_log(data_dir, f"apply_zip OK -> {new_ver}")
+        shutil.rmtree(staging, ignore_errors=True)
         return backup
-    except Exception:
-        # Rollback
-        if app_dir.exists() and previous and previous.exists():
-            # rename to app already happened? if staging.rename failed maybe not
-            pass
-        if previous and previous.exists() and not (app_dir.exists() and (app_dir / "studio.py").is_file()):
-            if app_dir.exists():
-                shutil.rmtree(app_dir, ignore_errors=True)
-            previous.rename(app_dir)
-        elif backup.exists() and not (app_dir.exists() and (app_dir / "studio.py").is_file()):
-            if app_dir.exists():
-                shutil.rmtree(app_dir, ignore_errors=True)
-            shutil.copytree(backup, app_dir)
-        if staging.exists():
-            shutil.rmtree(staging, ignore_errors=True)
-        if previous and previous.exists() and (app_dir.exists() and (app_dir / "studio.py").is_file()):
-            shutil.rmtree(previous, ignore_errors=True)
+    except Exception as exc:
+        updater_log(data_dir, f"apply_zip GREŠKA: {exc}")
+        try:
+            _rollback_from_backup(backup, app_dir, iter_files(app_dir), data_dir)
+        except Exception as rex:
+            updater_log(data_dir, f"rollback greška: {rex}")
+        shutil.rmtree(staging, ignore_errors=True)
         raise
+
 
 
 def check_for_update(app_dir: Path, data_dir: Path, token: str = "") -> dict:
@@ -530,8 +692,18 @@ def perform_update(app_dir: Path, data_dir: Path, token: str = "", backup_parent
     downloaded = download_and_verify(info["release"], pending, cfg, token=token)
     backup_parent = Path(backup_parent or (app_dir.parent / "backup"))
     old_ver = info["current"]
-    backup = apply_zip(Path(downloaded["zip_path"]), app_dir, backup_parent)
-    new_ver = load_version(app_dir).get("version") or info["latest"]
+    expected = info.get("latest")
+    updater_log(data_dir, f"perform_update preuzeto, primjenjujem expected={expected}")
+    backup = apply_zip(
+        Path(downloaded["zip_path"]),
+        app_dir,
+        backup_parent,
+        expected_version=expected,
+        data_dir=data_dir,
+    )
+    new_ver = load_version(app_dir).get("version") or ""
+    if not new_ver or (expected and parse_version(new_ver) != parse_version(expected)):
+        raise RuntimeError(f"Verzija nakon updatea ({new_ver}) ne odgovara {expected}.")
     result = {
         "ok": True,
         "applied": True,
@@ -543,4 +715,66 @@ def perform_update(app_dir: Path, data_dir: Path, token: str = "", backup_parent
     }
     write_update_result(data_dir, result)
     shutil.rmtree(pending, ignore_errors=True)
+    updater_log(data_dir, f"perform_update OK {old_ver} -> {new_ver}")
     return result
+
+
+def install_helper(app_dir: Path, data_dir: Path, zip_path: Path | None = None) -> Path:
+    """Stavi apply_helper.py + updater.py u data/update-helper. Po mogućnosti iz novog ZIP-a."""
+    dest = Path(data_dir) / "update-helper"
+    dest.mkdir(parents=True, exist_ok=True)
+    copied = set()
+    if zip_path and Path(zip_path).is_file():
+        try:
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                names = [n.replace("\\", "/") for n in zf.namelist()]
+                for want in ("apply_helper.py", "updater.py"):
+                    match = next((n for n in names if n == want or n.endswith("/" + want)), None)
+                    if not match:
+                        continue
+                    target = dest / Path(match).name
+                    with zf.open(match) as src, target.open("wb") as out:
+                        shutil.copyfileobj(src, out)
+                    copied.add(want)
+                    updater_log(data_dir, f"helper {want} iz ZIP-a")
+        except Exception as exc:
+            updater_log(data_dir, f"helper iz ZIP-a nije uspio: {exc}")
+    for name in ("apply_helper.py", "updater.py"):
+        if name in copied:
+            continue
+        src = Path(app_dir) / name
+        if src.is_file():
+            shutil.copy2(src, dest / name)
+            updater_log(data_dir, f"helper {name} iz app mape")
+    if not (dest / "apply_helper.py").is_file():
+        raise RuntimeError("Nema apply_helper.py za pokretanje updatea.")
+    return dest
+
+
+def spawn_apply_helper(app_dir: Path, data_dir: Path, zip_path: Path | None = None) -> subprocess.Popen:
+    """Pokreni helper iz data mape, cwd=data, bez držanja app mape kao cwd."""
+    dest = install_helper(app_dir, data_dir, zip_path)
+    script = dest / "apply_helper.py"
+    cmd = [sys.executable, str(script)]
+    env = os.environ.copy()
+    env["STUDIO_APP_DIR"] = str(Path(app_dir).resolve())
+    env["STUDIO_DATA_DIR"] = str(Path(data_dir).resolve())
+    wait = str(os.getpid())
+    env["STUDIO_WAIT_PIDS"] = wait
+    updater_log(data_dir, f"spawn helper {cmd} cwd={data_dir} wait_pids={wait}")
+    kwargs: dict = {
+        "cwd": str(Path(data_dir).resolve()),
+        "env": env,
+        "close_fds": True,
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
+    if sys.platform == "win32":
+        flags = int(getattr(subprocess, "DETACHED_PROCESS", 0x00000008))
+        flags |= int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200))
+        flags |= int(getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+        kwargs["creationflags"] = flags
+    else:
+        kwargs["start_new_session"] = True
+    return subprocess.Popen(cmd, **kwargs)

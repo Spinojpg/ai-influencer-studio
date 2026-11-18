@@ -235,7 +235,23 @@ def maybe_update(app_dir: Path, data_dir: Path, force: bool = False) -> bool:
         return False
     print("Dostupna je verzija", info.get("latest"), "- preuzimam...")
     try:
-        result = updater.perform_update(app_dir, data_dir, token=token)
+        cfg = updater.load_update_config(data_dir)
+        pending = Path(data_dir) / "pending-update"
+        downloaded = updater.download_and_verify(info["release"], pending, cfg, token=token)
+        meta = {
+            "zip_path": downloaded["zip_path"],
+            "notes": info.get("notes") or "",
+            "latest": info.get("latest"),
+            "current": info.get("current"),
+            "expected": info.get("latest"),
+        }
+        (pending / "meta.json").write_text(
+            __import__("json").dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        updater.updater_log(data_dir, f"launcher preuzeo {meta['latest']}, pokrecem helper")
+        updater.spawn_apply_helper(app_dir, data_dir, Path(downloaded["zip_path"]))
+        print("Preuzeto. Helper ce primijeniti azuriranje kad se ovaj proces zatvori.")
+        return True
     except Exception as exc:
         print("Azuriranje nije uspjelo:", updater._safe_err(str(exc), token))
         updater.write_update_result(
@@ -248,8 +264,6 @@ def maybe_update(app_dir: Path, data_dir: Path, force: bool = False) -> bool:
             },
         )
         return False
-    print(result.get("message") or "Azurirano.")
-    return bool(result.get("applied"))
 
 
 def relaunch_self() -> int:
@@ -285,8 +299,23 @@ def apply_pending(app_dir: Path, data_dir: Path) -> bool:
         time.sleep(0.5)
     token = updater.github_token(data_dir=inbox.DATA_DIR)
     try:
-        backup = updater.apply_zip(zip_path, Path(app_dir), Path(app_dir).parent / "backup")
+        expected = None
+        if meta_path.is_file():
+            try:
+                import json as _json
+                expected = _json.loads(meta_path.read_text(encoding="utf-8")).get("latest")
+            except Exception:
+                expected = None
+        backup = updater.apply_zip(
+            zip_path,
+            Path(app_dir),
+            Path(app_dir).parent / "backup",
+            expected_version=expected,
+            data_dir=data_dir,
+        )
         ver = updater.load_version(app_dir).get("version")
+        if expected and ver and updater.parse_version(ver) != updater.parse_version(str(expected)):
+            raise RuntimeError(f"Verzija na disku je {ver}, očekivano {expected}.")
         notes = ""
         if meta_path.is_file():
             try:
@@ -337,14 +366,20 @@ def main(argv: list[str] | None = None) -> int:
         pass
     inbox.load_dotenv(APP_DIR / ".env")
     updater.write_default_update_config(data_dir)
+    try:
+        (data_dir / "launcher.pid").write_text(str(os.getpid()), encoding="utf-8")
+    except OSError:
+        pass
 
     if apply:
+        # Stari poziv; novi helper radi primjenu sam. Ostavi kao rezervu.
         apply_pending(APP_DIR, data_dir)
         no_update = True
 
     if not no_update:
         if maybe_update(APP_DIR, data_dir, force=force):
-            return relaunch_self()
+            # Helper je pokrenut i primijenit će update kad ovaj proces izađe.
+            return 0
 
     if url_ok(STUDIO_URL):
         print("Studio vec radi, otvaram prozor.")

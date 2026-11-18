@@ -991,7 +991,7 @@
         const lab = $("appVersionLabel");
         if (lab) lab.textContent = "v" + state.version;
       }
-      maybeShowUpdateToast(state.update);
+      maybeShowUpdateToast(state.update, state.version);
       return state;
     }
 
@@ -1006,9 +1006,14 @@
       }
     }
 
-    function maybeShowUpdateToast(upd) {
+    function maybeShowUpdateToast(upd, diskVersion) {
       if (!upd || upd.acked) return;
       if (upd.applied && upd.updated_to) {
+        if (diskVersion && diskVersion !== upd.updated_to) {
+          showToast("Prijava ažuriranja kaže " + upd.updated_to + ", ali na disku je " + diskVersion + ". Pokreni popravi_update.bat ili instaliraj.bat iz novog paketa.", true);
+          fetch("/api/update/ack", { method: "POST" }).catch(() => {});
+          return;
+        }
         let msg = "Ažurirano na verziju " + upd.updated_to;
         if (upd.changelog) msg += "\n" + upd.changelog;
         showToast(msg, false);
@@ -1017,6 +1022,46 @@
         showToast(upd.message || upd.error, true);
         fetch("/api/update/ack", { method: "POST" }).catch(() => {});
       }
+    }
+
+    async function waitForAppliedUpdate(expected) {
+      const start = Date.now();
+      let sawDown = false;
+      while (Date.now() - start < 90000) {
+        await new Promise((r) => setTimeout(r, 900));
+        try {
+          const r = await fetch("/api/state?_=" + Date.now(), { cache: "no-store" });
+          if (!r.ok) { sawDown = true; continue; }
+          const s = await r.json();
+          if (s.version) {
+            const lab = $("appVersionLabel");
+            if (lab) lab.textContent = "v" + s.version;
+          }
+          if (s.update && s.update.applied && s.update.updated_to) {
+            if (s.version && s.version !== s.update.updated_to) {
+              maybeShowUpdateToast(s.update, s.version);
+              return;
+            }
+            maybeShowUpdateToast(s.update, s.version);
+            return;
+          }
+          if (s.update && s.update.ok === false) {
+            maybeShowUpdateToast(s.update, s.version);
+            return;
+          }
+          if (sawDown && s.version && expected && s.version !== expected) {
+            showToast("Ažuriranje nije ostalo na disku. Verzija je i dalje " + s.version + ". Pokreni popravi_update.bat ili instaliraj.bat iz paketa 1.0.3.", true);
+            return;
+          }
+          if (sawDown && s.version && expected && s.version === expected) {
+            showToast("Ažurirano na verziju " + s.version);
+            return;
+          }
+        } catch (e) {
+          sawDown = true;
+        }
+      }
+      showToast("Ažuriranje se nije potvrdilo s diska. Pogledaj data\\logs\\updater.log ili pokreni instaliraj.bat iz novog ZIP-a.", true);
     }
 
     async function checkForUpdate(hintEl, applyIfNewer) {
@@ -1038,8 +1083,10 @@
             const a = await fetch("/api/update/apply", { method: "POST" });
             const ad = await a.json();
             if (hint) hint.textContent = ad.message || ad.error || "";
-            if (ad.restarting) showToast("Preuzeto. Aplikacija se restarta i instalira ažuriranje…");
-            else if (ad.error) showToast(ad.error, true);
+            if (ad.restarting) {
+              showToast("Paket je preuzet. Čekam potvrdu verzije s diska…");
+              waitForAppliedUpdate(ad.latest || d.latest);
+            } else if (ad.error) showToast(ad.error, true);
           }
         } else if (!d.configured) {
           showToast(d.message || "Update izvor nije podešen. Uredi data/update.json.", true);
