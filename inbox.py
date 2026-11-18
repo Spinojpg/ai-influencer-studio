@@ -322,6 +322,7 @@ def init_db() -> None:
                 "UPDATE settings SET value=? WHERE key='active_profile_id' AND (value='' OR value IS NULL)",
                 (str(pid),),
             )
+        _migrate_reference_images(conn)
         conn.commit()
         conn.close()
     export_profiles_json()
@@ -358,14 +359,69 @@ def _parse_json_list(raw) -> list:
     return data if isinstance(data, list) else []
 
 
+def _max_refs() -> int:
+    try:
+        from character import MAX_REFS
+        return int(MAX_REFS)
+    except Exception:
+        return 8
+
+
 def _norm_ref_entry(item) -> str:
+    parsed = _ref_item_from_raw(item)
+    return parsed["path"] if parsed else ""
+
+
+def _ref_item_from_raw(item) -> dict | None:
     if isinstance(item, dict):
-        return str(item.get("path") or item.get("rel") or item.get("file") or "").strip()
-    return str(item or "").strip()
+        path = str(item.get("path") or item.get("rel") or item.get("file") or "").strip()
+        path = path.replace("\\", "/").lstrip("/")
+        if not path:
+            return None
+        thumb = str(item.get("thumb") or item.get("square") or "").strip()
+        thumb = thumb.replace("\\", "/").lstrip("/")
+        enabled = item.get("enabled")
+        if enabled is None:
+            enabled = item.get("on")
+        if enabled is None:
+            enabled = True
+        return {"path": path, "thumb": thumb, "enabled": _bool_field(enabled, True)}
+    path = str(item or "").strip().replace("\\", "/").lstrip("/")
+    if not path:
+        return None
+    return {"path": path, "thumb": "", "enabled": True}
 
 
-def reference_list_from_row(row: sqlite3.Row | dict) -> list[str]:
-    """Lista relativnih putanja referentnih slika (do 3), uz stari stupac reference_image."""
+def _thumb_rel_for(rel: str) -> str:
+    rel = (rel or "").replace("\\", "/").lstrip("/")
+    if not rel:
+        return ""
+    path = Path(rel)
+    return str(path.with_name(path.stem + "_sq.jpg")).replace("\\", "/")
+
+
+def _dedupe_ref_items(items: list[dict], *, limit: int | None = None) -> list[dict]:
+    cap = _max_refs() if limit is None else int(limit)
+    out: list[dict] = []
+    seen: set[str] = set()
+    for item in items:
+        parsed = _ref_item_from_raw(item)
+        if not parsed:
+            continue
+        rel = parsed["path"]
+        if rel in seen:
+            continue
+        seen.add(rel)
+        if not parsed.get("thumb"):
+            parsed["thumb"] = _thumb_rel_for(rel)
+        out.append(parsed)
+        if len(out) >= cap:
+            break
+    return out
+
+
+def reference_items_from_row(row: sqlite3.Row | dict) -> list[dict]:
+    """Lista referentnih stavki (path, thumb, enabled), uključujući stari stupac reference_image."""
     if isinstance(row, sqlite3.Row):
         keys = set(row.keys())
         get = row.__getitem__
@@ -374,21 +430,20 @@ def reference_list_from_row(row: sqlite3.Row | dict) -> list[str]:
         get = row.get
     items = []
     if "reference_images" in keys:
-        items = [_norm_ref_entry(x) for x in _parse_json_list(get("reference_images"))]
+        items = [_ref_item_from_raw(x) for x in _parse_json_list(get("reference_images"))]
+        items = [x for x in items if x]
     legacy = ""
     if "reference_image" in keys:
         legacy = str(get("reference_image") or "").strip()
-    out: list[str] = []
-    seen: set[str] = set()
-    for rel in items + ([legacy] if legacy else []):
-        rel = rel.replace("\\", "/").lstrip("/")
-        if not rel or rel in seen:
-            continue
-        seen.add(rel)
-        out.append(rel)
-        if len(out) >= 3:
-            break
-    return out
+    if legacy:
+        items.append(_ref_item_from_raw(legacy))
+        items = [x for x in items if x]
+    return _dedupe_ref_items(items)
+
+
+def reference_list_from_row(row: sqlite3.Row | dict) -> list[str]:
+    """Lista relativnih putanja referentnih slika (do 8), uz stari stupac reference_image."""
+    return [it["path"] for it in reference_items_from_row(row)]
 
 
 def _float_field(raw, default: float) -> float:
@@ -417,7 +472,9 @@ def _row_profile(row: sqlite3.Row) -> dict:
     if not isinstance(examples, list):
         examples = []
     keys = set(row.keys())
-    refs = reference_list_from_row(row)
+    items = reference_items_from_row(row)
+    refs = [it["path"] for it in items]
+    enabled_n = sum(1 for it in items if it.get("enabled", True))
     return {
         "id": row["id"],
         "name": row["name"],
@@ -435,8 +492,10 @@ def _row_profile(row: sqlite3.Row) -> dict:
         "examples": examples,
         "reference_image": refs[0] if refs else (row["reference_image"] or ""),
         "reference_images": refs,
-        "has_reference": bool(refs),
+        "reference_items": items,
+        "has_reference": bool(enabled_n),
         "reference_count": len(refs),
+        "reference_enabled_count": enabled_n,
         "ipadapter_weight": _float_field(row["ipadapter_weight"] if "ipadapter_weight" in keys else 0.8, 0.8),
         "appearance_weight": _float_field(row["appearance_weight"] if "appearance_weight" in keys else 1.3, 1.3),
         "preferred_lora": (row["preferred_lora"] if "preferred_lora" in keys else "") or "",
@@ -611,23 +670,15 @@ def _safe_rel(rel: str) -> Path | None:
     return path
 
 
-def _write_reference_list(pid: int, rels: list[str]) -> list[str]:
-    clean = []
-    seen = set()
-    for rel in rels:
-        rel = (rel or "").replace("\\", "/").lstrip("/")
-        if not rel or rel in seen:
-            continue
-        seen.add(rel)
-        clean.append(rel)
-        if len(clean) >= 3:
-            break
-    first = clean[0] if clean else ""
+def _write_reference_items(pid: int, items: list) -> list[dict]:
+    clean = _dedupe_ref_items(items)
+    first = clean[0]["path"] if clean else ""
+    payload = [{"path": it["path"], "thumb": it.get("thumb") or "", "enabled": bool(it.get("enabled", True))} for it in clean]
     with _lock:
         conn = db()
         conn.execute(
             "UPDATE profiles SET reference_image=?, reference_images=?, updated_at=? WHERE id=?",
-            (first, json.dumps(clean, ensure_ascii=False), time.time(), int(pid)),
+            (first, json.dumps(payload, ensure_ascii=False), time.time(), int(pid)),
         )
         conn.commit()
         conn.close()
@@ -635,117 +686,326 @@ def _write_reference_list(pid: int, rels: list[str]) -> list[str]:
     return clean
 
 
+def _write_reference_list(pid: int, rels: list) -> list[str]:
+    """Spremi listu putanja ili stavki. Vrati putanje (stari API)."""
+    items = _dedupe_ref_items(rels)
+    # zadrži enabled/thumb ako je stigao kao dict
+    return [it["path"] for it in _write_reference_items(pid, items)]
+
+
+def _unlink_ref_files(*rels: str) -> None:
+    for rel in rels:
+        path = _safe_rel(rel or "")
+        if path and path.is_file():
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
+def _prepare_ref_thumb(data: bytes) -> bytes | None:
+    try:
+        from character import prepare_face_reference
+        thumb, _side = prepare_face_reference(data)
+        return thumb
+    except Exception:
+        return None
+
+
+def _write_thumb_file(rel: str, data: bytes) -> str:
+    thumb_rel = _thumb_rel_for(rel)
+    dest = DATA_DIR / thumb_rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(data)
+    return thumb_rel
+
+
+def _ensure_item_thumb(item: dict) -> dict:
+    """Ako kvadratna verzija ne postoji, napravi je iz originala (stari profili)."""
+    item = dict(item)
+    rel = item.get("path") or ""
+    thumb_rel = item.get("thumb") or _thumb_rel_for(rel)
+    thumb_path = _safe_rel(thumb_rel)
+    if thumb_path and thumb_path.is_file():
+        item["thumb"] = thumb_rel
+        return item
+    src = _safe_rel(rel)
+    if not src or not src.is_file():
+        item["thumb"] = thumb_rel
+        return item
+    try:
+        thumb = _prepare_ref_thumb(src.read_bytes())
+    except Exception:
+        thumb = None
+    if thumb:
+        try:
+            item["thumb"] = _write_thumb_file(rel, thumb)
+        except OSError:
+            item["thumb"] = thumb_rel
+    else:
+        item["thumb"] = thumb_rel
+    return item
+
+
+def _migrate_reference_images(conn: sqlite3.Connection) -> None:
+    """Pretvori stari popis putanja u stavke (path/thumb/enabled) i napravi kvadratne slike."""
+    try:
+        rows = conn.execute("SELECT id, reference_image, reference_images FROM profiles").fetchall()
+    except sqlite3.Error:
+        return
+    for row in rows:
+        items = reference_items_from_row(row)
+        upgraded = [_ensure_item_thumb(it) for it in items]
+        payload = [{"path": it["path"], "thumb": it.get("thumb") or "", "enabled": bool(it.get("enabled", True))} for it in upgraded]
+        first = payload[0]["path"] if payload else (row["reference_image"] or "")
+        # Upisuj i kad je lista prazna ako je stari JSON bio lista stringova — da format ostane objekti.
+        raw = row["reference_images"] if "reference_images" in row.keys() else "[]"
+        needs = False
+        parsed = _parse_json_list(raw)
+        if parsed and any(not isinstance(x, dict) for x in parsed):
+            needs = True
+        elif any(not (it.get("thumb") or "") or not (_safe_rel(it.get("thumb") or "") and _safe_rel(it.get("thumb") or "").is_file()) for it in upgraded if it.get("path")):
+            # ima original, a thumb nedostaje ili je tek izrađen
+            if upgraded:
+                needs = True
+        elif not parsed and (row["reference_image"] or "") and upgraded:
+            needs = True
+        if needs or (upgraded and parsed and isinstance(parsed[0], dict) and not (parsed[0].get("thumb") or "")):
+            conn.execute(
+                "UPDATE profiles SET reference_image=?, reference_images=?, updated_at=? WHERE id=?",
+                (first, json.dumps(payload, ensure_ascii=False), time.time(), int(row["id"])),
+            )
+
+
+def migrate_reference_images() -> int:
+    """Javni ulaz za migraciju (testovi). Vrati broj profila."""
+    with _lock:
+        conn = db()
+        rows = conn.execute("SELECT COUNT(*) FROM profiles").fetchone()[0]
+        _migrate_reference_images(conn)
+        conn.commit()
+        conn.close()
+    return int(rows or 0)
+
+
 def save_reference_image(pid: int, data: bytes, ext: str = "jpg") -> str:
-    """Stari API: dodaj sliku (ili zamijeni prvu ako je već 3)."""
+    """Stari API: dodaj sliku (ili javi grešku ako je već dosegnut maksimum)."""
     refs = add_reference_image(pid, data, ext)
     return refs[0] if isinstance(refs, list) and refs else ""
 
 
-def add_reference_image(pid: int, data: bytes, ext: str = "jpg") -> list[str]:
-    prof = get_profile(pid)
-    if not prof:
-        raise KeyError("Profil ne postoji.")
+def _normalize_ext(ext: str) -> str:
     ext = re.sub(r"[^a-z0-9]", "", (ext or "jpg").lower()) or "jpg"
     if ext == "jpeg":
         ext = "jpg"
     if ext not in {"jpg", "png", "webp"}:
         ext = "jpg"
-    current = list(prof.get("reference_images") or [])
-    if len(current) >= 3:
-        raise ValueError("Možeš spremiti najviše 3 referentne slike lica.")
+    return ext
+
+
+def _next_ref_name(used: set[str], ext: str) -> str:
+    idx = 1
+    while f"ref_{idx}.{ext}".lower() in used or f"ref_{idx}_sq.jpg".lower() in used:
+        idx += 1
+        if idx > 80:
+            break
+    return f"ref_{idx}.{ext}"
+
+
+def add_reference_image(pid: int, data: bytes, ext: str = "jpg") -> list[str]:
+    items = add_reference_images(pid, [(data, ext)])
+    return [it["path"] for it in items]
+
+
+def add_reference_images(pid: int, files: list[tuple[bytes, str]]) -> list[dict]:
+    """Dodaj jednu ili više slika. Svaka se čuva u originalu i kao kvadrat 512–640 px."""
+    prof = get_profile(pid)
+    if not prof:
+        raise KeyError("Profil ne postoji.")
+    current = list(prof.get("reference_items") or [])
+    if not current:
+        current = [{"path": r, "thumb": _thumb_rel_for(r), "enabled": True} for r in (prof.get("reference_images") or [])]
+    cap = _max_refs()
+    incoming = list(files or [])
+    if not incoming:
+        return current
+    if len(current) >= cap:
+        raise ValueError(f"Možeš spremiti najviše {cap} referentnih slika lica.")
     folder = DATA_DIR / "profiles" / str(int(pid))
     folder.mkdir(parents=True, exist_ok=True)
-    used = {Path(r).name.lower() for r in current}
-    idx = 1
-    while f"ref_{idx}.{ext}".lower() in used:
-        idx += 1
-        if idx > 40:
+    used = {Path(it["path"]).name.lower() for it in current if it.get("path")}
+    used.update({Path(it.get("thumb") or "").name.lower() for it in current if it.get("thumb")})
+    room = cap - len(current)
+    added = 0
+    for data, ext in incoming:
+        if added >= room:
             break
-    name = f"ref_{idx}.{ext}"
-    rel = f"profiles/{int(pid)}/{name}"
-    dest = DATA_DIR / rel
-    dest.write_bytes(data)
-    current.append(rel)
-    return _write_reference_list(pid, current)
+        if not data:
+            continue
+        ext = _normalize_ext(ext)
+        name = _next_ref_name(used, ext)
+        rel = f"profiles/{int(pid)}/{name}"
+        dest = DATA_DIR / rel
+        dest.write_bytes(data)
+        used.add(name.lower())
+        thumb_rel = ""
+        thumb = _prepare_ref_thumb(data)
+        if thumb:
+            thumb_rel = _write_thumb_file(rel, thumb)
+            used.add(Path(thumb_rel).name.lower())
+        current.append({"path": rel, "thumb": thumb_rel or _thumb_rel_for(rel), "enabled": True})
+        added += 1
+    written = _write_reference_items(pid, current)
+    if added == 0 and incoming:
+        raise ValueError("Nijedna slika nije spremljena.")
+    return written
 
 
 def delete_reference_image(pid: int, index: int | None = None, rel: str | None = None) -> list[str]:
     prof = get_profile(pid)
     if not prof:
         raise KeyError("Profil ne postoji.")
-    current = list(prof.get("reference_images") or [])
+    current = list(prof.get("reference_items") or [])
+    if not current:
+        current = [{"path": r, "thumb": _thumb_rel_for(r), "enabled": True} for r in (prof.get("reference_images") or [])]
     target = None
     if rel:
         rel = rel.replace("\\", "/").lstrip("/")
-        if rel in current:
-            target = rel
+        for it in current:
+            if it.get("path") == rel or it.get("thumb") == rel:
+                target = it
+                break
     elif index is not None:
         if index < 0 or index >= len(current):
             raise ValueError("Neispravan redni broj slike.")
         target = current[index]
     if not target:
         raise ValueError("Slika nije pronađena.")
-    current = [r for r in current if r != target]
-    path = _safe_rel(target)
-    if path and path.is_file():
-        try:
-            path.unlink()
-        except OSError:
-            pass
-    return _write_reference_list(pid, current)
+    current = [it for it in current if it.get("path") != target.get("path")]
+    _unlink_ref_files(target.get("path") or "", target.get("thumb") or "", _thumb_rel_for(target.get("path") or ""))
+    return [it["path"] for it in _write_reference_items(pid, current)]
 
 
 def reorder_reference_images(pid: int, order: list) -> list[str]:
+    items = update_reference_items(pid, order=order)
+    return [it["path"] for it in items]
+
+
+def set_reference_enabled(pid: int, index: int, enabled: bool) -> list[dict]:
+    return update_reference_items(pid, index=index, enabled=enabled)
+
+
+def update_reference_items(
+    pid: int,
+    *,
+    order: list | None = None,
+    enabled: list | bool | None = None,
+    index: int | None = None,
+    items: list | None = None,
+) -> list[dict]:
+    """Promijeni redoslijed i/ili uključenost referentnih slika."""
     prof = get_profile(pid)
     if not prof:
         raise KeyError("Profil ne postoji.")
-    current = list(prof.get("reference_images") or [])
+    current = list(prof.get("reference_items") or [])
+    if not current:
+        current = [{"path": r, "thumb": _thumb_rel_for(r), "enabled": True} for r in (prof.get("reference_images") or [])]
+    if items is not None:
+        new = _dedupe_ref_items(items)
+        # zadrži thumb s diska ako nije poslan
+        by_path = {it["path"]: it for it in current}
+        merged = []
+        for it in new:
+            old = by_path.get(it["path"])
+            if old and not it.get("thumb"):
+                it["thumb"] = old.get("thumb") or ""
+            merged.append(it)
+        for it in current:
+            if it["path"] not in {m["path"] for m in merged}:
+                merged.append(it)
+        return _write_reference_items(pid, merged)
     if not current:
         return []
-    new: list[str] = []
-    seen = set()
-    # order može biti lista indeksa ili putanja
-    for item in order or []:
-        if isinstance(item, int) or (isinstance(item, str) and item.isdigit()):
-            i = int(item)
-            if 0 <= i < len(current) and current[i] not in seen:
-                new.append(current[i])
-                seen.add(current[i])
-        else:
-            rel = str(item).replace("\\", "/").lstrip("/")
-            if rel in current and rel not in seen:
-                new.append(rel)
-                seen.add(rel)
-    for rel in current:
-        if rel not in seen:
-            new.append(rel)
-    return _write_reference_list(pid, new)
+    new: list[dict] = []
+    seen: set[str] = set()
+    if order:
+        for item in order:
+            if isinstance(item, int) or (isinstance(item, str) and item.isdigit()):
+                i = int(item)
+                if 0 <= i < len(current) and current[i]["path"] not in seen:
+                    new.append(current[i])
+                    seen.add(current[i]["path"])
+            else:
+                rel = str(item).replace("\\", "/").lstrip("/")
+                match = next((it for it in current if it["path"] == rel or it.get("thumb") == rel), None)
+                if match and match["path"] not in seen:
+                    new.append(match)
+                    seen.add(match["path"])
+        for it in current:
+            if it["path"] not in seen:
+                new.append(it)
+    else:
+        new = list(current)
+    if index is not None and not isinstance(enabled, list):
+        if index < 0 or index >= len(new):
+            raise ValueError("Neispravan redni broj slike.")
+        new[index] = dict(new[index])
+        new[index]["enabled"] = _bool_field(enabled, True)
+    elif isinstance(enabled, list):
+        for i, flag in enumerate(enabled):
+            if i < len(new):
+                new[i] = dict(new[i])
+                new[i]["enabled"] = _bool_field(flag, True)
+    return _write_reference_items(pid, new)
 
 
-def reference_image_path(pid: int, index: int = 0) -> Path | None:
+def reference_image_path(pid: int, index: int = 0, *, variant: str = "thumb") -> Path | None:
     prof = get_profile(pid)
     if not prof:
         return None
-    refs = list(prof.get("reference_images") or [])
-    if not refs and prof.get("reference_image"):
-        refs = [prof["reference_image"]]
-    if index < 0 or index >= len(refs):
+    items = list(prof.get("reference_items") or [])
+    if not items:
+        refs = list(prof.get("reference_images") or [])
+        if not refs and prof.get("reference_image"):
+            refs = [prof["reference_image"]]
+        items = [{"path": r, "thumb": _thumb_rel_for(r), "enabled": True} for r in refs]
+    if index < 0 or index >= len(items):
         return None
-    path = _safe_rel(refs[index])
-    if not path or not path.is_file():
-        return None
-    return path
+    item = items[index]
+    variant = (variant or "thumb").lower()
+    rels = []
+    if variant in {"orig", "original", "full"}:
+        rels = [item.get("path") or "", item.get("thumb") or ""]
+    else:
+        rels = [item.get("thumb") or "", item.get("path") or ""]
+    for rel in rels:
+        path = _safe_rel(rel)
+        if path and path.is_file():
+            return path
+    return None
 
 
-def reference_paths(pid: int) -> list[Path]:
+def reference_paths(pid: int, *, only_enabled: bool = True) -> list[Path]:
     prof = get_profile(pid)
     if not prof:
         return []
+    items = list(prof.get("reference_items") or [])
+    if not items:
+        items = [{"path": r, "thumb": _thumb_rel_for(r), "enabled": True} for r in (prof.get("reference_images") or [])]
     out: list[Path] = []
-    for i, _rel in enumerate(prof.get("reference_images") or []):
-        path = reference_image_path(pid, i)
+    for item in items:
+        if only_enabled and not item.get("enabled", True):
+            continue
+        path = None
+        for rel in (item.get("thumb"), item.get("path")):
+            cand = _safe_rel(rel or "")
+            if cand and cand.is_file():
+                path = cand
+                break
         if path:
             out.append(path)
+        if len(out) >= _max_refs():
+            break
     return out
 
 

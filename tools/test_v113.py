@@ -154,15 +154,21 @@ def test_bundle_download_local():
                 self.send_error(404)
                 return
             start = 0
+            end = len(data) - 1
             rng = self.headers.get("Range") or ""
             if rng.startswith("bytes="):
-                start = int(rng.split("=", 1)[1].split("-", 1)[0] or 0)
-            body = data[start:]
-            self.send_response(206 if start else 200)
+                spec = rng.split("=", 1)[1]
+                a, _, b = spec.partition("-")
+                start = int(a or 0)
+                if b:
+                    end = min(int(b), len(data) - 1)
+            body = data[start:end + 1]
+            self.send_response(206 if start or end < len(data) - 1 else 200)
+            self.send_header("Accept-Ranges", "bytes")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Content-Type", "application/octet-stream")
-            if start:
-                self.send_header("Content-Range", f"bytes {start}-{len(data)-1}/{len(data)}")
+            if start or end < len(data) - 1:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{len(data)}")
             self.end_headers()
             self.wfile.write(body)
 

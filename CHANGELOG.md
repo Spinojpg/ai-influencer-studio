@@ -1,5 +1,13 @@
 # Promjene
 
+## 1.0.18 — 2026-11-18
+- Referentne slike lica: sada do 8 po osobi (prije 3). Možeš odabrati više odjednom ili ih ispustiti u okvir, poredati, obrisati i uključiti/isključiti svaku.
+- Najbolje su 4-8 jasnih slika lica, različiti kutovi i svjetlo, bez naočala/filtera.
+- Pri spremanju Studio izreže kvadrat oko 512–640 px (sredina ili područje lica) i zadrži original, da štedi VRAM na 8 GB.
+- Više uključenih slika ide u IP-Adapter zajedno; preko 4 se ugniježđeni embedovi usrednjavaju da ne skoči potrošnja memorije.
+- Stari profili s 1–3 slike ostaju netaknuti i i dalje se koriste.
+- Preuzimanje modela je brže: paralelni rasponi (do 8 veza, dijelovi 32–64 MB), nastavak prekinutog preuzimanja, veći spremnik i prikaz brzine u MB/s. Ako poslužitelj ne podržava Range, ide jedna veza kao dosad. Provjera veličine i sha256 ostaje.
+
 ## 1.0.17 — 2026-11-18
 - Hitni ispravak: u 1.0.16 jedna greška u kodu sučelja (krivi navodnik kod gumba referentnih slika) zaustavila je cijelo sučelje, pa su Osoba i Influencer bili prazni, verzija je pisala „v…“, a status je zapeo na „Provjeravam…“.
 - Sučelje se opet normalno učitava, sa svim novostima iz 1.0.16 (referentne slike, IG formati, model i LoRA po osobi).

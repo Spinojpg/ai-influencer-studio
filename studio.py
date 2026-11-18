@@ -590,6 +590,16 @@ def clamp_float(value, lo, hi, default):
     return max(lo, min(hi, n))
 
 
+
+def _optional_int(value):
+    if value is None or value is False or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def plan_image_generation(
     body: dict,
     *,
@@ -1131,7 +1141,8 @@ class StudioHandler(BaseHTTPRequestHandler):
 
         m = re.fullmatch(r"/api/profiles/(\d+)/refs/(\d+)", path)
         if m:
-            self._serve_reference(int(m.group(1)), index=int(m.group(2)))
+            variant = (query.get("variant") or query.get("v") or ["thumb"])[0]
+            self._serve_reference(int(m.group(1)), index=int(m.group(2)), variant=variant)
             return
 
         m = re.fullmatch(r"/api/profiles/(\d+)/image", path)
@@ -1221,8 +1232,8 @@ class StudioHandler(BaseHTTPRequestHandler):
         else:
             self._send(403, payload.encode("utf-8"), "text/plain; charset=utf-8")
 
-    def _serve_reference(self, pid: int, index: int = 0) -> None:
-        path = inbox.reference_image_path(pid, index)
+    def _serve_reference(self, pid: int, index: int = 0, variant: str = "thumb") -> None:
+        path = inbox.reference_image_path(pid, index, variant=variant or "thumb")
         if not path:
             self._json(404, {"ok": False, "error": "Nema referentne slike."})
             return
@@ -1495,14 +1506,22 @@ class StudioHandler(BaseHTTPRequestHandler):
                 self._json(400, {"ok": False, "error": "Tijelo zahtjeva nije objekt."})
                 return
             try:
-                refs = inbox.reorder_reference_images(int(mref.group(1)), body.get("order") or body.get("refs") or [])
+                pid = int(mref.group(1))
+                items = inbox.update_reference_items(
+                    pid,
+                    order=body.get("order") or body.get("refs") or None,
+                    enabled=body.get("enabled") if "enabled" in body else body.get("flags"),
+                    index=_optional_int(body.get("index") if "index" in body else body.get("i")),
+                    items=body.get("items") if isinstance(body.get("items"), list) else None,
+                )
+                refs = [it["path"] for it in items]
             except KeyError as exc:
                 self._json(404, {"ok": False, "error": str(exc)})
                 return
             except ValueError as exc:
                 self._json(400, {"ok": False, "error": str(exc)})
                 return
-            self._json(200, {"ok": True, "profile": inbox.get_profile(int(mref.group(1))), "reference_images": refs})
+            self._json(200, {"ok": True, "profile": inbox.get_profile(pid), "reference_images": refs, "reference_items": items})
             return
         m = re.fullmatch(r"/api/profiles/(\d+)", parsed.path)
         if not m:
@@ -1584,46 +1603,82 @@ class StudioHandler(BaseHTTPRequestHandler):
         self._json(200, result)
 
     def _upload_reference(self, pid: int, body: dict) -> None:
-        b64 = body.get("image_b64") or body.get("image") or ""
-        if isinstance(b64, str) and b64.startswith("data:"):
+        def _one(entry, default_ext="jpg"):
+            if isinstance(entry, str):
+                b64, ext, header = entry, default_ext, ""
+            elif isinstance(entry, dict):
+                b64 = entry.get("image_b64") or entry.get("image") or ""
+                ext = (entry.get("ext") or default_ext).lstrip(".")
+                header = ""
+            else:
+                return None, None, "Neispravan zapis slike."
+            if isinstance(b64, str) and b64.startswith("data:"):
+                try:
+                    header, b64 = b64.split(",", 1)
+                except ValueError:
+                    return None, None, "Neispravan data-URL."
+                ext = "jpg"
+                if "png" in header:
+                    ext = "png"
+                elif "webp" in header:
+                    ext = "webp"
+            if not b64:
+                return None, None, "Nedostaje slika."
             try:
-                header, b64 = b64.split(",", 1)
-            except ValueError:
-                self._json(400, {"ok": False, "error": "Neispravan data-URL."})
+                data = base64.b64decode(b64, validate=False)
+            except Exception:
+                return None, None, "Slika nije valjani base64."
+            if len(data) < 20 or len(data) > 8_000_000:
+                return None, None, "Slika je prazna ili veća od 8 MB."
+            return data, ext, None
+
+        files = []
+        raw_list = body.get("images") or body.get("files") or body.get("refs")
+        if isinstance(raw_list, list) and raw_list and not isinstance(raw_list[0], (int, float)):
+            # lista slika; ignoriraj ako je to zapravo lista putanja (reorder)
+            looks_image = False
+            for item in raw_list:
+                if isinstance(item, dict) and (item.get("image") or item.get("image_b64")):
+                    looks_image = True
+                    break
+                if isinstance(item, str) and (item.startswith("data:") or len(item) > 200):
+                    looks_image = True
+                    break
+            if looks_image:
+                for item in raw_list:
+                    data, ext, err = _one(item, (body.get("ext") or "jpg").lstrip("."))
+                    if err:
+                        self._json(400, {"ok": False, "error": err})
+                        return
+                    files.append((data, ext))
+        if not files:
+            data, ext, err = _one(body, (body.get("ext") or "jpg").lstrip("."))
+            if err and not raw_list:
+                self._json(400, {"ok": False, "error": err})
                 return
-            ext = "jpg"
-            if "png" in header:
-                ext = "png"
-            elif "webp" in header:
-                ext = "webp"
-        else:
-            ext = (body.get("ext") or "jpg").lstrip(".")
-        if not b64:
+            if not err and data:
+                files.append((data, ext))
+        if not files:
             self._json(400, {"ok": False, "error": "Nedostaje slika."})
             return
         try:
-            data = base64.b64decode(b64, validate=False)
-        except Exception:
-            self._json(400, {"ok": False, "error": "Slika nije valjani base64."})
-            return
-        if len(data) < 20 or len(data) > 8_000_000:
-            self._json(400, {"ok": False, "error": "Slika je prazna ili veća od 8 MB."})
-            return
-        try:
-            refs = inbox.add_reference_image(pid, data, ext)
+            items = inbox.add_reference_images(pid, files)
         except KeyError as exc:
             self._json(404, {"ok": False, "error": str(exc)})
             return
         except ValueError as exc:
             self._json(400, {"ok": False, "error": str(exc)})
             return
+        refs = [it["path"] for it in items]
         idx = max(0, len(refs) - 1)
+        prof = inbox.get_profile(pid)
         self._json(200, {
             "ok": True,
             "reference_image": refs[0] if refs else "",
             "reference_images": refs,
+            "reference_items": (prof or {}).get("reference_items") or items,
             "url": f"/api/profiles/{pid}/refs/{idx}",
-            "profile": inbox.get_profile(pid),
+            "profile": prof,
         })
 
     def _draft_action(self, draft_id: int, action: str, body: dict) -> None:

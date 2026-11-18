@@ -176,7 +176,7 @@ def _run(kind: str) -> None:
                 error="",
                 message=(
                     "IP-Adapter je instaliran. Ponovo pokreni ComfyUI (zatvori Studio i upali prečac) "
-                    "da se čvor učita, zatim u profilu osobe dodaj 1–3 referentne slike lica."
+                    "da se čvor učita, zatim u profilu osobe dodaj 4–8 jasnih referentnih slika lica."
                 ),
             )
         else:

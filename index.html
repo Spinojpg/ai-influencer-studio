@@ -176,26 +176,39 @@
       border-radius: 999px;
       padding: 3px 8px;
     }
+    .ref-drop {
+      border: 1px dashed var(--line);
+      border-radius: 14px;
+      padding: 10px;
+      background: rgba(0,0,0,0.08);
+    }
+    .ref-drop.dragover {
+      border-color: var(--gold);
+      background: rgba(228,181,106,0.08);
+    }
     .ref-list {
-      display: flex; flex-wrap: wrap; gap: 10px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+      gap: 10px;
       margin: 8px 0;
     }
     .ref-slot {
-      width: 104px;
+      width: 100%;
       display: flex;
       flex-direction: column;
       gap: 6px;
       align-items: stretch;
     }
     .ref-slot img, .ref-slot .thumb-empty {
-      width: 104px; height: 104px;
+      width: 100%; height: 104px;
       border-radius: 12px;
       object-fit: cover;
       background: var(--bg2);
       border: 1px solid var(--line);
     }
-    .ref-slot .ref-actions { display: flex; gap: 4px; }
-    .ref-slot .ref-actions button { flex: 1; padding: 4px 0; font-size: 0.75rem; }
+    .ref-slot.off img { opacity: 0.4; filter: grayscale(0.35); }
+    .ref-slot .ref-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+    .ref-slot .ref-actions button { flex: 1; padding: 4px 0; font-size: 0.72rem; }
     .char-install { margin-top: 22px; padding-top: 8px; }
     .char-install .actions { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; }
     .range-row {
@@ -872,7 +885,7 @@
                 <input type="range" id="ipaWeight" min="0.6" max="1.0" step="0.05" value="0.8" />
                 <span class="range-val" id="ipaWeightVal">0.80</span>
               </div>
-              <div class="hint" id="ipaHint">IP-Adapter Plus Face primjenjuje 1–3 slike lica s profila osobe. Nije dostupno uz Krea 2. Ako paket ili čvor nedostaje, pojavi se gumb za instalaciju.</div>
+              <div class="hint" id="ipaHint">IP-Adapter Plus Face primjenjuje do 8 slika lica s profila osobe. Nije dostupno uz Krea 2. Ako paket ili čvor nedostaje, pojavi se gumb za instalaciju.</div>
               <div class="actions" id="ipaInstallRow" hidden style="margin-top:8px">
                 <button type="button" class="btn primary" id="installIpaAdv">Instaliraj IP-Adapter</button>
               </div>
@@ -1218,10 +1231,12 @@
             </div>
           </div>
           <div class="field">
-            <label class="lbl">Referentne slike lica (1–3, različiti kutovi)</label>
-            <div class="hint">Spremaju se uz osobu. Studio ih primjenjuje preko IP-Adapter Plus Face (bez InsightFace). Najbolje su jasni kadrovi lica odrasle osobe.</div>
+            <label class="lbl">Referentne slike lica (do 8)</label>
+            <div class="hint" id="pRefHint">Najbolje 4-8 jasnih slika lica, različiti kutovi i svjetlo, bez naočala/filtera.</div>
+            <div class="ref-drop" id="pRefDrop">
             <div class="ref-list" id="pRefList"></div>
-            <input type="file" id="pRef" accept="image/png,image/jpeg,image/webp" />
+            <input type="file" id="pRef" accept="image/png,image/jpeg,image/webp" multiple />
+            </div>
             <div class="range-row" style="margin-top:10px">
               <label class="lbl" for="pIpaWeight" style="margin:0;min-width:8em">Jačina reference</label>
               <input type="range" id="pIpaWeight" min="0.6" max="1.0" step="0.05" value="0.8" />
@@ -1412,10 +1427,36 @@
       return appearanceFromProfile(selectedPersona(), appearExtraEl ? appearExtraEl.value : "");
     }
 
+    function maxRefs() {
+      const n = Number((characterCaps() || {}).max_refs);
+      return (n >= 1 && n <= 24) ? n : 8;
+    }
+    function personaRefItems(prof) {
+      if (!prof) return [];
+      if (Array.isArray(prof.reference_items) && prof.reference_items.length) return prof.reference_items;
+      const refs = Array.isArray(prof.reference_images) ? prof.reference_images : [];
+      return refs.map((rel) => ({ path: rel, enabled: true }));
+    }
+    function personaRefTotal(prof) {
+      if (!prof) return 0;
+      if (typeof prof.reference_count === "number" && prof.reference_count >= 0) return prof.reference_count;
+      return personaRefItems(prof).length;
+    }
     function personaRefCount(prof) {
       if (!prof) return 0;
-      if (Array.isArray(prof.reference_images) && prof.reference_images.length) return prof.reference_images.length;
+      if (typeof prof.reference_enabled_count === "number") return prof.reference_enabled_count;
+      const items = personaRefItems(prof);
+      if (items.length) return items.filter((x) => x && x.enabled !== false).length;
       return prof.has_reference ? 1 : 0;
+    }
+    function refCountLabel(total, enabled) {
+      const n = Number(total) || 0;
+      let word;
+      if (n === 1) word = "1 referentna slika";
+      else if (n >= 2 && n <= 4) word = n + " referentne slike";
+      else word = n + " referentnih slika";
+      if (enabled != null && enabled < n) word += " (" + enabled + " uklj.)";
+      return word;
     }
 
     function updateAppearanceSummary() {
@@ -1436,8 +1477,9 @@
       }
       if (meta) {
         const chips = [];
-        const nref = personaRefCount(prof);
-        if (nref) chips.push(nref === 1 ? "1 referentna slika" : nref + " referentne slike");
+        const nref = personaRefTotal(prof);
+        const nOn = personaRefCount(prof);
+        if (nref) chips.push(refCountLabel(nref, nOn));
         const modelName = (prof && prof.preferred_model) ? shortModelName(prof.preferred_model) : (shortModelName(modelEl && modelEl.value) || "");
         if (modelName) chips.push(modelName);
         const loraName = (prof && prof.preferred_lora) || (loraEl && loraEl.value) || "";
@@ -2679,12 +2721,12 @@
     function renderProfileRefs(p) {
       const box = $("pRefList");
       if (!box) return;
-      const refs = (p && p.reference_images) || [];
+      const items = personaRefItems(p);
       const pid = p && p.id;
-      if (!refs.length) {
+      if (!items.length) {
         box.innerHTML = pendingRefs.length
           ? pendingRefs.map((f, i) => '<div class="ref-slot"><div class="thumb-empty" data-pending="' + i + '"></div><div class="hint">' + escapeHtml(f.name || "slika") + "</div></div>").join("")
-          : '<div class="hint">Još nema slika. Dodaj do 3 kadra lica.</div>';
+          : '<div class="hint">Još nema slika. Dodaj do ' + maxRefs() + " kadrova lica, ili ih ispusti ovdje.</div>";
         pendingRefs.forEach((f, i) => {
           const el = box.querySelector('[data-pending="' + i + '"]');
           if (!el || !f) return;
@@ -2696,13 +2738,15 @@
         });
         return;
       }
-      box.innerHTML = refs.map((rel, i) => {
+      box.innerHTML = items.map((item, i) => {
+        const on = !item || item.enabled !== false;
         const src = "/api/profiles/" + pid + "/refs/" + i + "?t=" + Date.now();
-        return '<div class="ref-slot" data-i="' + i + '">'
+        return '<div class="ref-slot' + (on ? "" : " off") + '" data-i="' + i + '">'
           + '<img src="' + src + '" alt="Referenca ' + (i + 1) + '" />'
           + '<div class="ref-actions">'
           + '<button type="button" class="btn" data-ref-act="up" data-i="' + i + '"' + (i === 0 ? " disabled" : "") + '>↑</button>'
-          + '<button type="button" class="btn" data-ref-act="down" data-i="' + i + '"' + (i === refs.length - 1 ? " disabled" : "") + '>↓</button>'
+          + '<button type="button" class="btn" data-ref-act="down" data-i="' + i + '"' + (i === items.length - 1 ? " disabled" : "") + '>↓</button>'
+          + '<button type="button" class="btn" data-ref-act="toggle" data-i="' + i + '">' + (on ? "Isključi" : "Uključi") + "</button>"
           + '<button type="button" class="btn danger" data-ref-act="del" data-i="' + i + '">×</button>'
           + "</div></div>";
       }).join("");
@@ -2804,22 +2848,15 @@
         const d = await r.json();
         if (!r.ok || !d.ok) { showErr($("pErr"), d.error || "Spremanje nije uspjelo."); return; }
         const queued = pendingRefs.slice();
-        const picked = $("pRef") && $("pRef").files && $("pRef").files[0] ? [$("pRef").files[0]] : [];
+        const picked = collectPickedRefFiles();
         const files = queued.concat(picked);
         pendingRefs = [];
-        for (const file of files) {
-          const b64 = await new Promise((resolve, reject) => {
-            const fr = new FileReader();
-            fr.onload = () => resolve(fr.result);
-            fr.onerror = reject;
-            fr.readAsDataURL(file);
-          });
-          const up = await fetch("/api/profiles/" + d.profile.id + "/refs", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ image: b64 })
-          });
-          const ud = await up.json();
-          if (!up.ok || !ud.ok) { showErr($("pErr"), ud.error || "Slika nije spremljena, profil jest."); break; }
+        if (files.length) {
+          try {
+            await uploadProfileRefs(d.profile.id, files);
+          } catch (upErr) {
+            showErr($("pErr"), String(upErr.message || upErr) || "Slika nije spremljena, profil jest.");
+          }
         }
         if ($("pRef")) $("pRef").value = "";
         await loadState();
@@ -2859,9 +2896,9 @@
         if (hasRefs && (ipa.nodes === false || (ipa.files && !ipa.files.ready && !ipa.files.ready_sdxl && !ipa.files.ready_sd15))) {
           $("ipaHint").textContent = ipa.message || "Za referentne slike treba instalirati IP-Adapter (čvor + paket modela).";
         } else if (hasRefs) {
-          $("ipaHint").textContent = "Referentne slike s profila ići će u generaciju (Plus Face). Zadana jačina je 0,8. Nije dostupno uz Krea 2.";
+          $("ipaHint").textContent = "Uključene referentne slike s profila ići će u generaciju (Plus Face, do 8). Zadana jačina je 0,8. Nije dostupno uz Krea 2.";
         } else {
-          $("ipaHint").textContent = "Dodaj 1–3 slike lica u kartici Influenceri. Zatim se ovdje podešava jačina (0,6–1,0).";
+          $("ipaHint").textContent = "Dodaj 4-8 slika lica u kartici Influenceri. Zatim se ovdje podešava jačina (0,6–1,0).";
         }
       }
       const faceReady = !!(face.ready || (face.nodes !== false && face.model));
@@ -2948,33 +2985,58 @@
       });
     }
 
-    async function uploadProfileRef(pid, file) {
-      const b64 = await fileToDataUrl(file);
+    function isRefImageFile(file) {
+      if (!file) return false;
+      const typ = String(file.type || "").toLowerCase();
+      if (typ.indexOf("image/") === 0) return true;
+      return /\.(png|jpe?g|webp)$/i.test(file.name || "");
+    }
+
+    function collectPickedRefFiles() {
+      const input = $("pRef");
+      if (!input || !input.files || !input.files.length) return [];
+      return Array.from(input.files).filter(isRefImageFile);
+    }
+
+    async function uploadProfileRefs(pid, fileList) {
+      const files = Array.from(fileList || []).filter(isRefImageFile);
+      if (!files.length) return null;
+      const images = [];
+      for (const file of files) {
+        images.push({ image: await fileToDataUrl(file) });
+      }
       const r = await fetch("/api/profiles/" + pid + "/refs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: b64 })
+        body: JSON.stringify(files.length === 1 ? images[0] : { images: images })
       });
       const d = await r.json();
       if (!r.ok || !d.ok) throw new Error(d.error || "Slika nije spremljena.");
       return d;
     }
 
-    if ($("pRef")) $("pRef").addEventListener("change", async () => {
-      const file = $("pRef").files && $("pRef").files[0];
-      if (!file) return;
+    async function takeRefFiles(fileList) {
+      const files = Array.from(fileList || []).filter(isRefImageFile);
+      if (!files.length) return;
       const pid = $("pId").value;
       const current = (state.profiles || []).find((x) => String(x.id) === String(pid));
-      const have = current ? personaRefCount(current) : pendingRefs.length;
-      if (have >= 3) {
-        showErr($("pErr"), "Možeš spremiti najviše 3 referentne slike lica.");
-        $("pRef").value = "";
+      const have = current ? personaRefTotal(current) : pendingRefs.length;
+      const room = maxRefs() - have;
+      if (room <= 0) {
+        showErr($("pErr"), "Možeš spremiti najviše " + maxRefs() + " referentnih slika lica.");
+        if ($("pRef")) $("pRef").value = "";
         return;
+      }
+      const take = files.slice(0, room);
+      if (files.length > room) {
+        showErr($("pErr"), "Dodano je " + take.length + " slika, ostale prelaze limit od " + maxRefs() + ".");
+      } else if ($("pErr") && $("pErr").textContent && $("pErr").textContent.indexOf("limit") < 0) {
+        showErr($("pErr"), "");
       }
       if (pid) {
         try {
-          await uploadProfileRef(pid, file);
-          $("pRef").value = "";
+          await uploadProfileRefs(pid, take);
+          if ($("pRef")) $("pRef").value = "";
           await loadState();
           fillProfileForm(Number(pid));
         } catch (err) {
@@ -2982,10 +3044,34 @@
         }
         return;
       }
-      pendingRefs.push(file);
-      $("pRef").value = "";
+      pendingRefs = pendingRefs.concat(take);
+      if ($("pRef")) $("pRef").value = "";
       renderProfileRefs(null);
+    }
+
+    if ($("pRef")) $("pRef").addEventListener("change", async () => {
+      const files = collectPickedRefFiles();
+      if (!files.length) return;
+      await takeRefFiles(files);
     });
+
+    (function bindRefDrop() {
+      const zone = $("pRefDrop") || $("pRefList");
+      if (!zone) return;
+      zone.addEventListener("dragenter", (e) => { e.preventDefault(); e.stopPropagation(); zone.classList.add("dragover"); });
+      zone.addEventListener("dragover", (e) => { e.preventDefault(); e.stopPropagation(); zone.classList.add("dragover"); });
+      zone.addEventListener("dragleave", (e) => {
+        e.preventDefault();
+        if (!zone.contains(e.relatedTarget)) zone.classList.remove("dragover");
+      });
+      zone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        zone.classList.remove("dragover");
+        const files = e.dataTransfer && e.dataTransfer.files;
+        if (files && files.length) takeRefFiles(files);
+      });
+    })();
 
     if ($("pRefList")) $("pRefList").addEventListener("click", async (e) => {
       const b = e.target.closest("[data-ref-act]");
@@ -2995,15 +3081,24 @@
       const i = Number(b.dataset.i);
       const act = b.dataset.refAct;
       const p = (state.profiles || []).find((x) => String(x.id) === String(pid));
-      const refs = (p && p.reference_images) || [];
+      const items = personaRefItems(p);
       try {
         if (act === "del") {
           if (!confirm("Obrisati ovu referentnu sliku?")) return;
           const r = await fetch("/api/profiles/" + pid + "/refs/" + i, { method: "DELETE" });
           const d = await r.json();
           if (!r.ok || !d.ok) throw new Error(d.error || "Brisanje nije uspjelo.");
+        } else if (act === "toggle") {
+          const on = !(items[i] && items[i].enabled === false);
+          const r = await fetch("/api/profiles/" + pid + "/refs", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ index: i, enabled: !on })
+          });
+          const d = await r.json();
+          if (!r.ok || !d.ok) throw new Error(d.error || "Uključivanje nije spremljeno.");
         } else {
-          const order = refs.map((_, idx) => idx);
+          const order = items.map((_, idx) => idx);
           const j = act === "up" ? i - 1 : i + 1;
           if (j < 0 || j >= order.length) return;
           const tmp = order[i]; order[i] = order[j]; order[j] = tmp;

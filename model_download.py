@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Preuzimanje checkpointa (stream + resume) u ComfyUI models/checkpoints."""
+"""Preuzimanje checkpointa (paralelni Range ili jedna veza, stream + resume)."""
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import threading
@@ -11,6 +13,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from comfy_launch import (
@@ -192,7 +195,7 @@ def curated_by_id(cid: str) -> dict | None:
     cid = (cid or "").strip()
     return next((c for c in CURATED if c["id"] == cid), None)
 
-_UA = "AI-Influencer-Studio/1.0.2"
+_UA = "AI-Influencer-Studio/1.0.18"
 _lock = threading.RLock()
 _state: dict = {
     "status": "idle",  # idle|running|done|error
@@ -205,6 +208,9 @@ _state: dict = {
     "error": "",
     "path": "",
     "resumed": False,
+    "speed": 0,
+    "speed_label": "",
+    "connections": 0,
 }
 _thread: threading.Thread | None = None
 _cancel = threading.Event()
@@ -269,6 +275,7 @@ def curated_files(item: dict) -> list[dict]:
             "url": item["url"],
             "kind": item.get("kind") or "checkpoint",
             "size_bytes": item.get("size_bytes") or 0,
+            "sha256": (item.get("sha256") or item.get("sha") or "").strip(),
         }]
     return []
 
@@ -294,7 +301,7 @@ def start_bundle(files: list[dict], label: str = "paket") -> dict:
         dest = dest_dir_for(f.get("kind")) / name
         size = int(f.get("size_bytes") or 0)
         total += size
-        jobs.append({"url": url, "dest": dest, "size": size, "filename": name, "kind": f.get("kind") or ""})
+        jobs.append({"url": url, "dest": dest, "size": size, "sha256": (f.get("sha256") or f.get("sha") or "").strip(), "filename": name, "kind": f.get("kind") or ""})
     if not jobs:
         raise ValueError("Paket nema datoteka za preuzimanje.")
     with _lock:
@@ -313,6 +320,9 @@ def start_bundle(files: list[dict], label: str = "paket") -> dict:
             error="",
             path=str(first["dest"]),
             resumed=False,
+            speed=0,
+            speed_label="",
+            connections=0,
             bundle=label,
             file_index=1,
             file_count=len(jobs),
@@ -343,6 +353,9 @@ def start_download(url: str, filename: str | None = None, dest_dir: Path | None 
             error="",
             path=str(dest_dir / name),
             resumed=False,
+            speed=0,
+            speed_label="",
+            connections=0,
         )
     t = threading.Thread(target=_run, args=(url, dest_dir / name), name="model-dl", daemon=True)
     _thread = t
@@ -351,78 +364,27 @@ def start_download(url: str, filename: str | None = None, dest_dir: Path | None 
 
 
 def _run(url: str, dest: Path) -> None:
-    tmp = dest.with_suffix(dest.suffix + ".part")
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    existing = tmp.stat().st_size if tmp.is_file() else 0
-    headers = {"User-Agent": _UA}
-    if existing > 0:
-        headers["Range"] = f"bytes={existing}-"
-        _set(resumed=True, bytes=existing, message="Nastavljam preuzimanje…")
-    req = urllib.request.Request(url, headers=headers, method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            status = getattr(resp, "status", 200) or 200
-            length = resp.headers.get("Content-Length")
-            if status == 206 and length is not None:
-                total = existing + int(length)
-                mode = "ab"
-                started = existing
-            elif status == 200:
-                total = int(length) if length is not None else 0
-                mode = "wb"
-                started = 0
-                if existing:
-                    # Poslužitelj je ignorirao Range — kreni ispočetka.
-                    existing = 0
-                    _set(resumed=False)
-            else:
-                raise RuntimeError(f"HTTP {status} pri preuzimanju.")
-            _set(total=total, bytes=started)
-            written = started
-            last_t = time.time()
-            with tmp.open(mode) as out:
-                while not _cancel.is_set():
-                    chunk = resp.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    out.write(chunk)
-                    written += len(chunk)
-                    now = time.time()
-                    if now - last_t >= 0.25 or written == total:
-                        pct = int(written * 100 / total) if total else 0
-                        _set(
-                            bytes=written,
-                            total=total,
-                            percent=min(100, pct),
-                            message=f"Preuzeto {_fmt(written)}"
-                            + (f" / {_fmt(total)}" if total else "")
-                            + (f" ({pct} %)" if total else ""),
-                        )
-                        last_t = now
-            if _cancel.is_set():
-                _set(status="error", error="Preuzimanje je prekinuto.", message="Prekinuto.")
-                return
-            if total and written < total:
-                _set(
-                    status="error",
-                    error=f"Datoteka je nepotpuna ({written} / {total} bajtova).",
-                    message="Preuzimanje nije dovršeno.",
-                    bytes=written,
-                )
-                return
-            tmp.replace(dest)
-            _set(
-                status="done",
-                bytes=written,
-                total=total or written,
-                percent=100,
-                path=str(dest),
-                message=f"Spremljeno: {dest.name}",
-                error="",
-            )
+        written, resumed, total = _download_one(url, dest)
+        if _cancel.is_set():
+            _set(status="error", error="Preuzimanje je prekinuto.", message="Prekinuto.", speed=0, speed_label="")
+            return
+        if _state.get("status") == "error":
+            return
+        _set(
+            status="done",
+            bytes=written,
+            total=total or written,
+            percent=100,
+            path=str(dest),
+            resumed=resumed,
+            speed=0,
+            speed_label="",
+            message=f"Spremljeno: {dest.name}",
+            error="",
+        )
     except Exception as exc:
-        _set(status="error", error=str(exc)[:500], message="Preuzimanje nije uspjelo.")
-
+        _set(status="error", error=str(exc)[:500], message="Preuzimanje nije uspjelo.", speed=0, speed_label="")
 
 
 def _run_bundle(jobs: list[dict], label: str, grand_total: int) -> None:
@@ -462,6 +424,8 @@ def _run_bundle(jobs: list[dict], label: str, grand_total: int) -> None:
                 already_bytes=already,
                 grand_total=grand_total,
                 label=f"{i+1}/{n}",
+                expected_size=expected,
+                expected_sha=job.get("sha256") or "",
             )
             any_resume = any_resume or resumed
             if _cancel.is_set():
@@ -487,29 +451,389 @@ def _run_bundle(jobs: list[dict], label: str, grand_total: int) -> None:
         _set(status="error", error=str(exc)[:500], message="Preuzimanje paketa nije uspjelo.")
 
 
-def _download_one(url: str, dest: Path, *, already_bytes: int = 0, grand_total: int = 0, label: str = "") -> tuple[int, bool, int]:
-    """Preuzmi jednu datoteku s resume. Vraća (bytes_written, resumed, file_total). Ne postavlja done."""
-    tmp = dest.with_suffix(dest.suffix + ".part")
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    existing = tmp.stat().st_size if tmp.is_file() else 0
-    headers = {"User-Agent": _UA}
-    resumed = False
-    if existing > 0:
-        headers["Range"] = f"bytes={existing}-"
-        resumed = True
-        _set(resumed=True, message="Nastavljam preuzimanje…" + (f" ({label})" if label else ""))
+PARALLEL_CONNECTIONS = 8
+CHUNK_SIZE = 32 * 1024 * 1024
+CHUNK_SIZE_LARGE = 64 * 1024 * 1024
+LARGE_FILE = 4 * 1024 * 1024 * 1024
+READ_BUFFER = 8 * 1024 * 1024
+PROBE_TIMEOUT = 30
+FETCH_TIMEOUT = 60
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        n = int(raw)
+        return n if n > 0 else default
+    except ValueError:
+        return default
+
+
+def _chunk_size_for(total: int) -> int:
+    override = _env_int("STUDIO_DL_CHUNK", 0)
+    if override:
+        return override
+    if total >= LARGE_FILE:
+        return CHUNK_SIZE_LARGE
+    return CHUNK_SIZE
+
+
+def _connection_count(total: int, chunk_size: int) -> int:
+    override = _env_int("STUDIO_DL_CONNECTIONS", 0)
+    n = override or PARALLEL_CONNECTIONS
+    chunks = max(1, (total + chunk_size - 1) // chunk_size)
+    return max(1, min(n, chunks))
+
+
+def _request(url: str, headers: dict, timeout: int = FETCH_TIMEOUT):
     req = urllib.request.Request(url, headers=headers, method="GET")
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def _base_headers(extra: dict | None = None) -> dict:
+    headers = {"User-Agent": _UA, "Accept-Encoding": "identity"}
+    if extra:
+        headers.update(extra)
+    return headers
+
+
+def _parse_content_range(value: str | None) -> tuple[int, int, int] | None:
+    if not value:
+        return None
+    # bytes start-end/total
+    text = value.strip()
+    if not text.lower().startswith("bytes"):
+        return None
+    text = text[5:].strip()
+    if "/" not in text:
+        return None
+    span, total_s = text.split("/", 1)
+    try:
+        total = int(total_s) if total_s != "*" else 0
+    except ValueError:
+        total = 0
+    if "-" not in span:
+        return None
+    a, b = span.split("-", 1)
+    try:
+        start, end = int(a), int(b)
+    except ValueError:
+        return None
+    return start, end, total
+
+
+def probe_download(url: str) -> dict:
+    """Otkrij konačni URL (nakon HF/CDN preusmjeravanja), veličinu i podršku za Range."""
+    info = {"url": url, "final_url": url, "total": 0, "accept_ranges": False, "etag": ""}
+    # 1) HEAD
+    try:
+        req = urllib.request.Request(url, headers=_base_headers(), method="HEAD")
+        with urllib.request.urlopen(req, timeout=PROBE_TIMEOUT) as resp:
+            info["final_url"] = resp.geturl() or url
+            info["etag"] = (resp.headers.get("ETag") or "").strip()
+            ar = (resp.headers.get("Accept-Ranges") or "").lower()
+            length = resp.headers.get("Content-Length")
+            if length and str(length).isdigit():
+                info["total"] = int(length)
+            if "bytes" in ar:
+                info["accept_ranges"] = True
+            status = getattr(resp, "status", 200) or 200
+            if status >= 400:
+                raise RuntimeError(f"HTTP {status}")
+    except Exception:
+        pass
+    # 2) Range 0-0 — pouzdanije na Hugging Face / CDN
+    try:
+        with _request(info["final_url"] or url, _base_headers({"Range": "bytes=0-0"}), timeout=PROBE_TIMEOUT) as resp:
+            info["final_url"] = resp.geturl() or info["final_url"] or url
+            info["etag"] = info["etag"] or (resp.headers.get("ETag") or "").strip()
+            status = getattr(resp, "status", 200) or 200
+            cr = _parse_content_range(resp.headers.get("Content-Range"))
+            ar = (resp.headers.get("Accept-Ranges") or "").lower()
+            if status == 206 or cr:
+                info["accept_ranges"] = True
+                if cr and cr[2]:
+                    info["total"] = cr[2]
+            elif "bytes" in ar:
+                info["accept_ranges"] = True
+            if not info["total"]:
+                length = resp.headers.get("Content-Length")
+                if status == 206 and cr and cr[2]:
+                    info["total"] = cr[2]
+                elif length and str(length).isdigit() and status == 200:
+                    # Server je možda vratio cijelu datoteku na 0-0; ne vjeruj Content-Length=1
+                    n = int(length)
+                    if n > 1:
+                        info["total"] = n
+            # potroši tijelo (1 bajt ili, u najgorem slučaju, više)
+            try:
+                resp.read(READ_BUFFER)
+            except Exception:
+                pass
+    except Exception:
+        if info["final_url"] != url:
+            # već imamo nešto iz HEAD
+            return info
+    return info
+
+
+def _map_path(tmp: Path) -> Path:
+    return Path(str(tmp) + ".map")
+
+
+def _load_chunk_map(tmp: Path) -> dict:
+    path = _map_path(tmp)
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_chunk_map(tmp: Path, data: dict) -> None:
+    path = _map_path(tmp)
+    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    path.write_text(payload, encoding="utf-8")
+
+
+def _clear_chunk_map(tmp: Path) -> None:
+    path = _map_path(tmp)
+    try:
+        if path.is_file():
+            path.unlink()
+    except OSError:
+        pass
+
+
+def _done_bytes(ranges: list) -> int:
+    total = 0
+    for item in ranges or []:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            continue
+        a, b = int(item[0]), int(item[1])
+        if b >= a:
+            total += b - a + 1
+    return total
+
+
+def _merge_ranges(ranges: list) -> list[list[int]]:
+    items = sorted(
+        ([int(a), int(b)] for a, b in (r for r in ranges if isinstance(r, (list, tuple)) and len(r) == 2)),
+        key=lambda x: x[0],
+    )
+    out: list[list[int]] = []
+    for a, b in items:
+        if b < a:
+            continue
+        if not out or a > out[-1][1] + 1:
+            out.append([a, b])
+        else:
+            out[-1][1] = max(out[-1][1], b)
+    return out
+
+
+def _missing_ranges(total: int, done: list, chunk_size: int) -> list[tuple[int, int]]:
+    covered = _merge_ranges(done)
+    missing: list[tuple[int, int]] = []
+    pos = 0
+    idx = 0
+    while pos < total:
+        if idx < len(covered) and covered[idx][1] < pos:
+            idx += 1
+            continue
+        if idx < len(covered) and covered[idx][0] <= pos <= covered[idx][1]:
+            pos = covered[idx][1] + 1
+            idx += 1
+            continue
+        end_limit = total - 1
+        if idx < len(covered) and covered[idx][0] > pos:
+            end_limit = covered[idx][0] - 1
+        end = min(pos + chunk_size - 1, end_limit)
+        missing.append((pos, end))
+        pos = end + 1
+    return missing
+
+
+def _fmt_speed(bps: float) -> str:
+    if bps >= 1024 ** 2:
+        return f"{bps / 1024**2:.1f} MB/s"
+    if bps >= 1024:
+        return f"{bps / 1024:.0f} KB/s"
+    if bps > 0:
+        return f"{bps:.0f} B/s"
+    return "0 B/s"
+
+
+def _progress_message(written: int, total: int, speed: float, label: str = "", extra: str = "") -> str:
+    pct = int(written * 100 / total) if total else 0
+    msg = "Preuzeto " + _fmt(written)
+    if total:
+        msg += f" / {_fmt(total)} ({pct} %)"
+    if speed > 0:
+        msg += f" · {_fmt_speed(speed)}"
+    if extra:
+        msg += f" · {extra}"
+    if label:
+        msg += f" · {label}"
+    return msg
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        while True:
+            chunk = fh.read(READ_BUFFER)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _verify_download(path: Path, expected_size: int = 0, expected_sha: str = "") -> None:
+    size = path.stat().st_size
+    if expected_size and size != int(expected_size):
+        raise RuntimeError(f"Veličina datoteke ne odgovara ({size} / {expected_size} bajtova).")
+    if expected_sha:
+        got = _sha256_file(path)
+        want = expected_sha.strip().lower().removeprefix("sha256:")
+        if got != want:
+            raise RuntimeError("sha256 potpis se ne podudara.")
+
+
+def _preallocate(tmp: Path, total: int) -> None:
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+    with tmp.open("ab+") as fh:
+        current = fh.seek(0, os.SEEK_END)
+        if current < total:
+            fh.truncate(total)
+        elif current > total:
+            fh.truncate(total)
+
+
+def _download_one(
+    url: str,
+    dest: Path,
+    *,
+    already_bytes: int = 0,
+    grand_total: int = 0,
+    label: str = "",
+    expected_size: int = 0,
+    expected_sha: str = "",
+    connections: int | None = None,
+    chunk_size: int | None = None,
+) -> tuple[int, bool, int]:
+    """Preuzmi jednu datoteku (paralelni Range ili jedna veza, s nastavkom).
+
+    Vraća (veličina datoteke, resumed, file_total). Ne postavlja status=done.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    probe = probe_download(url)
+    final_url = probe.get("final_url") or url
+    file_total = int(probe.get("total") or expected_size or 0)
+    accept = bool(probe.get("accept_ranges"))
+    use_chunk = int(chunk_size) if chunk_size else _chunk_size_for(file_total or expected_size or 0)
+    can_parallel = bool(accept and file_total and file_total > use_chunk)
+    if connections is not None:
+        can_parallel = bool(accept and file_total and file_total > 0 and max(1, connections) > 1 and file_total > use_chunk)
+    # Ako je datoteka veća od jednog dijela, paralelno; inače jedna veza.
+    if can_parallel:
+        try:
+            return _download_parallel(
+                url,
+                final_url,
+                dest,
+                tmp,
+                file_total,
+                already_bytes=already_bytes,
+                grand_total=grand_total,
+                label=label,
+                expected_size=expected_size,
+                expected_sha=expected_sha,
+                connections=connections,
+                chunk_size=use_chunk,
+                etag=probe.get("etag") or "",
+            )
+        except _FallbackSingle as exc:
+            _set(message="Poslužitelj ne podržava paralelni Range, prelazim na jednu vezu…" + (f" ({label})" if label else ""))
+            # ako je fallback svjestan razloga, nastavi jednom vezom
+            _ = exc
+    return _download_single(
+        url,
+        final_url,
+        dest,
+        tmp,
+        already_bytes=already_bytes,
+        grand_total=grand_total,
+        label=label,
+        expected_size=expected_size or file_total,
+        expected_sha=expected_sha,
+        known_total=file_total,
+    )
+
+
+class _FallbackSingle(Exception):
+    """Signal da paralelni način nije moguć i treba jedna veza."""
+
+
+def _download_single(
+    url: str,
+    final_url: str,
+    dest: Path,
+    tmp: Path,
+    *,
+    already_bytes: int = 0,
+    grand_total: int = 0,
+    label: str = "",
+    expected_size: int = 0,
+    expected_sha: str = "",
+    known_total: int = 0,
+) -> tuple[int, bool, int]:
+    _clear_chunk_map(tmp)
+    existing = tmp.stat().st_size if tmp.is_file() else 0
+    # Ako je stara .part prethodno prealocirana na punu veličinu, ne možemo je nastaviti kao prefiks.
+    if existing and known_total and existing == known_total:
+        # možda je datoteka već cijela u .part
+        existing = known_total
+    headers = _base_headers()
+    resumed = False
+    target_url = final_url or url
+    if existing > 0 and not (known_total and existing == known_total):
+        # prefiksni nastavak samo ako .part nije prealociran (veličina < total ili total nepoznat)
+        if not known_total or existing < known_total:
+            headers["Range"] = f"bytes={existing}-"
+            resumed = True
+            _set(resumed=True, message="Nastavljam preuzimanje…" + (f" ({label})" if label else ""), connections=1)
+    started_at = time.time()
+    started_bytes = existing if resumed else 0
+    try:
+        resp_cm = _request(target_url, headers)
+    except Exception:
+        if target_url != url:
+            resp_cm = _request(url, headers)
+        else:
+            raise
+    with resp_cm as resp:
         status = getattr(resp, "status", 200) or 200
         length = resp.headers.get("Content-Length")
         if status == 206 and length is not None:
             file_total = existing + int(length)
             mode = "ab"
             started = existing
+        elif status == 206:
+            cr = _parse_content_range(resp.headers.get("Content-Range"))
+            file_total = cr[2] if cr and cr[2] else (existing + int(length or 0))
+            mode = "ab"
+            started = existing
         elif status == 200:
-            file_total = int(length) if length is not None else 0
+            file_total = int(length) if length is not None else (known_total or 0)
             mode = "wb"
             started = 0
+            started_bytes = 0
             if existing:
                 existing = 0
                 resumed = False
@@ -518,10 +842,11 @@ def _download_one(url: str, dest: Path, *, already_bytes: int = 0, grand_total: 
             raise RuntimeError(f"HTTP {status} pri preuzimanju.")
         written = started
         last_t = time.time()
-        display_total = grand_total or (already_bytes + file_total)
+        display_total = grand_total or (already_bytes + (file_total or expected_size))
+        _set(connections=1, resumed=resumed, total=display_total or file_total)
         with tmp.open(mode) as out:
             while not _cancel.is_set():
-                chunk = resp.read(1024 * 1024)
+                chunk = resp.read(READ_BUFFER)
                 if not chunk:
                     break
                 out.write(chunk)
@@ -531,29 +856,250 @@ def _download_one(url: str, dest: Path, *, already_bytes: int = 0, grand_total: 
                     overall = already_bytes + written
                     if not grand_total and file_total:
                         display_total = already_bytes + file_total
+                    elapsed = max(0.001, now - started_at)
+                    speed = (written - started_bytes) / elapsed
                     pct = int(overall * 100 / display_total) if display_total else 0
                     _set(
                         bytes=overall,
                         total=display_total,
                         percent=min(100, pct),
-                        message=f"Preuzeto {_fmt(overall)}"
-                        + (f" / {_fmt(display_total)}" if display_total else "")
-                        + (f" ({pct} %)" if display_total else "")
-                        + (f" · {label}" if label else ""),
+                        speed=speed,
+                        speed_label=_fmt_speed(speed),
+                        connections=1,
+                        message=_progress_message(overall, display_total, speed, label),
                     )
                     last_t = now
         if _cancel.is_set():
-            return written, resumed, file_total
+            return written, resumed, file_total or known_total
         if file_total and written < file_total:
             _set(
                 status="error",
                 error=f"Datoteka je nepotpuna ({written} / {file_total} bajtova).",
                 message="Preuzimanje nije dovršeno.",
                 bytes=already_bytes + written,
+                speed=0,
+                speed_label="",
             )
             return written, resumed, file_total
+        try:
+            _verify_download(tmp, expected_size or file_total or 0, expected_sha)
+        except Exception as exc:
+            _set(status="error", error=str(exc)[:500], message="Provjera datoteke nije uspjela.", speed=0, speed_label="")
+            return written, resumed, file_total or written
         tmp.replace(dest)
+        _clear_chunk_map(tmp)
         return written, resumed, file_total or written
+
+
+def _download_parallel(
+    url: str,
+    final_url: str,
+    dest: Path,
+    tmp: Path,
+    file_total: int,
+    *,
+    already_bytes: int = 0,
+    grand_total: int = 0,
+    label: str = "",
+    expected_size: int = 0,
+    expected_sha: str = "",
+    connections: int | None = None,
+    chunk_size: int = CHUNK_SIZE,
+    etag: str = "",
+) -> tuple[int, bool, int]:
+    n_conn = connections or _connection_count(file_total, chunk_size)
+    cmap = _load_chunk_map(tmp)
+    done = list(cmap.get("done") or [])
+    resumed = False
+    existing = tmp.stat().st_size if tmp.is_file() else 0
+
+    # Stari .part bez mape: tretiraj kao kontinuirani prefiks.
+    if existing and not done:
+        if existing < file_total:
+            done = [[0, existing - 1]]
+            resumed = True
+        elif existing == file_total:
+            # moglo je biti prealocirano bez mape — kreni ispočetka ako nema mape
+            done = []
+        elif existing > file_total:
+            tmp.unlink()
+            existing = 0
+            done = []
+
+    if cmap.get("total") and int(cmap["total"]) != file_total:
+        done = []
+    if done:
+        resumed = True
+
+    _preallocate(tmp, file_total)
+    missing = _missing_ranges(file_total, done, chunk_size)
+    if not missing:
+        try:
+            _verify_download(tmp, expected_size or file_total, expected_sha)
+        except Exception as exc:
+            _set(status="error", error=str(exc)[:500], message="Provjera datoteke nije uspjela.", speed=0, speed_label="")
+            return _done_bytes(done), resumed, file_total
+        tmp.replace(dest)
+        _clear_chunk_map(tmp)
+        return file_total, resumed, file_total
+
+    map_lock = threading.Lock()
+    write_lock = threading.Lock()
+    done_lock = threading.Lock()
+    error_holder: list[Exception] = []
+    fallback = {"flag": False}
+    started_at = time.time()
+    completed_at_start = _done_bytes(done)
+    written_holder = {"n": completed_at_start}
+    last_progress = {"t": 0.0}
+    target_holder = {"url": final_url or url}
+
+    def persist():
+        _save_chunk_map(tmp, {"url": url, "final_url": target_holder["url"], "total": file_total, "chunk_size": chunk_size, "etag": etag, "done": _merge_ranges(done)})
+
+    persist()
+    display_total = grand_total or (already_bytes + file_total)
+    _set(
+        resumed=resumed,
+        connections=min(n_conn, len(missing)),
+        bytes=already_bytes + completed_at_start,
+        total=display_total,
+        message="Nastavljam preuzimanje…" if resumed else "Pokrećem paralelno preuzimanje…" + (f" ({label})" if label else ""),
+    )
+
+    def bump(n: int) -> None:
+        now = time.time()
+        with done_lock:
+            written_holder["n"] += n
+            cur = written_holder["n"]
+            show = (now - last_progress["t"] >= 0.25) or cur >= file_total
+            if show:
+                last_progress["t"] = now
+        if show:
+            elapsed = max(0.001, now - started_at)
+            speed = (cur - completed_at_start) / elapsed
+            overall = already_bytes + cur
+            pct = int(overall * 100 / display_total) if display_total else 0
+            extra = f"{min(n_conn, len(missing))} veza"
+            _set(
+                bytes=overall,
+                total=display_total,
+                percent=min(100, pct),
+                speed=speed,
+                speed_label=_fmt_speed(speed),
+                connections=min(n_conn, len(missing)),
+                resumed=resumed,
+                message=_progress_message(overall, display_total, speed, label, extra),
+            )
+
+    def fetch_range(start: int, end: int, resume_url: str) -> tuple[int, bytes]:
+        headers = _base_headers({"Range": f"bytes={start}-{end}"})
+        try:
+            resp = _request(resume_url, headers)
+        except Exception:
+            if resume_url != url:
+                resp = _request(url, headers)
+            else:
+                raise
+        with resp:
+            status = getattr(resp, "status", 200) or 200
+            if status == 200 and start > 0:
+                # Poslužitelj je ignorirao Range.
+                try:
+                    resp.read(16)
+                except Exception:
+                    pass
+                raise _FallbackSingle("no-range")
+            if status not in {200, 206}:
+                raise RuntimeError(f"HTTP {status} za raspon {start}-{end}.")
+            if status == 200 and start == 0 and file_total > (end - start + 1) * 2:
+                # Vratio je cijelu datoteku umjesto raspona.
+                raise _FallbackSingle("full-body")
+            wanted = end - start + 1
+            chunks: list[bytes] = []
+            got = 0
+            while got < wanted and not _cancel.is_set():
+                piece = resp.read(min(READ_BUFFER, wanted - got))
+                if not piece:
+                    break
+                chunks.append(piece)
+                got += len(piece)
+                bump(len(piece))
+            if got != wanted and not _cancel.is_set():
+                # ispravi progress za nepotpuni dio (ponovit ćemo ga)
+                bump(-got)
+                raise RuntimeError(f"Raspon {start}-{end} je nepotpun ({got} / {wanted}).")
+            if _cancel.is_set():
+                bump(-got)
+                return start, b""
+            return start, b"".join(chunks)
+
+    def worker(start: int, end: int) -> None:
+        if _cancel.is_set() or error_holder or fallback["flag"]:
+            return
+        try:
+            off, data = fetch_range(start, end, target_holder["url"])
+            if _cancel.is_set() or not data:
+                return
+            with write_lock:
+                with tmp.open("r+b") as fh:
+                    fh.seek(off)
+                    fh.write(data)
+                    fh.flush()
+            with map_lock:
+                done.append([start, start + len(data) - 1])
+                persist()
+        except _FallbackSingle as exc:
+            fallback["flag"] = True
+            error_holder.append(exc)
+        except Exception as exc:
+            error_holder.append(exc)
+
+    try:
+        with ThreadPoolExecutor(max_workers=n_conn, thread_name_prefix="model-dl") as pool:
+            futs = [pool.submit(worker, s, e) for s, e in missing]
+            for fut in as_completed(futs):
+                if _cancel.is_set() or fallback["flag"]:
+                    # ostali taskovi će vidjeti zastavice
+                    pass
+                try:
+                    fut.result()
+                except Exception as exc:
+                    error_holder.append(exc)
+                if fallback["flag"]:
+                    break
+    finally:
+        persist()
+
+    if fallback["flag"]:
+        # ostavi .part prefiks ako imamo kontinuirani početak, inače mapu
+        raise _FallbackSingle("range-rejected")
+    if _cancel.is_set():
+        return written_holder["n"], resumed, file_total
+    if error_holder and not fallback["flag"]:
+        err = error_holder[0]
+        _set(status="error", error=str(err)[:500], message="Preuzimanje nije uspjelo.", speed=0, speed_label="")
+        return written_holder["n"], resumed, file_total
+
+    got = _done_bytes(done)
+    if got < file_total:
+        _set(
+            status="error",
+            error=f"Datoteka je nepotpuna ({got} / {file_total} bajtova).",
+            message="Preuzimanje nije dovršeno.",
+            bytes=already_bytes + got,
+            speed=0,
+            speed_label="",
+        )
+        return got, resumed, file_total
+    try:
+        _verify_download(tmp, expected_size or file_total, expected_sha)
+    except Exception as exc:
+        _set(status="error", error=str(exc)[:500], message="Provjera datoteke nije uspjela.", speed=0, speed_label="")
+        return got, resumed, file_total
+    tmp.replace(dest)
+    _clear_chunk_map(tmp)
+    return file_total, resumed, file_total
 
 
 def _fmt(n: int) -> str:

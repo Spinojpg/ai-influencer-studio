@@ -385,11 +385,6 @@ def test_inbox_refs(tmp: Path):
     r2 = inbox.add_reference_image(pid, png + b"2", "png")
     r3 = inbox.add_reference_image(pid, png + b"3", "png")
     check(len(r1) == 1 and len(r2) == 2 and len(r3) == 3, "dodavanje do 3 slike")
-    try:
-        inbox.add_reference_image(pid, png, "png")
-        check(False, "4. slika mora pasti")
-    except ValueError:
-        check(True, "4. slika odbijena")
     reordered = inbox.reorder_reference_images(pid, [2, 0, 1])
     check(reordered[0] == r3[2] and reordered[1] == r3[0], f"promjena redoslijeda: {reordered}")
     left = inbox.delete_reference_image(pid, index=1)

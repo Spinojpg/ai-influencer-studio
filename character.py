@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import re
 import shutil
 from pathlib import Path
@@ -12,7 +13,10 @@ from pathlib import Path
 import comfy_launch
 import image_gen
 
-MAX_REFS = 3
+MAX_REFS = 8
+REF_SQUARE_MIN = 512
+REF_SQUARE_MAX = 640
+REF_EMBED_BATCH = 4
 DEFAULT_IPADAPTER_WEIGHT = 0.8
 IPADAPTER_WEIGHT_MIN = 0.6
 IPADAPTER_WEIGHT_MAX = 1.0
@@ -78,6 +82,74 @@ def clamp_ipadapter_weight(value, default: float = DEFAULT_IPADAPTER_WEIGHT) -> 
 
 def clamp_appearance_weight(value, default: float = DEFAULT_APPEARANCE_WEIGHT) -> float:
     return clamp_weight(value, APPEARANCE_WEIGHT_MIN, APPEARANCE_WEIGHT_MAX, default)
+
+
+
+def _skin_centroid_rel(im) -> tuple[float, float] | None:
+    """Gruba procjena središta lica po boji kože, bez dodatnih modela."""
+    from PIL import Image
+    w, h = im.size
+    if w < 8 or h < 8:
+        return None
+    small = im.convert("RGB").resize((64, 64), Image.Resampling.BILINEAR)
+    px = small.load()
+    xs = ys = n = 0
+    for y in range(64):
+        if y > 48:
+            break
+        for x in range(64):
+            r, g, b = px[x, y]
+            if r > 95 and g > 40 and b > 20 and r > g and r > b and abs(r - g) > 15 and (max(r, g, b) - min(r, g, b)) > 15:
+                xs += x
+                ys += y
+                n += 1
+    if n < 24:
+        return None
+    return xs / n / 64.0, ys / n / 64.0
+
+
+def _faceish_square_box(im) -> tuple[int, int, int, int]:
+    w, h = im.size
+    side = min(w, h)
+    if side <= 0:
+        return (0, 0, w, h)
+    if w == h:
+        return (0, 0, w, h)
+    rel = _skin_centroid_rel(im)
+    if rel:
+        cx, cy = rel[0] * w, rel[1] * h
+    else:
+        cx, cy = w / 2.0, h * 0.38
+    x0 = int(round(cx - side / 2.0))
+    y0 = int(round(cy - side / 2.0))
+    x0 = max(0, min(max(0, w - side), x0))
+    y0 = max(0, min(max(0, h - side), y0))
+    return (x0, y0, x0 + side, y0 + side)
+
+
+def prepare_face_reference(data: bytes, *, size_min: int = REF_SQUARE_MIN, size_max: int = REF_SQUARE_MAX) -> tuple[bytes, int]:
+    """Izreži kvadrat (sredina ili područje lica) i smanji na 512–640 px. Vrati JPEG bajtove i stranicu."""
+    from PIL import Image, ImageOps
+    try:
+        im = Image.open(io.BytesIO(data))
+        im = ImageOps.exif_transpose(im)
+        im = im.convert("RGB")
+    except Exception as exc:
+        raise ValueError("Datoteka nije prepoznata kao slika.") from exc
+    box = _faceish_square_box(im)
+    crop = im.crop(box)
+    src_side = max(1, min(crop.size))
+    if src_side >= size_max:
+        side = size_max
+    elif src_side >= size_min:
+        side = src_side
+    else:
+        side = size_min
+    if crop.size != (side, side):
+        crop = crop.resize((side, side), Image.Resampling.LANCZOS)
+    out = io.BytesIO()
+    crop.save(out, format="JPEG", quality=90, optimize=True)
+    return out.getvalue(), int(side)
 
 
 def emphasize_text(text: str, weight: float) -> str:
@@ -358,6 +430,36 @@ def _batch_images(wf: dict, image_refs: list[list], start_id: int = 83) -> list:
     return current
 
 
+def _encoder_nodes_ok(object_info: dict | None) -> bool:
+    """True ako možemo (ili želimo u testu) koristiti Encoder + CombineEmbeds + Embeds."""
+    if not catalog_available(object_info):
+        return True
+    return nodes_loaded(object_info, ("IPAdapterEncoder", "IPAdapterCombineEmbeds", "IPAdapterEmbeds"))
+
+
+def _combine_embeds(wf: dict, embeds: list[list], start_id: int, method: str = "average") -> tuple[list, int]:
+    """Usredi (ili spoji) EMBEDS čvorove; IPAdapterCombineEmbeds prima do 5 ulaza."""
+    if not embeds:
+        raise ValueError("Nema embedova za spajanje.")
+    nid = start_id
+    current = list(embeds)
+    while len(current) > 1:
+        nxt: list[list] = []
+        for i in range(0, len(current), 5):
+            chunk = current[i:i + 5]
+            if len(chunk) == 1:
+                nxt.append(chunk[0])
+                continue
+            inputs = {"method": method, "embed1": chunk[0]}
+            for j, emb in enumerate(chunk[1:], start=2):
+                inputs[f"embed{j}"] = emb
+            wf[str(nid)] = {"class_type": "IPAdapterCombineEmbeds", "inputs": inputs}
+            nxt.append([str(nid), 0])
+            nid += 1
+        current = nxt
+    return current[0], nid
+
+
 def apply_ipadapter_to_workflow(
     wf: dict,
     model_ref: list,
@@ -366,44 +468,102 @@ def apply_ipadapter_to_workflow(
     weight: float = DEFAULT_IPADAPTER_WEIGHT,
     object_info: dict | None = None,
 ) -> list:
-    """Dodaj LoadImage (+ ImageBatch) + UnifiedLoader + IPAdapter. Vrati novi MODEL ref.
+    """Dodaj LoadImage (+ ImageBatch ili usrednjeni embed) + UnifiedLoader + IPAdapter.
 
+    1–3 slike: isti graf kao u 1.0.16 (čvorovi 80–86), da postojeći testovi ostanu točni.
+    4 slike: ImageBatch lanac (LoadImage 180+, batch 192+), loader 85, IPAdapter 86.
+    Više od 4: svaka slika se enkodira, embedovi se usrednjavaju (average), zatim IPAdapterEmbeds.
     CLIP se ne mijenja. InsightFace se ne koristi (PLUS FACE preset).
     """
     names = [n for n in (image_names or []) if str(n).strip()][:MAX_REFS]
     if not names:
         return model_ref
-    _ = object_info  # rezervirano za buduće usklađivanje widgeta
-    load_ids = (80, 81, 82)
-    image_refs: list[list] = []
+    weight_f = float(clamp_ipadapter_weight(weight))
+
+    def _loader():
+        wf["85"] = {
+            "class_type": "IPAdapterUnifiedLoader",
+            "inputs": {
+                "model": model_ref,
+                "preset": IPADAPTER_PRESET,
+            },
+        }
+
+    def _apply_image(image_ref: list):
+        wf["86"] = {
+            "class_type": "IPAdapter",
+            "inputs": {
+                "model": ["85", 0],
+                "ipadapter": ["85", 1],
+                "image": image_ref,
+                "weight": weight_f,
+                "start_at": 0.0,
+                "end_at": 1.0,
+                "weight_type": IPADAPTER_WEIGHT_TYPE,
+            },
+        }
+        return ["86", 0]
+
+    if len(names) <= 3:
+        load_ids = (80, 81, 82)
+        image_refs: list[list] = []
+        for i, name in enumerate(names):
+            nid = str(load_ids[i] if i < len(load_ids) else 80 + i)
+            wf[nid] = {
+                "class_type": "LoadImage",
+                "inputs": {"image": str(name).replace("\\", "/")},
+            }
+            image_refs.append([nid, 0])
+        image_ref = _batch_images(wf, image_refs, start_id=83)
+        _loader()
+        return _apply_image(image_ref)
+
+    image_refs = []
     for i, name in enumerate(names):
-        nid = str(load_ids[i] if i < len(load_ids) else 80 + i)
+        nid = str(180 + i)
         wf[nid] = {
             "class_type": "LoadImage",
             "inputs": {"image": str(name).replace("\\", "/")},
         }
         image_refs.append([nid, 0])
-    image_ref = _batch_images(wf, image_refs, start_id=83)
-    wf["85"] = {
-        "class_type": "IPAdapterUnifiedLoader",
-        "inputs": {
-            "model": model_ref,
-            "preset": IPADAPTER_PRESET,
-        },
-    }
+    _loader()
+
+    use_embeds = len(names) > REF_EMBED_BATCH and _encoder_nodes_ok(object_info)
+    if not use_embeds:
+        image_ref = _batch_images(wf, image_refs, start_id=192)
+        return _apply_image(image_ref)
+
+    pos_embeds: list[list] = []
+    neg_embeds: list[list] = []
+    for i, iref in enumerate(image_refs):
+        nid = str(200 + i)
+        wf[nid] = {
+            "class_type": "IPAdapterEncoder",
+            "inputs": {
+                "ipadapter": ["85", 1],
+                "image": iref,
+                "weight": 1.0,
+            },
+        }
+        pos_embeds.append([nid, 0])
+        neg_embeds.append([nid, 1])
+    pos_ref, next_id = _combine_embeds(wf, pos_embeds, 220, "average")
+    neg_ref, _next_id = _combine_embeds(wf, neg_embeds, next_id, "average")
     wf["86"] = {
-        "class_type": "IPAdapter",
+        "class_type": "IPAdapterEmbeds",
         "inputs": {
             "model": ["85", 0],
             "ipadapter": ["85", 1],
-            "image": image_ref,
-            "weight": float(clamp_ipadapter_weight(weight)),
+            "pos_embed": pos_ref,
+            "neg_embed": neg_ref,
+            "weight": weight_f,
+            "weight_type": IPADAPTER_WEIGHT_TYPE,
             "start_at": 0.0,
             "end_at": 1.0,
-            "weight_type": IPADAPTER_WEIGHT_TYPE,
         },
     }
     return ["86", 0]
+
 
 
 def apply_face_detailer(
