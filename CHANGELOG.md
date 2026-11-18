@@ -1,5 +1,11 @@
 # Promjene
 
+## 1.0.17 — 2026-11-18
+- Hitni ispravak: u 1.0.16 jedna greška u kodu sučelja (krivi navodnik kod gumba referentnih slika) zaustavila je cijelo sučelje, pa su Osoba i Influencer bili prazni, verzija je pisala „v…“, a status je zapeo na „Provjeravam…“.
+- Sučelje se opet normalno učitava, sa svim novostima iz 1.0.16 (referentne slike, IG formati, model i LoRA po osobi).
+- Postojeće osobe i postavke ostaju netaknute.
+- Dodana automatska provjera koda sučelja prije svakog izdanja, da se ovo ne ponovi.
+
 ## 1.0.16 — 2026-11-18
 - Konzistentnost lika: u profilu osobe možeš staviti 1–3 referentne slike lica (pregled, brisanje, redoslijed). Studio ih primjenjuje preko IP-Adapter Plus Face (čvor cubiq, bez InsightFace), s klizačem jačine 0,6–1,0 (zadano 0,8) po osobi i u Napredno. Na Krea 2 se ne koristi.
 - U kartici Modeli je paket „IP-Adapter Plus Face” s Hugging Facea (h94/IP-Adapter): CLIP Vision ViT-H (oko 2,35 GB) u models/clip_vision i Plus Face modeli za SDXL (oko 808 MB) i SD 1.5 (oko 94 MB) u models/ipadapter, ukupno oko 3,2 GB. Gumb „Instaliraj IP-Adapter” klonira čvor (treba Git) i preuzme paket; zatim zatvori Studio i ponovo ga pokreni.

@@ -6,6 +6,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Bez ispravnog inline JS-a UI je mrtav (1.0.16) - ne pakiraj takav paket.
+if command -v node >/dev/null 2>&1; then
+  python3 tools/check_ui_js.py || { echo "Prekid: UI JS ima sintaksnu grešku." >&2; exit 1; }
+else
+  echo "UPOZORENJE: node nije instaliran, preskačem provjeru UI JS-a." >&2
+fi
+
 CURRENT="$(python3 - <<'PY'
 import json
 from pathlib import Path
