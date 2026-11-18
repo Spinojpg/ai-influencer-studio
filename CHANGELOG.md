@@ -1,5 +1,15 @@
 # Promjene
 
+## 1.0.16 — 2026-11-18
+- Konzistentnost lika: u profilu osobe možeš staviti 1–3 referentne slike lica (pregled, brisanje, redoslijed). Studio ih primjenjuje preko IP-Adapter Plus Face (čvor cubiq, bez InsightFace), s klizačem jačine 0,6–1,0 (zadano 0,8) po osobi i u Napredno. Na Krea 2 se ne koristi.
+- U kartici Modeli je paket „IP-Adapter Plus Face” s Hugging Facea (h94/IP-Adapter): CLIP Vision ViT-H (oko 2,35 GB) u models/clip_vision i Plus Face modeli za SDXL (oko 808 MB) i SD 1.5 (oko 94 MB) u models/ipadapter, ukupno oko 3,2 GB. Gumb „Instaliraj IP-Adapter” klonira čvor (treba Git) i preuzme paket; zatim zatvori Studio i ponovo ga pokreni.
+- Opis izgleda s profila ide u prompt kao (izgled:1,3); klizač 1,0–1,5 vidiš u profilu i u Napredno. CLIP poredak (scena prva) i ConditioningConcat ostaju.
+- Kad odabereš osobu, postave se njezin preferirani model i LoRA (s jačinom). Za tu sliku i dalje možeš promijeniti izbor u Napredno.
+- Opcionalni Face Detailer (Impact Pack + Subpack + face_yolov8m.pt) po osobi i u Napredno, zadano isključen jer na 8 GB VRAM-a može biti tijesan i spor. Ako instalacija ne uspije, opcija ostaje skrivena.
+- Zaključaj seed po osobi da serije slika ostanu sličnije.
+- Sažetak uz Osobu pokazuje broj referentnih slika, model i LoRA.
+- Novi IG formati u izboru Formata: IG Portret 4:5 (1080×1350), IG Kvadrat 1:1 (1080×1080) i IG Story/Reels 9:16 (1080×1920). Generiraju se na manjem, VRAM-sigurnom platnu (SDXL npr. 896×1120, 1024×1024, 768×1368; SD 1.5 još manje), zatim se slika poveća lanczosom na točne IG piksele.
+
 ## 1.0.15 — 2026-11-18
 - Kartica Modeli: odjeljak „Instalirani modeli” prikazuje sve datoteke u mapi ComfyUI models (checkpointi, diffusion modeli, text encoderi, VAE, LoRA, AnimateDiff…). Vidiš ime, mapu, veličinu i ukupnu zauzetost diska. Svaku možeš obrisati uz potvrdu. Studio upozorava ako je to trenutno odabrani model ili datoteka potrebna za Turbo LoRA odnosno Krea 2 paket. Ako je datoteka zaključana (ComfyUI je koristi), javlja jasnu poruku da pokušaš nakon generiranja ili restarta. Predloženi modeli sada pokazuju status Instalirano / Djelomično.
 - Ispravak: pri generiranju 2 slike više se ne prikazuju 4. Uzrok je bio što je ComfyUI u povijesti zadatka uz konačne SaveImage izlaze (type=output) često stavio i privremene preview slike s VAEDecode čvora (type=temp). Studio sada zadržava samo konačne izlaze i uklanja duplikate po imenu, podmapi i tipu.

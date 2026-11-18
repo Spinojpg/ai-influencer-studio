@@ -60,6 +60,26 @@ def vae_dir() -> Path:
     return Path(raw) if raw else models_root() / "vae"
 
 
+def clip_vision_dir() -> Path:
+    raw = (os.environ.get("COMFYUI_CLIP_VISION_DIR") or "").strip()
+    return Path(raw) if raw else models_root() / "clip_vision"
+
+
+def ipadapter_dir() -> Path:
+    raw = (os.environ.get("COMFYUI_IPADAPTER_DIR") or "").strip()
+    return Path(raw) if raw else models_root() / "ipadapter"
+
+
+def ultralytics_bbox_dir() -> Path:
+    raw = (os.environ.get("COMFYUI_ULTRALYTICS_BBOX_DIR") or "").strip()
+    return Path(raw) if raw else models_root() / "ultralytics" / "bbox"
+
+
+def input_dir() -> Path:
+    raw = (os.environ.get("COMFYUI_INPUT_DIR") or "").strip()
+    return Path(raw) if raw else comfy_dir() / "input"
+
+
 def custom_nodes_dir() -> Path:
     return comfy_dir() / "custom_nodes"
 

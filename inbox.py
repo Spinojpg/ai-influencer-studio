@@ -245,6 +245,14 @@ def init_db() -> None:
             """
         )
         _ensure_column(conn, "profiles", "model_type", "TEXT DEFAULT 'auto'")
+        _ensure_column(conn, "profiles", "reference_images", "TEXT DEFAULT '[]'")
+        _ensure_column(conn, "profiles", "ipadapter_weight", "TEXT DEFAULT '0.8'")
+        _ensure_column(conn, "profiles", "appearance_weight", "TEXT DEFAULT '1.3'")
+        _ensure_column(conn, "profiles", "preferred_lora", "TEXT DEFAULT ''")
+        _ensure_column(conn, "profiles", "preferred_lora_strength", "TEXT DEFAULT '0.8'")
+        _ensure_column(conn, "profiles", "face_detailer", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "profiles", "lock_seed", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "profiles", "locked_seed", "TEXT DEFAULT ''")
         defaults = {
             "active_profile_id": "",
             "send_mode": "approve",
@@ -338,6 +346,68 @@ def set_setting(key: str, value: str) -> None:
         conn.close()
 
 
+
+def _parse_json_list(raw) -> list:
+    if isinstance(raw, list):
+        data = raw
+    else:
+        try:
+            data = json.loads(raw or "[]")
+        except (TypeError, json.JSONDecodeError):
+            data = []
+    return data if isinstance(data, list) else []
+
+
+def _norm_ref_entry(item) -> str:
+    if isinstance(item, dict):
+        return str(item.get("path") or item.get("rel") or item.get("file") or "").strip()
+    return str(item or "").strip()
+
+
+def reference_list_from_row(row: sqlite3.Row | dict) -> list[str]:
+    """Lista relativnih putanja referentnih slika (do 3), uz stari stupac reference_image."""
+    if isinstance(row, sqlite3.Row):
+        keys = set(row.keys())
+        get = row.__getitem__
+    else:
+        keys = set(row.keys())
+        get = row.get
+    items = []
+    if "reference_images" in keys:
+        items = [_norm_ref_entry(x) for x in _parse_json_list(get("reference_images"))]
+    legacy = ""
+    if "reference_image" in keys:
+        legacy = str(get("reference_image") or "").strip()
+    out: list[str] = []
+    seen: set[str] = set()
+    for rel in items + ([legacy] if legacy else []):
+        rel = rel.replace("\\", "/").lstrip("/")
+        if not rel or rel in seen:
+            continue
+        seen.add(rel)
+        out.append(rel)
+        if len(out) >= 3:
+            break
+    return out
+
+
+def _float_field(raw, default: float) -> float:
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def _bool_field(raw, default: bool = False) -> bool:
+    if raw is None or raw == "":
+        return default
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)):
+        return raw != 0
+    return str(raw).strip().lower() in {"1", "true", "yes", "on", "da"}
+
+
 def _row_profile(row: sqlite3.Row) -> dict:
     examples = []
     try:
@@ -346,6 +416,8 @@ def _row_profile(row: sqlite3.Row) -> dict:
         examples = []
     if not isinstance(examples, list):
         examples = []
+    keys = set(row.keys())
+    refs = reference_list_from_row(row)
     return {
         "id": row["id"],
         "name": row["name"],
@@ -361,8 +433,17 @@ def _row_profile(row: sqlite3.Row) -> dict:
         "language": row["language"] or "HR",
         "topics_avoid": row["topics_avoid"] or "",
         "examples": examples,
-        "reference_image": row["reference_image"] or "",
-        "has_reference": bool(row["reference_image"]),
+        "reference_image": refs[0] if refs else (row["reference_image"] or ""),
+        "reference_images": refs,
+        "has_reference": bool(refs),
+        "reference_count": len(refs),
+        "ipadapter_weight": _float_field(row["ipadapter_weight"] if "ipadapter_weight" in keys else 0.8, 0.8),
+        "appearance_weight": _float_field(row["appearance_weight"] if "appearance_weight" in keys else 1.3, 1.3),
+        "preferred_lora": (row["preferred_lora"] if "preferred_lora" in keys else "") or "",
+        "preferred_lora_strength": _float_field(row["preferred_lora_strength"] if "preferred_lora_strength" in keys else 0.8, 0.8),
+        "face_detailer": _bool_field(row["face_detailer"] if "face_detailer" in keys else 0, False),
+        "lock_seed": _bool_field(row["lock_seed"] if "lock_seed" in keys else 0, False),
+        "locked_seed": (row["locked_seed"] if "locked_seed" in keys else "") or "",
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -443,6 +524,21 @@ def upsert_profile(payload: dict, pid: int | None = None) -> dict:
         "examples_json": json.dumps(_clean_examples(payload.get("examples")), ensure_ascii=False),
         "updated_at": time.time(),
     }
+    if "ipadapter_weight" in payload:
+        fields["ipadapter_weight"] = str(_float_field(payload.get("ipadapter_weight"), 0.8))[:16]
+    if "appearance_weight" in payload:
+        fields["appearance_weight"] = str(_float_field(payload.get("appearance_weight"), 1.3))[:16]
+    if "preferred_lora" in payload:
+        fields["preferred_lora"] = str(payload.get("preferred_lora") or "")[:300]
+    if "preferred_lora_strength" in payload:
+        fields["preferred_lora_strength"] = str(_float_field(payload.get("preferred_lora_strength"), 0.8))[:16]
+    if "face_detailer" in payload:
+        fields["face_detailer"] = 1 if _bool_field(payload.get("face_detailer"), False) else 0
+    if "lock_seed" in payload:
+        fields["lock_seed"] = 1 if _bool_field(payload.get("lock_seed"), False) else 0
+    if "locked_seed" in payload:
+        raw_seed = payload.get("locked_seed")
+        fields["locked_seed"] = "" if raw_seed in (None, "", "-1", -1) else str(raw_seed)[:20]
     now = time.time()
     with _lock:
         conn = db()
@@ -455,33 +551,22 @@ def upsert_profile(payload: dict, pid: int | None = None) -> dict:
             conn.execute(f"UPDATE profiles SET {sets} WHERE id=?", [*fields.values(), int(pid)])
             new_id = int(pid)
         else:
-            conn.execute(
-                """
-                INSERT INTO profiles(
-                    name, appearance_prompt, negative_prompt, preferred_model, model_type,
-                    style, age_vibe, writing_style, slang, emoji_use, language,
-                    topics_avoid, examples_json, reference_image, created_at, updated_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    fields["name"],
-                    fields["appearance_prompt"],
-                    fields["negative_prompt"],
-                    fields["preferred_model"],
-                    fields["model_type"],
-                    fields["style"],
-                    fields["age_vibe"],
-                    fields["writing_style"],
-                    fields["slang"],
-                    fields["emoji_use"],
-                    fields["language"],
-                    fields["topics_avoid"],
-                    fields["examples_json"],
-                    "",
-                    now,
-                    fields["updated_at"],
-                ),
-            )
+            insert = {
+                "ipadapter_weight": str(_float_field(payload.get("ipadapter_weight"), 0.8))[:16],
+                "appearance_weight": str(_float_field(payload.get("appearance_weight"), 1.3))[:16],
+                "preferred_lora": str(payload.get("preferred_lora") or "")[:300],
+                "preferred_lora_strength": str(_float_field(payload.get("preferred_lora_strength"), 0.8))[:16],
+                "face_detailer": 1 if _bool_field(payload.get("face_detailer"), False) else 0,
+                "lock_seed": 1 if _bool_field(payload.get("lock_seed"), False) else 0,
+                "locked_seed": ("" if payload.get("locked_seed") in (None, "", "-1", -1) else str(payload.get("locked_seed"))[:20]),
+                "reference_image": "",
+                "reference_images": "[]",
+                "created_at": now,
+            }
+            insert.update(fields)
+            cols = ", ".join(insert.keys())
+            qs = ", ".join("?" * len(insert))
+            conn.execute(f"INSERT INTO profiles({cols}) VALUES ({qs})", list(insert.values()))
             new_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
             if not get_setting("active_profile_id"):
                 conn.execute(
@@ -504,48 +589,164 @@ def delete_profile(pid: int) -> None:
         conn.execute("DELETE FROM profiles WHERE id=?", (int(pid),))
         conn.commit()
         conn.close()
+    folder = DATA_DIR / "profiles" / str(int(pid))
+    if folder.is_dir():
+        shutil.rmtree(folder, ignore_errors=True)
     if active_profile_id() == int(pid) or get_setting("active_profile_id") == str(pid):
         rest = list_profiles()
         set_setting("active_profile_id", str(rest[0]["id"]) if rest else "")
     export_profiles_json()
 
 
-def save_reference_image(pid: int, data: bytes, ext: str = "jpg") -> str:
-    prof = get_profile(pid)
-    if not prof:
-        raise KeyError("Profil ne postoji.")
-    ext = re.sub(r"[^a-z0-9]", "", (ext or "jpg").lower()) or "jpg"
-    if ext not in {"jpg", "jpeg", "png", "webp"}:
-        ext = "jpg"
-    folder = DATA_DIR / "profiles" / str(int(pid))
-    folder.mkdir(parents=True, exist_ok=True)
-    rel = f"profiles/{int(pid)}/reference.{ext}"
-    dest = DATA_DIR / rel
-    dest.write_bytes(data)
-    with _lock:
-        conn = db()
-        conn.execute(
-            "UPDATE profiles SET reference_image=?, updated_at=? WHERE id=?",
-            (rel, time.time(), int(pid)),
-        )
-        conn.commit()
-        conn.close()
-    export_profiles_json()
-    return rel
 
-
-def reference_image_path(pid: int) -> Path | None:
-    prof = get_profile(pid)
-    if not prof or not prof.get("reference_image"):
+def _safe_rel(rel: str) -> Path | None:
+    rel = (rel or "").replace("\\", "/").lstrip("/")
+    if not rel or ".." in Path(rel).parts:
         return None
-    path = DATA_DIR / prof["reference_image"]
-    if not path.is_file():
-        return None
+    path = DATA_DIR / rel
     try:
         path.resolve().relative_to(DATA_DIR.resolve())
     except ValueError:
         return None
     return path
+
+
+def _write_reference_list(pid: int, rels: list[str]) -> list[str]:
+    clean = []
+    seen = set()
+    for rel in rels:
+        rel = (rel or "").replace("\\", "/").lstrip("/")
+        if not rel or rel in seen:
+            continue
+        seen.add(rel)
+        clean.append(rel)
+        if len(clean) >= 3:
+            break
+    first = clean[0] if clean else ""
+    with _lock:
+        conn = db()
+        conn.execute(
+            "UPDATE profiles SET reference_image=?, reference_images=?, updated_at=? WHERE id=?",
+            (first, json.dumps(clean, ensure_ascii=False), time.time(), int(pid)),
+        )
+        conn.commit()
+        conn.close()
+    export_profiles_json()
+    return clean
+
+
+def save_reference_image(pid: int, data: bytes, ext: str = "jpg") -> str:
+    """Stari API: dodaj sliku (ili zamijeni prvu ako je već 3)."""
+    refs = add_reference_image(pid, data, ext)
+    return refs[0] if isinstance(refs, list) and refs else ""
+
+
+def add_reference_image(pid: int, data: bytes, ext: str = "jpg") -> list[str]:
+    prof = get_profile(pid)
+    if not prof:
+        raise KeyError("Profil ne postoji.")
+    ext = re.sub(r"[^a-z0-9]", "", (ext or "jpg").lower()) or "jpg"
+    if ext == "jpeg":
+        ext = "jpg"
+    if ext not in {"jpg", "png", "webp"}:
+        ext = "jpg"
+    current = list(prof.get("reference_images") or [])
+    if len(current) >= 3:
+        raise ValueError("Možeš spremiti najviše 3 referentne slike lica.")
+    folder = DATA_DIR / "profiles" / str(int(pid))
+    folder.mkdir(parents=True, exist_ok=True)
+    used = {Path(r).name.lower() for r in current}
+    idx = 1
+    while f"ref_{idx}.{ext}".lower() in used:
+        idx += 1
+        if idx > 40:
+            break
+    name = f"ref_{idx}.{ext}"
+    rel = f"profiles/{int(pid)}/{name}"
+    dest = DATA_DIR / rel
+    dest.write_bytes(data)
+    current.append(rel)
+    return _write_reference_list(pid, current)
+
+
+def delete_reference_image(pid: int, index: int | None = None, rel: str | None = None) -> list[str]:
+    prof = get_profile(pid)
+    if not prof:
+        raise KeyError("Profil ne postoji.")
+    current = list(prof.get("reference_images") or [])
+    target = None
+    if rel:
+        rel = rel.replace("\\", "/").lstrip("/")
+        if rel in current:
+            target = rel
+    elif index is not None:
+        if index < 0 or index >= len(current):
+            raise ValueError("Neispravan redni broj slike.")
+        target = current[index]
+    if not target:
+        raise ValueError("Slika nije pronađena.")
+    current = [r for r in current if r != target]
+    path = _safe_rel(target)
+    if path and path.is_file():
+        try:
+            path.unlink()
+        except OSError:
+            pass
+    return _write_reference_list(pid, current)
+
+
+def reorder_reference_images(pid: int, order: list) -> list[str]:
+    prof = get_profile(pid)
+    if not prof:
+        raise KeyError("Profil ne postoji.")
+    current = list(prof.get("reference_images") or [])
+    if not current:
+        return []
+    new: list[str] = []
+    seen = set()
+    # order može biti lista indeksa ili putanja
+    for item in order or []:
+        if isinstance(item, int) or (isinstance(item, str) and item.isdigit()):
+            i = int(item)
+            if 0 <= i < len(current) and current[i] not in seen:
+                new.append(current[i])
+                seen.add(current[i])
+        else:
+            rel = str(item).replace("\\", "/").lstrip("/")
+            if rel in current and rel not in seen:
+                new.append(rel)
+                seen.add(rel)
+    for rel in current:
+        if rel not in seen:
+            new.append(rel)
+    return _write_reference_list(pid, new)
+
+
+def reference_image_path(pid: int, index: int = 0) -> Path | None:
+    prof = get_profile(pid)
+    if not prof:
+        return None
+    refs = list(prof.get("reference_images") or [])
+    if not refs and prof.get("reference_image"):
+        refs = [prof["reference_image"]]
+    if index < 0 or index >= len(refs):
+        return None
+    path = _safe_rel(refs[index])
+    if not path or not path.is_file():
+        return None
+    return path
+
+
+def reference_paths(pid: int) -> list[Path]:
+    prof = get_profile(pid)
+    if not prof:
+        return []
+    out: list[Path] = []
+    for i, _rel in enumerate(prof.get("reference_images") or []):
+        path = reference_image_path(pid, i)
+        if path:
+            out.append(path)
+    return out
 
 
 # ---------- system prompt & Grok ----------

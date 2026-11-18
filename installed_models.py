@@ -54,6 +54,17 @@ KIND_TO_FOLDER = {
     "clip": "text_encoders",
     "clip_name": "text_encoders",
     "vae": "vae",
+    "clip_vision": "clip_vision",
+    "clip-vision": "clip_vision",
+    "clipvision": "clip_vision",
+    "ipadapter": "ipadapter",
+    "ip_adapter": "ipadapter",
+    "ip-adapter": "ipadapter",
+    "ultralytics": "ultralytics/bbox",
+    "ultralytics_bbox": "ultralytics/bbox",
+    "ultralytics-bbox": "ultralytics/bbox",
+    "yolo": "ultralytics/bbox",
+    "yolo_bbox": "ultralytics/bbox",
 }
 
 LOCKED_ERROR = (
@@ -152,6 +163,30 @@ def required_index() -> dict[tuple[str, str], dict]:
             "name": image_gen.KREA2_VAE,
             "bundle": "krea2",
             "reason": "Potrebna za paket Krea 2 Turbo (VAE).",
+        },
+        {
+            "folder": "clip_vision",
+            "name": "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors",
+            "bundle": "ipadapter",
+            "reason": "Potrebna za IP-Adapter Plus Face (CLIP Vision ViT-H).",
+        },
+        {
+            "folder": "ipadapter",
+            "name": "ip-adapter-plus-face_sdxl_vit-h.safetensors",
+            "bundle": "ipadapter",
+            "reason": "Potrebna za IP-Adapter Plus Face (SDXL).",
+        },
+        {
+            "folder": "ipadapter",
+            "name": "ip-adapter-plus-face_sd15.safetensors",
+            "bundle": "ipadapter",
+            "reason": "Potrebna za IP-Adapter Plus Face (SD 1.5).",
+        },
+        {
+            "folder": "ultralytics/bbox",
+            "name": "face_yolov8m.pt",
+            "bundle": "face_detailer",
+            "reason": "Potrebna za Face Detailer (detektor lica).",
         },
     ]
     out: dict[tuple[str, str], dict] = {}

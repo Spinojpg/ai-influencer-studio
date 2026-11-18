@@ -19,18 +19,27 @@ SD15_PRESETS = [
     {"id": "portrait", "label": "Portret", "width": 512, "height": 768},
     {"id": "square", "label": "Kvadrat", "width": 512, "height": 512},
     {"id": "landscape", "label": "Pejzaž", "width": 768, "height": 512},
+    {"id": "ig_portrait", "label": "IG Portret 4:5", "width": 512, "height": 640, "output_width": 1080, "output_height": 1350},
+    {"id": "ig_square", "label": "IG Kvadrat 1:1", "width": 512, "height": 512, "output_width": 1080, "output_height": 1080},
+    {"id": "ig_story", "label": "IG Story/Reels 9:16", "width": 432, "height": 768, "output_width": 1080, "output_height": 1920},
 ]
 SDXL_PRESETS = [
     {"id": "portrait", "label": "Portret", "width": 768, "height": 1152},
     {"id": "portrait_hd", "label": "Portret HD", "width": 832, "height": 1216},
     {"id": "square", "label": "Kvadrat", "width": 1024, "height": 1024},
     {"id": "landscape", "label": "Pejzaž", "width": 1216, "height": 832},
+    {"id": "ig_portrait", "label": "IG Portret 4:5", "width": 896, "height": 1120, "output_width": 1080, "output_height": 1350},
+    {"id": "ig_square", "label": "IG Kvadrat 1:1", "width": 1024, "height": 1024, "output_width": 1080, "output_height": 1080},
+    {"id": "ig_story", "label": "IG Story/Reels 9:16", "width": 768, "height": 1368, "output_width": 1080, "output_height": 1920},
 ]
 
 KREA2_PRESETS = [
     {"id": "square", "label": "Kvadrat", "width": 1024, "height": 1024},
     {"id": "portrait", "label": "Portret", "width": 832, "height": 1216},
     {"id": "landscape", "label": "Pejzaž", "width": 1216, "height": 832},
+    {"id": "ig_portrait", "label": "IG Portret 4:5", "width": 896, "height": 1120, "output_width": 1080, "output_height": 1350},
+    {"id": "ig_square", "label": "IG Kvadrat 1:1", "width": 1024, "height": 1024, "output_width": 1080, "output_height": 1080},
+    {"id": "ig_story", "label": "IG Story/Reels 9:16", "width": 768, "height": 1368, "output_width": 1080, "output_height": 1920},
 ]
 KREA2_TURBO = {
     "steps": 8,
@@ -278,6 +287,138 @@ def presets_for(arch: str) -> list[dict]:
     return list(SDXL_PRESETS if arch == "sdxl" else SD15_PRESETS)
 
 
+def align_dim(value: int, *, lo: int = 256, hi: int = 2048, multiple: int = 8) -> int:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        n = lo
+    n = n - (n % multiple)
+    return max(lo, min(hi, n))
+
+
+def _preset_by_id(arch: str, preset_id: str) -> dict | None:
+    want = (preset_id or "").strip().lower()
+    if not want:
+        return None
+    for pr in presets_for(arch):
+        if (pr.get("id") or "").lower() == want:
+            return dict(pr)
+    return None
+
+
+def resolve_canvas(
+    arch: str,
+    width,
+    height,
+    *,
+    output_width=None,
+    output_height=None,
+    preset_id: str = "",
+    dim_max: int | None = None,
+) -> dict:
+    """Odredi veličinu generiranja i (ako treba) izlaz za Instagram.
+
+    IG formati se računaju na manjem, VRAM-sigurnom platnu (višekratnik 8),
+    a zatim se slika povećava na točne IG piksele (1080×1350 / 1080×1080 / 1080×1920).
+    Ako klijent pošalje već te IG dimenzije kao width/height, mapiraju se natrag
+    na sigurno platno da se ne generira 1080×1920 izravno na 8 GB.
+    """
+    hi = 2048 if (arch or "") == "krea2" else 1536
+    if dim_max is not None:
+        hi = int(dim_max)
+    presets = presets_for(arch)
+    chosen = _preset_by_id(arch, preset_id)
+
+    def _as_int(val):
+        try:
+            if val is None or val == "":
+                return None
+            return int(val)
+        except (TypeError, ValueError):
+            return None
+
+    ow_in, oh_in = _as_int(output_width), _as_int(output_height)
+    w_in, h_in = _as_int(width), _as_int(height)
+
+    if chosen is None and ow_in and oh_in:
+        for pr in presets:
+            if pr.get("output_width") == ow_in and pr.get("output_height") == oh_in:
+                chosen = dict(pr)
+                break
+    if chosen is None and w_in and h_in:
+        # Točne IG dimenzije poslane kao width/height.
+        for pr in presets:
+            if pr.get("output_width") == w_in and pr.get("output_height") == h_in:
+                chosen = dict(pr)
+                break
+        if chosen is None:
+            for pr in presets:
+                if pr.get("width") == w_in and pr.get("height") == h_in and pr.get("output_width"):
+                    chosen = dict(pr)
+                    break
+
+    if chosen:
+        gen_w = align_dim(chosen["width"], hi=hi)
+        gen_h = align_dim(chosen["height"], hi=hi)
+        out_w = int(chosen.get("output_width") or gen_w)
+        out_h = int(chosen.get("output_height") or gen_h)
+        if ow_in and oh_in:
+            out_w, out_h = ow_in, oh_in
+        return {
+            "width": gen_w,
+            "height": gen_h,
+            "output_width": out_w,
+            "output_height": out_h,
+            "preset_id": chosen.get("id") or "",
+            "label": chosen.get("label") or "",
+            "upscale": (out_w, out_h) != (gen_w, gen_h),
+        }
+
+    defaults = presets[0]
+    gen_w = align_dim(w_in if w_in is not None else defaults["width"], hi=hi)
+    gen_h = align_dim(h_in if h_in is not None else defaults["height"], hi=hi)
+    if ow_in and oh_in and (ow_in, oh_in) != (gen_w, gen_h):
+        out_w = max(64, min(4096, ow_in))
+        out_h = max(64, min(4096, oh_in))
+        return {
+            "width": gen_w,
+            "height": gen_h,
+            "output_width": out_w,
+            "output_height": out_h,
+            "preset_id": "",
+            "label": "",
+            "upscale": True,
+        }
+    return {
+        "width": gen_w,
+        "height": gen_h,
+        "output_width": gen_w,
+        "output_height": gen_h,
+        "preset_id": "",
+        "label": "",
+        "upscale": False,
+    }
+
+
+def apply_output_scale(wf: dict, image_ref: list, output_width: int, output_height: int, node_id: str = "92") -> list:
+    """ImageScale (lanczos) na točne izlazne piksele, inače vrati isti ref."""
+    if not output_width or not output_height:
+        return image_ref
+    if image_ref is None:
+        return image_ref
+    wf[node_id] = {
+        "class_type": "ImageScale",
+        "inputs": {
+            "image": image_ref,
+            "upscale_method": "lanczos",
+            "width": int(output_width),
+            "height": int(output_height),
+            "crop": "disabled",
+        },
+    }
+    return [node_id, 0]
+
+
 def default_cfg(arch: str) -> float:
     if arch == "krea2":
         return float(KREA2_TURBO["cfg"])
@@ -452,6 +593,7 @@ def build_positive_prompt(
     appearance: str = "",
     quality: bool = True,
     adult_term: str = ADULT_TERM,
+    appearance_weight: float = 1.3,
 ) -> dict:
     """
     Složi pozitivni prompt tako da CLIP vidi scenu.
@@ -498,7 +640,12 @@ def build_positive_prompt(
     if appearance:
         low_head = head.lower()
         if appearance.lower() not in low_head:
-            chunks.append(appearance)
+            try:
+                from character import emphasize_text, clamp_appearance_weight
+                weighted = emphasize_text(appearance, clamp_appearance_weight(appearance_weight))
+            except Exception:
+                weighted = appearance
+            chunks.append(weighted)
     if quality_text:
         # Kratki odjek scene na kraju da model ne "zaboravi" pozu kad izgled predug.
         if scene:
@@ -519,6 +666,7 @@ def build_positive_prompt(
         "limit": CLIP_TOKEN_WARN,
         "scene": scene,
         "appearance": appearance,
+        "appearance_weight": appearance_weight,
         "quality": quality_text,
         "adult_term": used_adult,
     }
@@ -664,6 +812,8 @@ def build_krea2_workflow(
     clip_name: str | None = None,
     vae_name: str | None = None,
     weight_dtype: str = "default",
+    output_width: int | None = None,
+    output_height: int | None = None,
 ) -> dict:
     """Krea 2 Turbo: UNETLoader + CLIPLoader(type=krea2) + VAELoader, bez CheckpointLoaderSimple.
 
@@ -739,9 +889,12 @@ def build_krea2_workflow(
         "class_type": "VAEDecode",
         "inputs": {"samples": ["3", 0], "vae": ["12", 0]},
     }
+    image_from = ["8", 0]
+    if output_width and output_height and (int(output_width), int(output_height)) != (int(width), int(height)):
+        image_from = apply_output_scale(wf, image_from, int(output_width), int(output_height))
     wf["9"] = {
         "class_type": "SaveImage",
-        "inputs": {"filename_prefix": "studio_krea2", "images": ["8", 0]},
+        "inputs": {"filename_prefix": "studio_krea2", "images": image_from},
     }
     return wf
 
@@ -768,6 +921,11 @@ def build_workflow(
     prompt_chunks: list[str] | None = None,
     user_lora: str = "",
     user_lora_strength: float | None = None,
+    ipadapter_images: list[str] | None = None,
+    ipadapter_weight: float = 0.8,
+    face_detailer: bool = False,
+    output_width: int | None = None,
+    output_height: int | None = None,
 ) -> dict:
     if (arch or "").lower() in {"krea2", "krea"} or detect_model_arch(model, arch) == "krea2":
         return build_krea2_workflow(
@@ -782,6 +940,8 @@ def build_workflow(
             sampler_name=sampler_name,
             scheduler=scheduler,
             object_info=object_info,
+            output_width=output_width,
+            output_height=output_height,
         )
     stack: list[tuple[str, float]] = []
     user = (user_lora or "").strip()
@@ -840,6 +1000,16 @@ def build_workflow(
     if stack:
         model_ref = prev_model
         clip_ref = prev_clip
+    refs = [n for n in (ipadapter_images or []) if str(n).strip()]
+    if refs:
+        from character import apply_ipadapter_to_workflow
+        model_ref = apply_ipadapter_to_workflow(
+            wf,
+            model_ref,
+            refs,
+            weight=ipadapter_weight,
+            object_info=object_info,
+        )
     wf["5"] = {
         "class_type": "EmptyLatentImage",
         "inputs": {
@@ -908,15 +1078,32 @@ def build_workflow(
             },
         }
         latent_from = ["11", 0]
-    # Face-detailer: samo ako su čvorovi stvarno tu; inače tiho preskoči.
-    # Namjerno ne pogađamo složene ulaze Impact Packa.
-    _ = object_info and _node_exists(object_info, "FaceDetailer")
     wf["8"] = {
         "class_type": "VAEDecode",
         "inputs": {"samples": latent_from, "vae": ["4", 2]},
     }
+    image_from = ["8", 0]
+    if face_detailer:
+        from character import apply_face_detailer
+        image_from = apply_face_detailer(
+            wf,
+            image_ref=["8", 0],
+            model_ref=model_ref,
+            clip_ref=clip_ref,
+            vae_ref=["4", 2],
+            positive_ref=pos_ref,
+            negative_ref=["7", 0],
+            seed=int(seed),
+            steps=int(steps),
+            cfg=float(cfg),
+            sampler_name=sampler_name,
+            scheduler=scheduler,
+            object_info=object_info,
+        )
+    if output_width and output_height and (int(output_width), int(output_height)) != (int(width), int(height)):
+        image_from = apply_output_scale(wf, image_from, int(output_width), int(output_height))
     wf["9"] = {
         "class_type": "SaveImage",
-        "inputs": {"filename_prefix": "studio", "images": ["8", 0]},
+        "inputs": {"filename_prefix": "studio", "images": image_from},
     }
     return wf

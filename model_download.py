@@ -16,9 +16,12 @@ from pathlib import Path
 from comfy_launch import (
     animatediff_models_dir,
     checkpoints_dir,
+    clip_vision_dir,
     diffusion_models_dir,
+    ipadapter_dir,
     loras_dir,
     text_encoders_dir,
+    ultralytics_bbox_dir,
     vae_dir,
 )
 
@@ -112,6 +115,46 @@ CURATED = [
         "note": "SD 1.5 checkpoint za video (AnimateDiff ne radi na SDXL). Oko 2 GB. Koristi se i za slike 512×768.",
     },
     {
+        "id": "ipadapter-plus-face",
+        "name": "IP-Adapter Plus Face (konzistentno lice)",
+        "filename": "ip-adapter-plus-face_sdxl_vit-h.safetensors",
+        "url": "https://huggingface.co/h94/IP-Adapter/resolve/main/sdxl_models/ip-adapter-plus-face_sdxl_vit-h.safetensors",
+        "arch": "sdxl",
+        "kind": "bundle",
+        "size_bytes": 3473974248,
+        "files": [
+            {
+                "filename": "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors",
+                "url": "https://huggingface.co/h94/IP-Adapter/resolve/main/models/image_encoder/model.safetensors",
+                "kind": "clip_vision",
+                "size_bytes": 2528373448,
+            },
+            {
+                "filename": "ip-adapter-plus-face_sdxl_vit-h.safetensors",
+                "url": "https://huggingface.co/h94/IP-Adapter/resolve/main/sdxl_models/ip-adapter-plus-face_sdxl_vit-h.safetensors",
+                "kind": "ipadapter",
+                "size_bytes": 847517512,
+            },
+            {
+                "filename": "ip-adapter-plus-face_sd15.safetensors",
+                "url": "https://huggingface.co/h94/IP-Adapter/resolve/main/models/ip-adapter-plus-face_sd15.safetensors",
+                "kind": "ipadapter",
+                "size_bytes": 98183288,
+            },
+        ],
+        "note": "Paket za konzistentno lice (IP-Adapter Plus Face, bez InsightFace). CLIP Vision ViT-H (2,35 GB) ide u models/clip_vision, a Plus Face modeli za SDXL (808 MB) i SD 1.5 (94 MB) u models/ipadapter. Javni Hugging Face (h94/IP-Adapter), resume je podržan. Ukupno oko 3,2 GB. Radi uz SDXL i SD 1.5, ne uz Krea 2. Treba i čvor ComfyUI_IPAdapter_plus (gumb Instaliraj na ovoj kartici). Na RX 6600 preporučena jačina je 0,8.",
+    },
+    {
+        "id": "face-yolov8m",
+        "name": "Face Detailer (YOLOv8m lice)",
+        "filename": "face_yolov8m.pt",
+        "url": "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt",
+        "arch": "sdxl",
+        "kind": "ultralytics_bbox",
+        "size_bytes": 52026019,
+        "note": "Detektor lica za opcijski Face Detailer (Impact Pack). Oko 50 MB, ide u models/ultralytics/bbox. Na 8 GB VRAM-a ostaje isključen po zadanom. Treba i čvorove ComfyUI-Impact-Pack i Impact-Subpack.",
+    },
+    {
         "id": "mm-sd15-v2",
         "name": "AnimateDiff motion modul (SD 1.5 v2)",
         "filename": "mm_sd_v15_v2.ckpt",
@@ -136,6 +179,12 @@ def dest_dir_for(kind: str | None = None) -> Path:
         return text_encoders_dir()
     if kind in {"vae"}:
         return vae_dir()
+    if kind in {"clip_vision", "clip-vision", "clipvision"}:
+        return clip_vision_dir()
+    if kind in {"ipadapter", "ip_adapter", "ip-adapter"}:
+        return ipadapter_dir()
+    if kind in {"ultralytics", "ultralytics_bbox", "ultralytics-bbox", "yolo", "yolo_bbox"}:
+        return ultralytics_bbox_dir()
     return checkpoints_dir()
 
 

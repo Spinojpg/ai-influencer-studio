@@ -35,6 +35,8 @@ import model_download
 import updater
 import video as video_mod
 import video_install
+import character
+import character_install
 import subprocess
 
 ROOT = Path(__file__).resolve().parent
@@ -622,20 +624,35 @@ def plan_image_generation(
     if quality_on is None:
         quality_on = inbox.get_setting("quality_prefix", "1") != "0"
     adult_term = image_gen.adult_term_for_profile(prof, appearance=appearance, scene=scene)
+    if "appearance_weight" in body and body.get("appearance_weight") not in (None, ""):
+        appearance_weight = character.clamp_appearance_weight(body.get("appearance_weight"))
+    elif prof and prof.get("appearance_weight") not in (None, ""):
+        appearance_weight = character.clamp_appearance_weight(prof.get("appearance_weight"))
+    else:
+        appearance_weight = character.DEFAULT_APPEARANCE_WEIGHT
     built = image_gen.build_positive_prompt(
         scene=scene,
         appearance=appearance,
         quality=bool(quality_on),
         adult_term=adult_term,
+        appearance_weight=appearance_weight,
     )
     prompt = built["prompt"]
 
     dim_max = 2048 if arch == "krea2" else 1536
-    defaults = image_gen.presets_for(arch)[0]
-    width = clamp_int(body.get("width"), 256, dim_max, defaults["width"])
-    height = clamp_int(body.get("height"), 256, dim_max, defaults["height"])
-    width = max(256, min(dim_max, width - (width % 8)))
-    height = max(256, min(dim_max, height - (height % 8)))
+    canvas = image_gen.resolve_canvas(
+        arch,
+        body.get("width"),
+        body.get("height"),
+        output_width=body.get("output_width"),
+        output_height=body.get("output_height"),
+        preset_id=str(body.get("size_preset") or body.get("preset_id") or ""),
+        dim_max=dim_max,
+    )
+    width = canvas["width"]
+    height = canvas["height"]
+    output_width = canvas["output_width"]
+    output_height = canvas["output_height"]
     batch = clamp_int(body.get("batch"), 1, 4, 1)
     steps = clamp_int(body.get("steps"), 4, 50, image_gen.default_steps(arch))
     cfg = body.get("cfg")
@@ -648,17 +665,41 @@ def plan_image_generation(
         # dopušteno, ali UI upozorava na VRAM; ne blokiramo ako je korisnik svjesno uključio
         pass
 
+    lock_seed = character.truthy(body.get("lock_seed"), character.truthy((prof or {}).get("lock_seed"), False))
     seed = body.get("seed")
-    if seed is None or seed == "" or int(seed) < 0:
+    seed_missing = seed is None or seed == ""
+    try:
+        seed_negative = (not seed_missing) and int(seed) < 0
+    except (TypeError, ValueError):
+        seed_negative = True
+    if lock_seed and (seed_missing or seed_negative):
+        stored = (prof or {}).get("locked_seed")
+        try:
+            if stored not in (None, "", "-1", -1) and int(stored) >= 0:
+                seed = int(stored)
+            else:
+                seed = random.randint(0, 2_147_483_647)
+        except (TypeError, ValueError):
+            seed = random.randint(0, 2_147_483_647)
+    elif seed_missing or seed_negative:
         seed = random.randint(0, 2_147_483_647)
     else:
         seed = clamp_int(seed, 0, 2_147_483_647, random.randint(0, 2_147_483_647))
 
     turbo = bool(body.get("turbo"))
-    user_lora = (body.get("lora") or body.get("user_lora") or "").strip()
+    if "lora" in body or "user_lora" in body:
+        user_lora = (body.get("lora") or body.get("user_lora") or "").strip()
+    else:
+        user_lora = ((prof or {}).get("preferred_lora") or "").strip()
     if image_gen.is_turbo_lora_file(user_lora):
         user_lora = ""
-    user_lora_strength = clamp_float(body.get("lora_strength", body.get("user_lora_strength")), 0.0, 1.5, 0.8)
+    strength_src = body.get("lora_strength", body.get("user_lora_strength"))
+    if strength_src in (None, "") and "lora" not in body and "user_lora" not in body and prof:
+        strength_src = prof.get("preferred_lora_strength")
+    default_strength = 0.8
+    if prof and prof.get("preferred_lora_strength") not in (None, "") and not ("lora_strength" in body or "user_lora_strength" in body):
+        default_strength = clamp_float(prof.get("preferred_lora_strength"), 0.0, 1.5, 0.8)
+    user_lora_strength = clamp_float(strength_src, 0.0, 1.5, default_strength)
     sampler_name, scheduler = image_gen.default_sampler(arch)
 
     if arch == "krea2":
@@ -720,6 +761,48 @@ def plan_image_generation(
         scheduler = spec["scheduler"]
         hires = False
 
+    if "ipadapter_weight" in body and body.get("ipadapter_weight") not in (None, ""):
+        ipadapter_weight = character.clamp_ipadapter_weight(body.get("ipadapter_weight"))
+    elif prof and prof.get("ipadapter_weight") not in (None, ""):
+        ipadapter_weight = character.clamp_ipadapter_weight(prof.get("ipadapter_weight"))
+    else:
+        ipadapter_weight = character.DEFAULT_IPADAPTER_WEIGHT
+
+    face_detailer = character.truthy(body.get("face_detailer"), character.truthy((prof or {}).get("face_detailer"), False))
+    if arch == "krea2":
+        face_detailer = False
+
+    ipadapter_images: list[str] = []
+    if arch != "krea2":
+        staged = body.get("ipadapter_images") or body.get("ref_images")
+        if isinstance(staged, list) and staged and all(isinstance(x, str) and x.strip() for x in staged):
+            ipadapter_images = [x.replace("\\", "/").strip() for x in staged][: character.MAX_REFS]
+        else:
+            paths = []
+            if prof and prof.get("id") is not None:
+                try:
+                    paths = inbox.reference_paths(int(prof["id"]))
+                except Exception:
+                    paths = []
+            if paths:
+                err = character.ipadapter_error(arch, object_info, want_refs=True)
+                if err:
+                    return err
+                try:
+                    ipadapter_images = character.stage_reference_images(paths, prefix=f"studio_refs/p{int(prof['id'])}")
+                except Exception as exc:
+                    return {"ok": False, "status": 500, "error": f"Ne mogu pripremiti referentne slike: {exc}"}
+
+        if ipadapter_images:
+            err = character.ipadapter_error(arch, object_info, want_refs=True)
+            if err:
+                return err
+
+    if face_detailer:
+        err = character.face_detailer_error(object_info, want=True)
+        if err:
+            return err
+
     workflow = build_workflow(
         prompt=prompt,
         negative=negative,
@@ -739,6 +822,11 @@ def plan_image_generation(
         user_lora_strength=user_lora_strength,
         turbo=turbo,
         prompt_chunks=None if arch == "krea2" else built["chunks"],
+        ipadapter_images=ipadapter_images if arch != "krea2" else [],
+        ipadapter_weight=ipadapter_weight,
+        face_detailer=bool(face_detailer) and arch != "krea2",
+        output_width=output_width,
+        output_height=output_height,
     )
     return {
         "ok": True,
@@ -748,8 +836,13 @@ def plan_image_generation(
             "ok": True,
             "seed": seed,
             "model": model,
-            "width": width,
-            "height": height,
+            "width": output_width,
+            "height": output_height,
+            "gen_width": width,
+            "gen_height": height,
+            "output_width": output_width,
+            "output_height": output_height,
+            "size_preset": canvas.get("preset_id") or "",
             "batch": batch,
             "steps": steps,
             "cfg": cfg,
@@ -759,6 +852,12 @@ def plan_image_generation(
             "krea_turbo": krea_turbo,
             "lora": user_lora if arch != "krea2" else "",
             "lora_strength": user_lora_strength if (arch != "krea2" and user_lora) else None,
+            "appearance_weight": appearance_weight,
+            "ipadapter": bool(ipadapter_images) and arch != "krea2",
+            "ipadapter_weight": ipadapter_weight if (ipadapter_images and arch != "krea2") else None,
+            "ipadapter_images": ipadapter_images if arch != "krea2" else [],
+            "face_detailer": bool(face_detailer) and arch != "krea2",
+            "lock_seed": bool(lock_seed),
             "prompt": prompt,
             "tokens": built["tokens"],
             "token_warn": built["warn"],
@@ -988,6 +1087,10 @@ class StudioHandler(BaseHTTPRequestHandler):
             state["presets"] = {"sd15": image_gen.SD15_PRESETS, "sdxl": image_gen.SDXL_PRESETS}
             state["lowvram_note"] = image_gen.LOWVRAM_NOTE
             state["quality_prefix_text"] = QUALITY_PREFIX
+            try:
+                state["character"] = character_install.current_status(cached_object_info())
+            except Exception:
+                state["character"] = {"ok": True, "capabilities": character.capabilities({})}
             self._json(200, state)
             return
 
@@ -1016,6 +1119,19 @@ class StudioHandler(BaseHTTPRequestHandler):
 
         if path == "/api/profiles":
             self._json(200, {"ok": True, "profiles": inbox.list_profiles(), "active_profile_id": inbox.active_profile_id()})
+            return
+
+        if path == "/api/character" or path == "/api/character/status":
+            self._json(200, character_install.current_status(cached_object_info()))
+            return
+
+        if path == "/api/character/install":
+            self._json(200, {"ok": True, "install": character_install.snapshot()})
+            return
+
+        m = re.fullmatch(r"/api/profiles/(\d+)/refs/(\d+)", path)
+        if m:
+            self._serve_reference(int(m.group(1)), index=int(m.group(2)))
             return
 
         m = re.fullmatch(r"/api/profiles/(\d+)/image", path)
@@ -1105,8 +1221,8 @@ class StudioHandler(BaseHTTPRequestHandler):
         else:
             self._send(403, payload.encode("utf-8"), "text/plain; charset=utf-8")
 
-    def _serve_reference(self, pid: int) -> None:
-        path = inbox.reference_image_path(pid)
+    def _serve_reference(self, pid: int, index: int = 0) -> None:
+        path = inbox.reference_image_path(pid, index)
         if not path:
             self._json(404, {"ok": False, "error": "Nema referentne slike."})
             return
@@ -1223,6 +1339,24 @@ class StudioHandler(BaseHTTPRequestHandler):
             inbox.set_setting("active_profile_id", str(pid))
             inbox.export_profiles_json()
             self._json(200, {"ok": True, "active_profile_id": pid, "profile": inbox.get_profile(pid)})
+            return
+
+        if path == "/api/character/install":
+            kind = (body.get("kind") or body.get("what") or "ipadapter")
+            try:
+                snap = character_install.start_install(str(kind))
+            except ValueError as exc:
+                self._json(400, {"ok": False, "error": str(exc)})
+                return
+            except RuntimeError as exc:
+                self._json(409, {"ok": False, "error": str(exc), "install": character_install.snapshot()})
+                return
+            self._json(200, {"ok": True, "install": snap})
+            return
+
+        m = re.fullmatch(r"/api/profiles/(\d+)/refs", path)
+        if m:
+            self._upload_reference(int(m.group(1)), body)
             return
 
         m = re.fullmatch(r"/api/profiles/(\d+)/image", path)
@@ -1355,6 +1489,21 @@ class StudioHandler(BaseHTTPRequestHandler):
         except Exception:
             self._json(400, {"ok": False, "error": "Tijelo zahtjeva nije valjani JSON."})
             return
+        mref = re.fullmatch(r"/api/profiles/(\d+)/refs", parsed.path)
+        if mref:
+            if not isinstance(body, dict):
+                self._json(400, {"ok": False, "error": "Tijelo zahtjeva nije objekt."})
+                return
+            try:
+                refs = inbox.reorder_reference_images(int(mref.group(1)), body.get("order") or body.get("refs") or [])
+            except KeyError as exc:
+                self._json(404, {"ok": False, "error": str(exc)})
+                return
+            except ValueError as exc:
+                self._json(400, {"ok": False, "error": str(exc)})
+                return
+            self._json(200, {"ok": True, "profile": inbox.get_profile(int(mref.group(1))), "reference_images": refs})
+            return
         m = re.fullmatch(r"/api/profiles/(\d+)", parsed.path)
         if not m:
             if parsed.path == "/api/settings":
@@ -1384,6 +1533,19 @@ class StudioHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/models/installed":
             self._delete_installed_model()
+            return
+        mref = re.fullmatch(r"/api/profiles/(\d+)/refs/(\d+)", parsed.path)
+        if mref:
+            try:
+                refs = inbox.delete_reference_image(int(mref.group(1)), index=int(mref.group(2)))
+            except KeyError as exc:
+                self._json(404, {"ok": False, "error": str(exc)})
+                return
+            except ValueError as exc:
+                self._json(400, {"ok": False, "error": str(exc)})
+                return
+            pid = int(mref.group(1))
+            self._json(200, {"ok": True, "profile": inbox.get_profile(pid), "reference_images": refs})
             return
         m = re.fullmatch(r"/api/profiles/(\d+)", parsed.path)
         if not m:
@@ -1448,11 +1610,21 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._json(400, {"ok": False, "error": "Slika je prazna ili veća od 8 MB."})
             return
         try:
-            rel = inbox.save_reference_image(pid, data, ext)
+            refs = inbox.add_reference_image(pid, data, ext)
         except KeyError as exc:
             self._json(404, {"ok": False, "error": str(exc)})
             return
-        self._json(200, {"ok": True, "reference_image": rel, "url": f"/api/profiles/{pid}/image"})
+        except ValueError as exc:
+            self._json(400, {"ok": False, "error": str(exc)})
+            return
+        idx = max(0, len(refs) - 1)
+        self._json(200, {
+            "ok": True,
+            "reference_image": refs[0] if refs else "",
+            "reference_images": refs,
+            "url": f"/api/profiles/{pid}/refs/{idx}",
+            "profile": inbox.get_profile(pid),
+        })
 
     def _draft_action(self, draft_id: int, action: str, body: dict) -> None:
         try:
@@ -1522,11 +1694,18 @@ class StudioHandler(BaseHTTPRequestHandler):
         if quality_on is None:
             quality_on = inbox.get_setting("quality_prefix", "1") != "0"
         adult_term = image_gen.adult_term_for_profile(prof, appearance=appearance, scene=scene)
+        if "appearance_weight" in body and body.get("appearance_weight") not in (None, ""):
+            appearance_weight = character.clamp_appearance_weight(body.get("appearance_weight"))
+        elif prof and prof.get("appearance_weight") not in (None, ""):
+            appearance_weight = character.clamp_appearance_weight(prof.get("appearance_weight"))
+        else:
+            appearance_weight = character.DEFAULT_APPEARANCE_WEIGHT
         return image_gen.build_positive_prompt(
             scene=scene,
             appearance=appearance,
             quality=bool(quality_on),
             adult_term=adult_term,
+            appearance_weight=appearance_weight,
         )
 
     def _generate_video(self, body: dict) -> None:
@@ -1712,6 +1891,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             "loras_info": lora_entries(),
             "turbo": image_gen.TURBO_SDXL,
             "turbo_ready": image_gen.lora_available(image_gen.TURBO_SDXL["lora_filename"]),
+            "character": character_install.current_status(cached_object_info() if ok else {}),
             "lowvram_note": image_gen.LOWVRAM_NOTE,
             "triton_note": (
                 "Triton test na ovom PC-u pada jer clang ne nalazi stdio.h (nema Visual Studio / Windows SDK). "

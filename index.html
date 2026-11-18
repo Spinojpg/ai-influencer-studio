@@ -160,6 +160,44 @@
     }
     .appear-summary .appear-text { color: var(--text); }
     .appear-summary.empty .appear-text { color: var(--muted); font-style: italic; }
+
+    #sizes.seg { flex-wrap: wrap; }
+    #sizes.seg button { flex: 1 1 22%; min-width: 108px; }
+    .appear-meta {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      margin-top: 8px;
+    }
+    .meta-chip {
+      font-size: 0.72rem;
+      letter-spacing: 0.02em;
+      color: var(--gold);
+      border: 1px solid rgba(228,181,106,0.28);
+      background: rgba(228,181,106,0.08);
+      border-radius: 999px;
+      padding: 3px 8px;
+    }
+    .ref-list {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      margin: 8px 0;
+    }
+    .ref-slot {
+      width: 104px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: stretch;
+    }
+    .ref-slot img, .ref-slot .thumb-empty {
+      width: 104px; height: 104px;
+      border-radius: 12px;
+      object-fit: cover;
+      background: var(--bg2);
+      border: 1px solid var(--line);
+    }
+    .ref-slot .ref-actions { display: flex; gap: 4px; }
+    .ref-slot .ref-actions button { flex: 1; padding: 4px 0; font-size: 0.75rem; }
+    .char-install { margin-top: 22px; padding-top: 8px; }
+    .char-install .actions { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; }
     .range-row {
       display: flex;
       align-items: center;
@@ -757,6 +795,7 @@
           <select id="osoba"></select>
           <div class="appear-summary" id="appearSummary">
             <div class="appear-text" id="appearText"></div>
+            <div class="appear-meta" id="appearMeta"></div>
           </div>
           <label class="lbl" for="appearExtra" style="margin-top:12px">Dodatno</label>
           <input type="text" id="appearExtra" placeholder="Privremeno, samo za ovu sliku (npr. crvena haljina)…" />
@@ -777,6 +816,7 @@
             <button type="button" data-w="512" data-h="512">Kvadrat<br>512×512</button>
             <button type="button" data-w="768" data-h="512">Pejzaž<br>768×512</button>
           </div>
+          <div class="hint" id="sizeHint">IG formati (4:5, 1:1, 9:16) generiraju se na manjem platnu pa se povećaju na točnih 1080 piksela, da stanu u 8 GB VRAM-a.</div>
         </div>
 
         <div class="field">
@@ -818,6 +858,32 @@
               </div>
               <div class="hint" id="loraHint">LoRA-e iz models/loras, usklađene s odabranim modelom. Nepoznate su pod Ostalo. Turbo LoRA se dodaje zasebno kad uključiš Turbo.</div>
             </div>
+            <div class="field" id="appearWeightField">
+              <label class="lbl" for="appearWeight">Težina opisa izgleda</label>
+              <div class="range-row">
+                <input type="range" id="appearWeight" min="1.0" max="1.5" step="0.05" value="1.3" />
+                <span class="range-val" id="appearWeightVal">1.30</span>
+              </div>
+              <div class="hint">Jači broj više prati izgled s profila (kosa, oči, tetovaže). Zadano 1,3.</div>
+            </div>
+            <div class="field" id="ipaField">
+              <label class="lbl" for="ipaWeight">Jačina referentne slike lica</label>
+              <div class="range-row">
+                <input type="range" id="ipaWeight" min="0.6" max="1.0" step="0.05" value="0.8" />
+                <span class="range-val" id="ipaWeightVal">0.80</span>
+              </div>
+              <div class="hint" id="ipaHint">IP-Adapter Plus Face primjenjuje 1–3 slike lica s profila osobe. Nije dostupno uz Krea 2. Ako paket ili čvor nedostaje, pojavi se gumb za instalaciju.</div>
+              <div class="actions" id="ipaInstallRow" hidden style="margin-top:8px">
+                <button type="button" class="btn primary" id="installIpaAdv">Instaliraj IP-Adapter</button>
+              </div>
+            </div>
+            <div class="field" id="faceDetailerField" hidden>
+              <label class="lbl"><input type="checkbox" id="faceDetailer" /> Face Detailer (dodatni prolaz po licu)</label>
+              <div class="hint" id="faceHint">Po zadanom isključeno. Na RX 6600 (8 GB) može biti sporo i tijesno s memorijom.</div>
+              <div class="actions" id="faceInstallRow" hidden style="margin-top:8px">
+                <button type="button" class="btn" id="installFaceAdv">Instaliraj Face Detailer</button>
+              </div>
+            </div>
             <div class="field">
               <label class="lbl">Broj slika</label>
               <div class="seg" id="batch">
@@ -841,7 +907,7 @@
                 <input type="number" id="seed" value="-1" min="-1" max="2147483647" />
                 <button type="button" class="ghost" id="randSeed">Nasumično</button>
               </div>
-              <div class="hint">−1 znači nasumični seed pri svakom pokretanju.</div>
+              <div class="hint" id="seedHint">−1 znači nasumični seed pri svakom pokretanju. Ako je na osobi uključeno „Zaključaj seed”, koristi se spremljeni seed.</div>
             </div>
             <div class="field">
               <label class="lbl" for="negative">Negativni prompt</label>
@@ -1017,6 +1083,21 @@
         <h2 class="sec" style="margin-top:0">Predloženi modeli</h2>
         <p class="hint">Preuzimanja idu u odgovarajuće mape ComfyUI-ja (<code>models\checkpoints</code>, <code>loras</code>, <code>diffusion_models</code>…). Nakon preuzimanja popis se osvježi.</p>
         <div id="curatedModels"></div>
+        <section class="char-install" id="characterBox">
+          <h2 class="sec">Konzistentnost lica</h2>
+          <p class="hint" id="ipaStatusText">Za iste crte lica kroz slike treba čvor ComfyUI_IPAdapter_plus i paket modela (CLIP Vision + Plus Face, oko 3,2 GB). Treba Git.</p>
+          <div class="actions">
+            <button type="button" class="btn primary" id="installIpa">Instaliraj IP-Adapter</button>
+          </div>
+          <p class="hint" id="faceStatusText" style="margin-top:14px">Face Detailer je opcionalan (Impact Pack + Subpack + face_yolov8m.pt) i po zadanom je isključen jer na 8 GB može biti tijesan.</p>
+          <div class="actions">
+            <button type="button" class="btn" id="installFace">Instaliraj Face Detailer</button>
+          </div>
+          <div class="progress-block" id="charInstWrap" hidden style="margin-top:12px">
+            <div class="progress-label"><span id="charInstText">Instalacija…</span><span id="charInstPct">0%</span></div>
+            <div class="bar"><i id="charInstFill"></i></div>
+          </div>
+        </section>
         <div class="field" style="margin-top:18px">
           <label class="lbl" for="customModelUrl">Ili zalijepi izravni URL (npr. Civitai ili Hugging Face)</label>
           <input type="text" id="customModelUrl" placeholder="https://…/ime.safetensors" />
@@ -1066,7 +1147,20 @@
           </div>
           <div class="field">
             <label class="lbl" for="pModel">Preferirani model</label>
-            <input type="text" id="pModel" />
+            <select id="pModel">
+              <option value="">Nije zadano (biraj u Slikama)</option>
+            </select>
+          </div>
+          <div class="field" id="pLoraField">
+            <label class="lbl" for="pLora">Preferirana LoRA</label>
+            <select id="pLora">
+              <option value="">Bez LoRA-e</option>
+            </select>
+            <div class="range-row" id="pLoraStrengthRow" hidden>
+              <input type="range" id="pLoraStrength" min="0" max="1.5" step="0.05" value="0.8" />
+              <span class="range-val" id="pLoraStrengthVal">0.80</span>
+            </div>
+            <div class="hint">Kad odabereš ovu osobu u Slikama, model i LoRA se unaprijed postave. Možeš ih i dalje promijeniti za tu sliku.</div>
           </div>
           <div class="field">
             <label class="lbl" for="pModelType">Tip modela</label>
@@ -1117,10 +1211,34 @@
             <button class="btn" type="button" id="addExample">Dodaj primjer</button>
           </div>
           <div class="field">
-            <label class="lbl" for="pRef">Referentna slika (opcionalno, sprema se lokalno)</label>
-            <div class="hint">Nije obavezna. Ako je staviš, Studio je koristi kao vizualni smjer da slike izgledaju kao ista osoba.</div>
+            <label class="lbl" for="pAppearWeight">Težina opisa izgleda</label>
+            <div class="range-row">
+              <input type="range" id="pAppearWeight" min="1.0" max="1.5" step="0.05" value="1.3" />
+              <span class="range-val" id="pAppearWeightVal">1.30</span>
+            </div>
+          </div>
+          <div class="field">
+            <label class="lbl">Referentne slike lica (1–3, različiti kutovi)</label>
+            <div class="hint">Spremaju se uz osobu. Studio ih primjenjuje preko IP-Adapter Plus Face (bez InsightFace). Najbolje su jasni kadrovi lica odrasle osobe.</div>
+            <div class="ref-list" id="pRefList"></div>
             <input type="file" id="pRef" accept="image/png,image/jpeg,image/webp" />
-            <div id="pRefPreview" style="margin-top:8px"></div>
+            <div class="range-row" style="margin-top:10px">
+              <label class="lbl" for="pIpaWeight" style="margin:0;min-width:8em">Jačina reference</label>
+              <input type="range" id="pIpaWeight" min="0.6" max="1.0" step="0.05" value="0.8" />
+              <span class="range-val" id="pIpaWeightVal">0.80</span>
+            </div>
+          </div>
+          <div class="field">
+            <label class="lbl"><input type="checkbox" id="pFaceDetailer" /> Face Detailer za ovu osobu</label>
+            <div class="hint">Po zadanom isključeno. Na 8 GB VRAM-a ostavi isključeno osim kad želiš dodatni prolaz po licu.</div>
+          </div>
+          <div class="field">
+            <label class="lbl"><input type="checkbox" id="pLockSeed" /> Zaključaj seed</label>
+            <div class="seed-row" id="pLockedSeedRow" hidden style="margin-top:8px">
+              <input type="number" id="pLockedSeed" min="0" max="2147483647" placeholder="Seed" />
+              <button type="button" class="ghost" id="pRandSeed">Nasumični</button>
+            </div>
+            <div class="hint">Isti seed pomaže da serije slika ostanu sličnije. Scena i dalje može mijenjati pozu.</div>
           </div>
           <div class="actions">
             <button class="btn primary" type="submit">Spremi profil</button>
@@ -1183,7 +1301,8 @@
     const bar = $("bar");
     const barFill = $("barFill");
 
-    let width = 512, height = 768, batch = 1, steps = 30, frames = 16, currentArch = "sd15", lastMeta = null, turboMode = false, lastImage = null, videoSource = "image";
+    let width = 512, height = 768, outputWidth = 512, outputHeight = 768, sizePreset = "", batch = 1, steps = 30, frames = 16, currentArch = "sd15", lastMeta = null, turboMode = false, lastImage = null, videoSource = "image";
+    let pendingRefs = [];
     let pollTimer = null;
     let comfyOk = false;
     let state = { profiles: [], active_profile_id: null, settings: {}, active_profile: null };
@@ -1293,9 +1412,16 @@
       return appearanceFromProfile(selectedPersona(), appearExtraEl ? appearExtraEl.value : "");
     }
 
+    function personaRefCount(prof) {
+      if (!prof) return 0;
+      if (Array.isArray(prof.reference_images) && prof.reference_images.length) return prof.reference_images.length;
+      return prof.has_reference ? 1 : 0;
+    }
+
     function updateAppearanceSummary() {
       const el = $("appearText");
       const box = $("appearSummary");
+      const meta = $("appearMeta");
       if (!el || !box) return;
       const prof = selectedPersona();
       const text = appearanceFromProfile(prof, "");
@@ -1308,35 +1434,77 @@
         box.classList.add("empty");
         box.hidden = false;
       }
+      if (meta) {
+        const chips = [];
+        const nref = personaRefCount(prof);
+        if (nref) chips.push(nref === 1 ? "1 referentna slika" : nref + " referentne slike");
+        const modelName = (prof && prof.preferred_model) ? shortModelName(prof.preferred_model) : (shortModelName(modelEl && modelEl.value) || "");
+        if (modelName) chips.push(modelName);
+        const loraName = (prof && prof.preferred_lora) || (loraEl && loraEl.value) || "";
+        if (loraName) chips.push("LoRA " + loraName);
+        if (prof && prof.lock_seed) chips.push("zaključan seed");
+        meta.innerHTML = chips.map((c) => '<span class="meta-chip">' + escapeHtml(c) + "</span>").join("");
+      }
       updateTokenCount();
     }
 
+    function setRangeVal(inputId, labelId, digits) {
+      const el = $(inputId);
+      const lab = $(labelId);
+      if (!el || !lab) return;
+      const n = Number(el.value);
+      lab.textContent = (Math.round(n * 100) / 100).toFixed(digits);
+    }
+
     function applyProfileToImageForm(prof) {
-      if (!prof) return;
+      if (!prof) { updateAppearanceSummary(); updateConsistencyUi(); return; }
       if (osobaEl && prof.id != null) {
         if (Array.from(osobaEl.options).some((o) => o.value === String(prof.id))) {
           osobaEl.value = String(prof.id);
         }
       }
-      updateAppearanceSummary();
       if (prof.negative_prompt) negEl.value = prof.negative_prompt;
-      if (prof.preferred_model) {
+      if (prof.preferred_model && modelEl) {
         const exists = Array.from(modelEl.options).some((o) => o.value === prof.preferred_model);
         if (exists) modelEl.value = prof.preferred_model;
       }
+      if ($("appearWeight") && prof.appearance_weight != null) $("appearWeight").value = String(prof.appearance_weight);
+      if ($("ipaWeight") && prof.ipadapter_weight != null) $("ipaWeight").value = String(prof.ipadapter_weight);
+      setRangeVal("appearWeight", "appearWeightVal", 2);
+      setRangeVal("ipaWeight", "ipaWeightVal", 2);
+      if ($("faceDetailer") && typeof prof.face_detailer !== "undefined") $("faceDetailer").checked = !!prof.face_detailer;
+      if (prof.lock_seed && seedEl) {
+        const locked = Number(prof.locked_seed);
+        if (!Number.isNaN(locked) && locked >= 0) seedEl.value = String(locked);
+      }
       updateActiveModelLine();
+      applyArchFromModel();
       fillLoraSelect();
+      if (prof.preferred_lora && loraEl && currentArch !== "krea2") {
+        const exists = Array.from(loraEl.options).some((o) => o.value === prof.preferred_lora);
+        if (exists) {
+          loraEl.value = prof.preferred_lora;
+          if (loraStrengthEl && prof.preferred_lora_strength != null) loraStrengthEl.value = String(prof.preferred_lora_strength);
+          syncLoraStrengthUi();
+        }
+      }
+      updateAppearanceSummary();
+      updateConsistencyUi();
     }
 
     async function loadState() {
       const r = await fetch("/api/state", { cache: "no-store" });
       state = await r.json();
+      if (state.character) window._character = state.character;
+      if (state.presets) window._presets = state.presets;
       setStatus(!!(state.comfy && state.comfy.ok), state.comfy && state.comfy.message);
       setGrok(!!(state.settings && state.settings.xai_configured), state.settings && state.settings.xai_configured ? "xAI ključ je spreman" : "Nema XAI_API_KEY. Uredi .env");
       fillProfileSelects();
       applySettingsForm();
-      applyProfileToImageForm(state.active_profile);
+      applyProfileToImageForm(selectedPersona() || state.active_profile);
       renderProfileList();
+      updateConsistencyUi();
+      renderCharacterStatus();
       if (state.version) {
         const lab = $("appVersionLabel");
         if (lab) lab.textContent = "v" + state.version;
@@ -1521,10 +1689,17 @@
         b.classList.toggle("on", b.getAttribute(attr) === String(value));
       });
     }
+    function applySizeButton(b) {
+      if (!b) return;
+      width = Number(b.dataset.w); height = Number(b.dataset.h);
+      outputWidth = b.dataset.ow ? Number(b.dataset.ow) : width;
+      outputHeight = b.dataset.oh ? Number(b.dataset.oh) : height;
+      sizePreset = b.dataset.id || "";
+    }
     $("sizes").addEventListener("click", (e) => {
       const b = e.target.closest("button");
       if (!b) return;
-      width = Number(b.dataset.w); height = Number(b.dataset.h);
+      applySizeButton(b);
       document.querySelectorAll("#sizes button").forEach((x) => x.classList.toggle("on", x === b));
     });
     $("batch").addEventListener("click", (e) => {
@@ -1578,7 +1753,8 @@
         const d = await r.json();
         if (d.loras_info) { window._loras = d.loras_info; }
         if (d.turbo) window._turbo = d.turbo;
-        if (!d.ok) { setStatus(false, d.error || ""); fillLoraSelect(); return; }
+        if (d.character) window._character = d.character;
+        if (!d.ok) { setStatus(false, d.error || ""); fillLoraSelect(); updateConsistencyUi(); return; }
         setStatus(true, "ComfyUI je spojen");
         const models = d.models || [];
         const preferred = d.default || DEFAULT_MODEL;
@@ -1605,9 +1781,12 @@
         window._presets = d.presets || window._presets;
         window._loras = d.loras_info || window._loras || [];
         if (d.turbo) window._turbo = d.turbo;
-        applyProfileToImageForm(state.active_profile);
+        fillProfileModelSelects();
+        applyProfileToImageForm(selectedPersona() || state.active_profile);
         applyArchFromModel();
         fillLoraSelect();
+        updateConsistencyUi();
+        renderCharacterStatus();
         renderInstalledModels(models);
       } catch (e) { setStatus(false, String(e)); }
     }
@@ -1766,10 +1945,10 @@
       const hint = $("archHint");
       if (hint) {
         hint.textContent = arch === "krea2"
-          ? "Model: Krea 2 Turbo · formati 1024×1024 (zadano, službeni predložak), 832×1216, 1216×832. 8 koraka, cfg 1, euler/simple."
+          ? "Model: Krea 2 Turbo · klasični formati plus IG 4:5 / 1:1 / 9:16 (izlaz 1080 px). 8 koraka, cfg 1, euler/simple."
           : (arch === "sdxl"
-          ? "Model: SDXL · formati 768×1152 (zadano, sigurnije na 8 GB), 832×1216 Portret HD, 1024×1024, 1216×832, cfg 5. U postavkama možeš uključiti Low VRAM."
-          : "Model: SD 1.5 · formati 512×768 / 512×512 / 768×512, cfg 5,5. Na RX 6600 u postavkama možeš uključiti Low VRAM.");
+          ? "Model: SDXL · 768×1152 (zadano, sigurnije na 8 GB), Portret HD, kvadrat, pejzaž, plus IG 4:5 / 1:1 / 9:16 (izlaz 1080 px). U postavkama možeš uključiti Low VRAM."
+          : "Model: SD 1.5 · 512×768 / 512×512 / 768×512, plus IG formati (manje platno, izlaz 1080 px). Na RX 6600 u postavkama možeš uključiti Low VRAM.");
       }
       const hh = $("hiresHint");
       if (hh) {
@@ -1785,6 +1964,8 @@
       if (hiresField) hiresField.hidden = arch === "krea2";
       if (arch === "krea2" && $("hiresFix")) $("hiresFix").checked = false;
       if ($("kreaHint")) $("kreaHint").hidden = arch !== "krea2";
+      updateConsistencyUi();
+      updateAppearanceSummary();
       if (arch === "krea2") turboMode = false;
       const loraField = $("loraField");
       if (loraField) loraField.hidden = arch === "krea2";
@@ -2057,13 +2238,19 @@
         negative: negEl.value,
         model: modelEl.value,
         width: width, height: height, batch: batch, steps: steps,
+        output_width: outputWidth, output_height: outputHeight,
+        size_preset: sizePreset || "",
         seed: Number(seedEl.value),
         quality_prefix: $("qualityPrefix") ? $("qualityPrefix").checked : true,
         hires: $("hiresFix") ? $("hiresFix").checked : false,
         turbo: currentArch === "krea2" ? false : !!turboMode,
         lora: currentArch === "krea2" ? "" : (loraEl ? loraEl.value : ""),
         lora_strength: currentArch === "krea2" ? 0.8 : (loraStrengthEl ? Number(loraStrengthEl.value) : 0.8),
-        model_type: currentArch === "sdxl" ? "sdxl" : (currentArch === "sd15" ? "sd15" : (currentArch === "krea2" ? "krea2" : "auto"))
+        model_type: currentArch === "sdxl" ? "sdxl" : (currentArch === "sd15" ? "sd15" : (currentArch === "krea2" ? "krea2" : "auto")),
+        appearance_weight: $("appearWeight") ? Number($("appearWeight").value) : 1.3,
+        ipadapter_weight: $("ipaWeight") ? Number($("ipaWeight").value) : 0.8,
+        face_detailer: currentArch === "krea2" ? false : !!( $("faceDetailer") && $("faceDetailer").checked ),
+        lock_seed: !!(prof && prof.lock_seed)
       };
     }
 
@@ -2091,10 +2278,14 @@
     if (promptEl) promptEl.addEventListener("input", updateTokenCount);
     if (appearExtraEl) appearExtraEl.addEventListener("input", updateTokenCount);
     if (osobaEl) osobaEl.addEventListener("change", () => {
-      const prof = selectedPersona();
-      if (prof && prof.negative_prompt) negEl.value = prof.negative_prompt;
-      updateAppearanceSummary();
+      applyProfileToImageForm(selectedPersona());
     });
+    ["appearWeight", "ipaWeight"].forEach((id) => {
+      const el = $(id);
+      if (el) el.addEventListener("input", () => setRangeVal(id, id + "Val", 2));
+    });
+    setRangeVal("appearWeight", "appearWeightVal", 2);
+    setRangeVal("ipaWeight", "ipaWeightVal", 2);
     if (loraEl) loraEl.addEventListener("change", () => { syncLoraStrengthUi(); rememberLoraForModel(); });
     if (loraStrengthEl) loraStrengthEl.addEventListener("input", () => { syncLoraStrengthUi(); rememberLoraForModel(); });
     if ($("qualityPrefix")) $("qualityPrefix").addEventListener("input", updateTokenCount);
@@ -2444,24 +2635,109 @@
 
 
 
+    function fillProfileModelSelects() {
+      const modelSel = $("pModel");
+      const loraSel = $("pLora");
+      const keepM = modelSel ? modelSel.value : "";
+      const keepL = loraSel ? loraSel.value : "";
+      if (modelSel) {
+        const names = Array.from(modelEl.options).map((o) => o.value).filter(Boolean);
+        let html = '<option value="">Nije zadano (biraj u Slikama)</option>';
+        names.forEach((name) => {
+          html += '<option value="' + escapeHtml(name) + '">' + escapeHtml(name) + "</option>";
+        });
+        if (keepM && names.indexOf(keepM) < 0) {
+          html += '<option value="' + escapeHtml(keepM) + '">' + escapeHtml(keepM) + "</option>";
+        }
+        modelSel.innerHTML = html;
+        if (keepM) modelSel.value = keepM;
+      }
+      if (loraSel) {
+        const all = window._loras || [];
+        const turboName = ((window._turbo && window._turbo.lora_filename) || "").toLowerCase();
+        let html = '<option value="">Bez LoRA-e</option>';
+        all.forEach((item) => {
+          const name = item.name || item;
+          if (!name || String(name).toLowerCase() === turboName) return;
+          html += '<option value="' + escapeHtml(name) + '">' + escapeHtml(name) + "</option>";
+        });
+        if (keepL && !html.includes('value="' + keepL + '"')) {
+          html += '<option value="' + escapeHtml(keepL) + '">' + escapeHtml(keepL) + "</option>";
+        }
+        loraSel.innerHTML = html;
+        if (keepL) loraSel.value = keepL;
+        syncPLoraUi();
+      }
+    }
+
+    function syncPLoraUi() {
+      const on = $("pLora") && $("pLora").value;
+      if ($("pLoraStrengthRow")) $("pLoraStrengthRow").hidden = !on;
+      setRangeVal("pLoraStrength", "pLoraStrengthVal", 2);
+    }
+
+    function renderProfileRefs(p) {
+      const box = $("pRefList");
+      if (!box) return;
+      const refs = (p && p.reference_images) || [];
+      const pid = p && p.id;
+      if (!refs.length) {
+        box.innerHTML = pendingRefs.length
+          ? pendingRefs.map((f, i) => '<div class="ref-slot"><div class="thumb-empty" data-pending="' + i + '"></div><div class="hint">' + escapeHtml(f.name || "slika") + "</div></div>").join("")
+          : '<div class="hint">Još nema slika. Dodaj do 3 kadra lica.</div>';
+        pendingRefs.forEach((f, i) => {
+          const el = box.querySelector('[data-pending="' + i + '"]');
+          if (!el || !f) return;
+          const img = document.createElement("img");
+          img.className = "thumb";
+          img.alt = "Referenca";
+          img.src = URL.createObjectURL(f);
+          el.replaceWith(img);
+        });
+        return;
+      }
+      box.innerHTML = refs.map((rel, i) => {
+        const src = "/api/profiles/" + pid + "/refs/" + i + "?t=" + Date.now();
+        return '<div class="ref-slot" data-i="' + i + '">'
+          + '<img src="' + src + '" alt="Referenca ' + (i + 1) + '" />'
+          + '<div class="ref-actions">'
+          + '<button type="button" class="btn" data-ref-act="up" data-i="' + i + '"' + (i === 0 ? " disabled" : "") + ">↑</button>'
+          + '<button type="button" class="btn" data-ref-act="down" data-i="' + i + '"' + (i === refs.length - 1 ? " disabled" : "") + ">↓</button>'
+          + '<button type="button" class="btn danger" data-ref-act="del" data-i="' + i + '">×</button>'
+          + "</div></div>";
+      }).join("");
+    }
+
     function fillProfileForm(id) {
       const p = (state.profiles || []).find((x) => x.id === id);
       if (!p) return;
       editingId = id;
+      pendingRefs = [];
       $("pId").value = id;
       $("pName").value = p.name || "";
       $("pAppear").value = p.appearance_prompt || "";
       $("pNeg").value = p.negative_prompt || "";
-      $("pModel").value = p.preferred_model || "";
+      fillProfileModelSelects();
+      if ($("pModel")) $("pModel").value = p.preferred_model || "";
       if ($("pModelType")) $("pModelType").value = p.model_type || "auto";
+      if ($("pLora")) $("pLora").value = p.preferred_lora || "";
+      if ($("pLoraStrength") && p.preferred_lora_strength != null) $("pLoraStrength").value = String(p.preferred_lora_strength);
+      syncPLoraUi();
       $("pStyle").value = p.style || "";
       $("pVibe").value = p.age_vibe || "";
-
+      if ($("pAppearWeight") && p.appearance_weight != null) $("pAppearWeight").value = String(p.appearance_weight);
+      if ($("pIpaWeight") && p.ipadapter_weight != null) $("pIpaWeight").value = String(p.ipadapter_weight);
+      setRangeVal("pAppearWeight", "pAppearWeightVal", 2);
+      setRangeVal("pIpaWeight", "pIpaWeightVal", 2);
+      if ($("pFaceDetailer")) $("pFaceDetailer").checked = !!p.face_detailer;
+      if ($("pLockSeed")) $("pLockSeed").checked = !!p.lock_seed;
+      if ($("pLockedSeed")) $("pLockedSeed").value = p.locked_seed || "";
+      if ($("pLockedSeedRow")) $("pLockedSeedRow").hidden = !p.lock_seed;
       applyAllPresets(p);
       $("pAvoid").value = p.topics_avoid || "";
-      $("pRef").value = "";
+      if ($("pRef")) $("pRef").value = "";
       renderExamples(p.examples || []);
-      $("pRefPreview").innerHTML = p.has_reference ? '<img class="thumb" style="width:96px;height:96px" src="/api/profiles/' + p.id + '/image?t=' + Date.now() + '" alt="Referenca" />' : "";
+      renderProfileRefs(p);
       $("pOk").hidden = true;
       showErr($("pErr"), "");
       renderProfileList();
@@ -2495,7 +2771,7 @@
       $("profileForm").reset();
       applyAllPresets(null);
       renderExamples([]);
-      $("pRefPreview").innerHTML = "";
+      pendingRefs = []; if ($("pRefList")) renderProfileRefs(null);
       $("pOk").hidden = true;
       showErr($("pErr"), "");
     });
@@ -2506,6 +2782,13 @@
       const payload = {
         name: $("pName").value, appearance_prompt: $("pAppear").value,
         negative_prompt: $("pNeg").value, preferred_model: $("pModel").value, model_type: ($("pModelType") && $("pModelType").value) || "auto",
+        preferred_lora: $("pLora") ? $("pLora").value : "",
+        preferred_lora_strength: $("pLoraStrength") ? Number($("pLoraStrength").value) : 0.8,
+        appearance_weight: $("pAppearWeight") ? Number($("pAppearWeight").value) : 1.3,
+        ipadapter_weight: $("pIpaWeight") ? Number($("pIpaWeight").value) : 0.8,
+        face_detailer: !!( $("pFaceDetailer") && $("pFaceDetailer").checked ),
+        lock_seed: !!( $("pLockSeed") && $("pLockSeed").checked ),
+        locked_seed: $("pLockedSeed") ? $("pLockedSeed").value : "",
         style: $("pStyle").value, age_vibe: $("pVibe").value,
         writing_style: collectPreset("writing_style"), slang: collectPreset("slang"),
         emoji_use: collectPreset("emoji_use"), language: collectPreset("language"),
@@ -2520,21 +2803,25 @@
         });
         const d = await r.json();
         if (!r.ok || !d.ok) { showErr($("pErr"), d.error || "Spremanje nije uspjelo."); return; }
-        const file = $("pRef").files[0];
-        if (file) {
+        const queued = pendingRefs.slice();
+        const picked = $("pRef") && $("pRef").files && $("pRef").files[0] ? [$("pRef").files[0]] : [];
+        const files = queued.concat(picked);
+        pendingRefs = [];
+        for (const file of files) {
           const b64 = await new Promise((resolve, reject) => {
             const fr = new FileReader();
             fr.onload = () => resolve(fr.result);
             fr.onerror = reject;
             fr.readAsDataURL(file);
           });
-          const up = await fetch("/api/profiles/" + d.profile.id + "/image", {
+          const up = await fetch("/api/profiles/" + d.profile.id + "/refs", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ image: b64 })
           });
           const ud = await up.json();
-          if (!up.ok || !ud.ok) { showErr($("pErr"), ud.error || "Slika nije spremljena, profil jest."); }
+          if (!up.ok || !ud.ok) { showErr($("pErr"), ud.error || "Slika nije spremljena, profil jest."); break; }
         }
+        if ($("pRef")) $("pRef").value = "";
         await loadState();
         fillProfileForm(d.profile.id);
         $("pOk").hidden = false;
@@ -2551,6 +2838,212 @@
         $("newProfile").click();
         await loadState();
       } catch (err) { showErr($("pErr"), String(err)); }
+    });
+
+
+    function characterCaps() {
+      const ch = window._character || {};
+      return ch.capabilities || ch || {};
+    }
+
+    function updateConsistencyUi() {
+      const caps = characterCaps();
+      const ipa = caps.ipadapter || {};
+      const face = caps.face_detailer || {};
+      const isKrea = currentArch === "krea2";
+      const prof = selectedPersona();
+      const hasRefs = personaRefCount(prof) > 0;
+      if ($("ipaField")) $("ipaField").hidden = isKrea;
+      if ($("ipaInstallRow")) $("ipaInstallRow").hidden = isKrea || !!(ipa.ready || (ipa.nodes !== false && ipa.files && (ipa.files.ready_sdxl || ipa.files.ready_sd15)));
+      if ($("ipaHint") && !isKrea) {
+        if (hasRefs && (ipa.nodes === false || (ipa.files && !ipa.files.ready && !ipa.files.ready_sdxl && !ipa.files.ready_sd15))) {
+          $("ipaHint").textContent = ipa.message || "Za referentne slike treba instalirati IP-Adapter (čvor + paket modela).";
+        } else if (hasRefs) {
+          $("ipaHint").textContent = "Referentne slike s profila ići će u generaciju (Plus Face). Zadana jačina je 0,8. Nije dostupno uz Krea 2.";
+        } else {
+          $("ipaHint").textContent = "Dodaj 1–3 slike lica u kartici Influenceri. Zatim se ovdje podešava jačina (0,6–1,0).";
+        }
+      }
+      const faceReady = !!(face.ready || (face.nodes !== false && face.model));
+      if ($("faceDetailerField")) {
+        $("faceDetailerField").hidden = isKrea || (!faceReady && !face.nodes_on_disk);
+        if (!faceReady && (face.nodes === false || !face.model)) {
+          // Ako instalacija nije uspjela ili čvorova nema, sakrij i objasni u Modelima.
+          if (!face.nodes_on_disk) $("faceDetailerField").hidden = true;
+        }
+      }
+      if ($("faceInstallRow")) $("faceInstallRow").hidden = isKrea || faceReady;
+      if ($("faceHint") && !isKrea) {
+        $("faceHint").textContent = face.message || "Po zadanom isključeno. Na RX 6600 (8 GB) može biti sporo i tijesno s memorijom.";
+      }
+    }
+
+    function renderCharacterStatus() {
+      const caps = characterCaps();
+      const ipa = caps.ipadapter || {};
+      const face = caps.face_detailer || {};
+      if ($("ipaStatusText")) $("ipaStatusText").textContent = ipa.message || $("ipaStatusText").textContent;
+      if ($("faceStatusText")) $("faceStatusText").textContent = face.message || $("faceStatusText").textContent;
+    }
+
+    let charPoll = null;
+    function showCharInstall(inst) {
+      const wrap = $("charInstWrap");
+      if (!wrap) return;
+      const running = inst && inst.status === "running";
+      wrap.hidden = !inst || inst.status === "idle";
+      if ($("charInstText")) $("charInstText").textContent = (inst && (inst.message || inst.step)) || "Instalacija…";
+      const pct = inst && inst.percent != null ? Number(inst.percent) : 0;
+      if ($("charInstPct")) $("charInstPct").textContent = Math.round(pct) + "%";
+      if ($("charInstFill")) $("charInstFill").style.width = pct + "%";
+      if (inst && inst.status === "done") showToast(inst.message || "Instalacija je gotova. Ponovo pokreni Studio.", false);
+      if (inst && inst.status === "error") showToast(inst.error || inst.message || "Instalacija nije uspjela.", true);
+    }
+
+    async function pollCharacterInstall() {
+      try {
+        const r = await fetch("/api/character/install", { cache: "no-store" });
+        const d = await r.json();
+        const inst = (d && d.install) || d;
+        showCharInstall(inst);
+        if (d && d.capabilities) {
+          window._character = d;
+          renderCharacterStatus();
+          updateConsistencyUi();
+        }
+        if (inst && (inst.status === "running")) return;
+        if (charPoll) { clearInterval(charPoll); charPoll = null; }
+        loadModels().catch(() => {});
+      } catch (e) { /* tišina */ }
+    }
+
+    async function startCharacterInstall(kind) {
+      try {
+        const r = await fetch("/api/character/install", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind: kind })
+        });
+        const d = await r.json();
+        if (!r.ok || d.ok === false) {
+          showToast(d.error || "Instalacija nije pokrenuta.", true);
+          return;
+        }
+        showCharInstall(d.install || d);
+        if (charPoll) clearInterval(charPoll);
+        charPoll = setInterval(pollCharacterInstall, 1000);
+        pollCharacterInstall();
+        showTab("modeli");
+      } catch (e) {
+        showToast(String(e), true);
+      }
+    }
+
+    async function fileToDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(fr.result);
+        fr.onerror = reject;
+        fr.readAsDataURL(file);
+      });
+    }
+
+    async function uploadProfileRef(pid, file) {
+      const b64 = await fileToDataUrl(file);
+      const r = await fetch("/api/profiles/" + pid + "/refs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: b64 })
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) throw new Error(d.error || "Slika nije spremljena.");
+      return d;
+    }
+
+    if ($("pRef")) $("pRef").addEventListener("change", async () => {
+      const file = $("pRef").files && $("pRef").files[0];
+      if (!file) return;
+      const pid = $("pId").value;
+      const current = (state.profiles || []).find((x) => String(x.id) === String(pid));
+      const have = current ? personaRefCount(current) : pendingRefs.length;
+      if (have >= 3) {
+        showErr($("pErr"), "Možeš spremiti najviše 3 referentne slike lica.");
+        $("pRef").value = "";
+        return;
+      }
+      if (pid) {
+        try {
+          await uploadProfileRef(pid, file);
+          $("pRef").value = "";
+          await loadState();
+          fillProfileForm(Number(pid));
+        } catch (err) {
+          showErr($("pErr"), String(err));
+        }
+        return;
+      }
+      pendingRefs.push(file);
+      $("pRef").value = "";
+      renderProfileRefs(null);
+    });
+
+    if ($("pRefList")) $("pRefList").addEventListener("click", async (e) => {
+      const b = e.target.closest("[data-ref-act]");
+      if (!b) return;
+      const pid = $("pId").value;
+      if (!pid) return;
+      const i = Number(b.dataset.i);
+      const act = b.dataset.refAct;
+      const p = (state.profiles || []).find((x) => String(x.id) === String(pid));
+      const refs = (p && p.reference_images) || [];
+      try {
+        if (act === "del") {
+          if (!confirm("Obrisati ovu referentnu sliku?")) return;
+          const r = await fetch("/api/profiles/" + pid + "/refs/" + i, { method: "DELETE" });
+          const d = await r.json();
+          if (!r.ok || !d.ok) throw new Error(d.error || "Brisanje nije uspjelo.");
+        } else {
+          const order = refs.map((_, idx) => idx);
+          const j = act === "up" ? i - 1 : i + 1;
+          if (j < 0 || j >= order.length) return;
+          const tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+          const r = await fetch("/api/profiles/" + pid + "/refs", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ order: order })
+          });
+          const d = await r.json();
+          if (!r.ok || !d.ok) throw new Error(d.error || "Redoslijed nije spremljen.");
+        }
+        await loadState();
+        fillProfileForm(Number(pid));
+      } catch (err) {
+        showErr($("pErr"), String(err));
+      }
+    });
+
+    if ($("pLora")) $("pLora").addEventListener("change", syncPLoraUi);
+    if ($("pLoraStrength")) $("pLoraStrength").addEventListener("input", () => setRangeVal("pLoraStrength", "pLoraStrengthVal", 2));
+    ["pAppearWeight", "pIpaWeight"].forEach((id) => {
+      const el = $(id);
+      if (el) el.addEventListener("input", () => setRangeVal(id, id + "Val", 2));
+    });
+    if ($("pLockSeed")) $("pLockSeed").addEventListener("change", () => {
+      if ($("pLockedSeedRow")) $("pLockedSeedRow").hidden = !$("pLockSeed").checked;
+      if ($("pLockSeed").checked && $("pLockedSeed") && !$("pLockedSeed").value) {
+        $("pLockedSeed").value = String(Math.floor(Math.random() * 2147483647));
+      }
+    });
+    if ($("pRandSeed")) $("pRandSeed").addEventListener("click", () => {
+      if ($("pLockedSeed")) $("pLockedSeed").value = String(Math.floor(Math.random() * 2147483647));
+    });
+    ["installIpa", "installIpaAdv"].forEach((id) => {
+      const el = $(id);
+      if (el) el.addEventListener("click", () => startCharacterInstall("ipadapter"));
+    });
+    ["installFace", "installFaceAdv"].forEach((id) => {
+      const el = $(id);
+      if (el) el.addEventListener("click", () => startCharacterInstall("face_detailer"));
     });
 
     loadHistory();
