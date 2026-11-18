@@ -1,5 +1,10 @@
 # Promjene
 
+## 1.0.15 — 2026-11-18
+- Kartica Modeli: odjeljak „Instalirani modeli” prikazuje sve datoteke u mapi ComfyUI models (checkpointi, diffusion modeli, text encoderi, VAE, LoRA, AnimateDiff…). Vidiš ime, mapu, veličinu i ukupnu zauzetost diska. Svaku možeš obrisati uz potvrdu. Studio upozorava ako je to trenutno odabrani model ili datoteka potrebna za Turbo LoRA odnosno Krea 2 paket. Ako je datoteka zaključana (ComfyUI je koristi), javlja jasnu poruku da pokušaš nakon generiranja ili restarta. Predloženi modeli sada pokazuju status Instalirano / Djelomično.
+- Ispravak: pri generiranju 2 slike više se ne prikazuju 4. Uzrok je bio što je ComfyUI u povijesti zadatka uz konačne SaveImage izlaze (type=output) često stavio i privremene preview slike s VAEDecode čvora (type=temp). Studio sada zadržava samo konačne izlaze i uklanja duplikate po imenu, podmapi i tipu.
+- Galerija rezultata je čišća: ujednačene kartice, lagani fade-in, skeletni prikaz dok traje generiranje, i na prelasku miša akcije Otvori, Preuzmi, Kopiraj prompt, Kopiraj seed i Obriši. Ispod slike ostaju model i seed. Klik i dalje otvara lightbox.
+
 ## 1.0.14 — 2026-11-18
 - Kartica Slike: pod Napredno, odmah ispod modela, izbornik LoRA-e iz models/loras (usklađene s arhitekturom modela; nepoznate pod Ostalo). Zadano „Bez LoRA-e”, klizač jačine 0,0–1,5 (zadano 0,8). Izbor se pamti po modelu. Interna Turbo LoRA nije na popisu, ali se i dalje spaja kad uključiš Turbo, zajedno s odabranom LoRA-om. Kod Krea 2 izbornik je skriven.
 - Polje Izgled zamijenjeno izbornikom Osoba: odabereš personu (zadano aktivna), Studio sam povuče izgled s profila (kosa, oči, tetovaže…). Ispod vidiš kratki sažetak, a Dodatno je za privremene dopune. Ti upišeš samo što osoba radi. Pravila za odrasle (adult woman, eventualno dob) i poredak scene ostaju.

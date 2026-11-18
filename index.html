@@ -292,11 +292,14 @@
 
     .gallery {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-      gap: 14px;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
     }
     .gallery.results {
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    }
+    @media (min-width: 1100px) {
+      .gallery.results { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
     }
     .empty {
       color: var(--muted);
@@ -309,12 +312,23 @@
       margin: 0;
       background: var(--bg0);
       border: 1px solid var(--line);
-      border-radius: 14px;
+      border-radius: 16px;
       overflow: hidden;
       display: flex;
       flex-direction: column;
+      position: relative;
+      animation: shotIn 0.35s ease both;
     }
-    figure.shot img {
+    @keyframes shotIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: none; }
+    }
+    figure.shot .shot-media {
+      position: relative;
+      overflow: hidden;
+      background: #111;
+    }
+    figure.shot img, figure.shot video.shot-img {
       width: 100%;
       aspect-ratio: 3 / 4;
       object-fit: cover;
@@ -322,17 +336,63 @@
       background: #111;
       display: block;
     }
+    figure.shot .shot-hover {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: flex-start;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 10px;
+      background: linear-gradient(180deg, rgba(8, 10, 14, 0.72) 0%, rgba(8, 10, 14, 0.08) 48%, rgba(8, 10, 14, 0.55) 100%);
+      opacity: 0;
+      transition: opacity 0.18s ease;
+      pointer-events: none;
+    }
+    figure.shot:hover .shot-hover,
+    figure.shot:focus-within .shot-hover {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .shot-act {
+      background: rgba(22, 25, 32, 0.92);
+      color: var(--text);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 0.72rem;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      text-decoration: none;
+      backdrop-filter: blur(8px);
+    }
+    .shot-act:hover { border-color: rgba(228,181,106,0.55); color: var(--gold); }
+    .shot-act.danger:hover { color: var(--bad); border-color: rgba(224,122,122,0.45); }
     figure.shot figcaption {
       display: flex;
       align-items: center;
       justify-content: space-between;
       flex-wrap: wrap;
       gap: 8px;
-      padding: 10px 12px;
+      padding: 10px 12px 12px;
       font-size: 0.78rem;
       color: var(--muted);
     }
-    figure.shot .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+    figure.shot .acts { display: none; }
+    .shot-skel {
+      margin: 0;
+      aspect-ratio: 3 / 4;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: linear-gradient(90deg, var(--bg1) 0%, var(--bg2) 45%, var(--bg1) 100%);
+      background-size: 200% 100%;
+      animation: skel 1.15s ease-in-out infinite;
+    }
+    @keyframes skel {
+      0% { background-position: 100% 0; }
+      100% { background-position: -100% 0; }
+    }
     .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     .chip {
       background: var(--bg2);
@@ -378,20 +438,24 @@
     }
 
     .lightbox {
-      display: none;
+      display: flex;
       position: fixed; inset: 0;
-      background: rgba(6, 7, 10, 0.86);
+      background: rgba(6, 7, 10, 0.88);
       z-index: 50;
       align-items: center;
       justify-content: center;
       padding: 24px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
     }
-    .lightbox.show { display: flex; }
+    .lightbox.show { opacity: 1; pointer-events: auto; }
     .lightbox img {
       max-width: min(92vw, 1100px);
       max-height: 82vh;
-      border-radius: 12px;
+      border-radius: 14px;
       box-shadow: var(--shadow);
+      animation: shotIn 0.28s ease both;
     }
     .lightbox .tools {
       position: absolute;
@@ -597,6 +661,62 @@
       background: #000;
     }
     .update-hint { font-size: 0.8rem; color: var(--muted); width: 100%; text-align: right; }
+    .results-head, .installed-head {
+      display: flex; align-items: baseline; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap;
+    }
+    .results-head .sec, .installed-head .sec { margin: 0; }
+    .installed-total { color: var(--gold); font-size: 0.85rem; }
+    .installed-block { margin-top: 28px; padding-top: 8px; border-top: 1px solid var(--line); }
+    .installed-group { margin-top: 16px; }
+    .installed-group h3 {
+      margin: 0 0 8px; font-size: 0.78rem; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--muted); font-weight: 600;
+    }
+    .installed-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--bg0);
+      margin-bottom: 8px;
+    }
+    .installed-row .iname {
+      font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .installed-row .isize { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
+    .installed-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+    .mini-tag {
+      font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--gold); border: 1px solid rgba(228,181,106,0.35);
+      border-radius: 999px; padding: 1px 7px;
+    }
+    .mini-tag.warn { color: var(--rose); border-color: rgba(217,137,122,0.4); }
+    .model-card .status-tag { margin-left: auto; }
+    .model-card h3 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .modal {
+      position: fixed; inset: 0; z-index: 60;
+      background: rgba(6,7,10,0.72);
+      display: flex; align-items: center; justify-content: center;
+      padding: 22px;
+    }
+    .modal[hidden] { display: none; }
+    .modal-card {
+      width: min(440px, 100%);
+      background: var(--bg1);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      padding: 20px 20px 16px;
+    }
+    .modal-card h3 { margin: 0 0 10px; font-size: 1.05rem; }
+    .modal-card p { margin: 0 0 16px; color: var(--muted); white-space: pre-wrap; line-height: 1.45; }
+    .history-block { margin-top: 8px; }
+    .history-block .gallery { opacity: 0.95; }
+    .history-block .gallery .shot { border-radius: 14px; }
   </style>
 </head>
 
@@ -740,9 +860,14 @@
           <div class="bar" id="bar"><i id="barFill"></i></div>
           <div class="hint" id="progHint">Prvo pokretanje može trajati dulje.</div>
         </div>
+        <div class="results-head" id="resultsHead" hidden>
+          <h2 class="sec">Ova serija</h2>
+        </div>
         <div id="results"></div>
-        <h2 class="sec">Povijest</h2>
-        <div class="gallery" id="history"></div>
+        <div class="history-block">
+          <h2 class="sec">Povijest</h2>
+          <div class="gallery" id="history"></div>
+        </div>
       </section>
     </div>
 
@@ -889,8 +1014,8 @@
 
     <div id="tab-modeli" class="tab-panel">
       <div class="card pad">
-        <h2 class="sec" style="margin-top:0">Modeli</h2>
-        <p class="hint">Checkpointi se spremaju u mapu ComfyUI-ja <code>models\checkpoints</code>. Nakon preuzimanja popis se osvježi i model se odabere sam.</p>
+        <h2 class="sec" style="margin-top:0">Predloženi modeli</h2>
+        <p class="hint">Preuzimanja idu u odgovarajuće mape ComfyUI-ja (<code>models\checkpoints</code>, <code>loras</code>, <code>diffusion_models</code>…). Nakon preuzimanja popis se osvježi.</p>
         <div id="curatedModels"></div>
         <div class="field" style="margin-top:18px">
           <label class="lbl" for="customModelUrl">Ili zalijepi izravni URL (npr. Civitai ili Hugging Face)</label>
@@ -905,7 +1030,14 @@
           <div class="dlbar" id="dlBar" hidden><i id="dlBarFill"></i></div>
           <div class="hint" id="dlStatus"></div>
         </div>
-        <div class="hint" id="installedModels"></div>
+        <section class="installed-block" id="installedBlock">
+          <div class="installed-head">
+            <h2 class="sec">Instalirani modeli</h2>
+            <div class="installed-total" id="installedTotal"></div>
+          </div>
+          <p class="hint">Sve datoteke koje se trenutno nalaze u mapi ComfyUI <code>models</code>. Brisanje je trajno. Ako je datoteka zaključana, pričekaj kraj generiranja ili ponovo pokreni Studio.</p>
+          <div id="installedModels"></div>
+        </section>
       </div>
     </div>
 
@@ -1006,6 +1138,17 @@
     <div class="tools">
       <a id="lbDl" href="#" download>Preuzmi</a>
       <button type="button" id="lbClose">Zatvori</button>
+    </div>
+  </div>
+
+  <div class="modal" id="confirmModal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <h3 id="confirmTitle">Potvrda</h3>
+      <p id="confirmText"></p>
+      <div class="actions">
+        <button type="button" class="btn" id="confirmCancel">Odustani</button>
+        <button type="button" class="btn danger" id="confirmOk">Obriši</button>
+      </div>
     </div>
   </div>
 
@@ -1723,20 +1866,34 @@
       localStorage.setItem(LS_HISTORY, JSON.stringify(items));
       renderHistory(items);
     }
+    function historyKey(item) {
+      return [item.filename || "", item.subfolder || "", item.type || "output"].join("|");
+    }
     function addToHistory(images, meta) {
       const items = loadHistory();
       const stamp = Date.now();
+      const have = new Set(items.map(historyKey));
       images.slice().reverse().forEach((img) => {
-        items.unshift({
+        const row = {
           url: img.url,
           filename: img.filename,
+          subfolder: img.subfolder || "",
+          type: img.type || "output",
           prompt: meta.prompt,
           seed: meta.seed,
           model: (meta && meta.model) || "",
           turbo: !!(meta && meta.turbo),
           ts: stamp
-        });
+        };
+        const key = historyKey(row);
+        if (have.has(key)) return;
+        have.add(key);
+        items.unshift(row);
       });
+      saveHistory(items);
+    }
+    function removeFromHistory(item) {
+      const items = loadHistory().filter((it) => historyKey(it) !== historyKey(item || {}));
       saveHistory(items);
     }
     function renderHistory(items) {
@@ -1762,21 +1919,59 @@
     function cardHtml(item) {
       const dl = item.url + (item.url.indexOf("?") >= 0 ? "&" : "?") + "download=1";
       const cap = cardCaption(item);
-      const safeUrl = item.url.replace(/"/g, "");
+      const safeUrl = String(item.url || "").replace(/"/g, "");
       const promptAttr = escapeHtml(item.prompt || "");
+      const fnAttr = escapeHtml(item.filename || "");
+      const seedVal = item.seed != null ? item.seed : "";
       const media = isVideoItem(item)
-        ? '<video src="' + safeUrl + '" controls playsinline loop></video>'
+        ? '<video class="shot-img" src="' + safeUrl + '" controls playsinline loop data-full="' + safeUrl + '" data-dl="' + dl + '"></video>'
         : '<img src="' + safeUrl + '" alt="" data-full="' + safeUrl + '" data-dl="' + dl + '" />';
-      const remix = isVideoItem(item) ? "" : '<button type="button" class="dl remix" data-seed="' + (item.seed != null ? item.seed : -1) + '" data-prompt="' + promptAttr + '">Ponovi s istim seedom</button>';
-      return '<figure class="shot">' + media + '<figcaption><span>' + cap + '</span><span class="acts">' + remix + '<a class="dl" href="' + dl + '" download>Preuzmi</a></span></figcaption></figure>';
+      const hover = '<div class="shot-hover">'
+        + '<button type="button" class="shot-act" data-act="open">Otvori</button>'
+        + '<a class="shot-act" href="' + dl + '" download>Preuzmi</a>'
+        + '<button type="button" class="shot-act" data-act="copy-prompt">Kopiraj prompt</button>'
+        + '<button type="button" class="shot-act" data-act="copy-seed">Kopiraj seed</button>'
+        + (isVideoItem(item) ? "" : '<button type="button" class="shot-act remix" data-act="remix" data-seed="' + (item.seed != null ? item.seed : -1) + '" data-prompt="' + promptAttr + '">Ponovi</button>')
+        + '<button type="button" class="shot-act danger" data-act="remove">Obriši</button>'
+        + "</div>";
+      return '<figure class="shot" data-filename="' + fnAttr + '" data-subfolder="' + escapeHtml(item.subfolder || "") + '" data-type="' + escapeHtml(item.type || "output") + '" data-seed="' + seedVal + '" data-prompt="' + promptAttr + '" data-url="' + escapeHtml(safeUrl) + '">'
+        + '<div class="shot-media">' + media + hover + "</div>"
+        + '<figcaption><span class="shot-cap">' + cap + "</span></figcaption></figure>";
+    }
+    function uniqueImages(images) {
+      const seen = new Set();
+      const out = [];
+      (images || []).forEach((img) => {
+        if (!img) return;
+        const key = [img.filename || "", img.subfolder || "", img.type || "output", img.kind || ""].join("|");
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push(img);
+      });
+      const stills = out.filter((i) => !i.kind);
+      const media = out.filter((i) => i.kind);
+      const hasOut = stills.some((i) => (i.type || "output") === "output");
+      return (hasOut ? stills.filter((i) => (i.type || "output") === "output") : stills).concat(media);
+    }
+    function showResultSkeletons(count) {
+      const n = Math.max(1, Math.min(4, Number(count) || 1));
+      const head = $("resultsHead");
+      if (head) head.hidden = false;
+      let html = '<div class="gallery results">';
+      for (let i = 0; i < n; i++) html += '<div class="shot-skel" aria-hidden="true"></div>';
+      resultsEl.innerHTML = html + "</div>";
     }
     function renderResults(images, meta) {
-      if (!images.length) { resultsEl.innerHTML = '<div class="empty">Čekam slike…</div>'; return; }
+      const list = uniqueImages(images);
+      const head = $("resultsHead");
+      if (head) head.hidden = !list.length;
+      if (!list.length) { resultsEl.innerHTML = '<div class="empty">Čekam slike…</div>'; return; }
       const card = (img) => cardHtml({
-        url: img.url, filename: img.filename, seed: meta && meta.seed, prompt: meta && meta.prompt,
+        url: img.url, filename: img.filename, subfolder: img.subfolder, type: img.type,
+        seed: meta && meta.seed, prompt: meta && meta.prompt,
         model: meta && meta.model, turbo: !!(meta && meta.turbo), kind: img.kind
       });
-      resultsEl.innerHTML = '<div class="gallery results">' + images.map(card).join("") + "</div>";
+      resultsEl.innerHTML = '<div class="gallery results">' + list.map(card).join("") + "</div>";
     }
     function openLb(src, dl) {
       $("lbImg").src = src; $("lbDl").href = dl; $("lb").classList.add("show");
@@ -1819,7 +2014,7 @@
           if (indet) text += " — Prvo pokretanje može trajati dulje";
           setProgress(indet ? 0.35 : (max ? val / max : 0), text, indet);
           if ($("progHint")) $("progHint").textContent = d.hint || "Prvo pokretanje može trajati dulje.";
-          if (d.images && d.images.length) renderResults(d.images, meta);
+          if (d.images && d.images.length) renderResults(uniqueImages(d.images), meta);
           return;
         }
         stopPoll();
@@ -1833,7 +2028,7 @@
         }
         const elapsedDone = fmtElapsed(d.elapsed_s);
         setProgress(1, elapsedDone ? ("Gotovo · " + elapsedDone) : "Gotovo", false);
-        const images = d.images || [];
+        const images = uniqueImages(d.images || []);
         if (!images.length) { showErr(errEl, "Zadatak je završio, ali nema izlaznih datoteka."); return; }
         lastMeta = Object.assign({}, meta, { width: width, height: height, model: (meta && meta.model) || modelEl.value, steps: steps, turbo: !!(meta && "turbo" in meta ? meta.turbo : turboMode) });
         const stills = images.filter((im) => !isVideoItem(im));
@@ -1917,19 +2112,19 @@
         return;
       }
       goBtn.disabled = true;
-      resultsEl.innerHTML = "";
+      showResultSkeletons(batch);
       setProgress(0.05, "Šaljem zadatak u ComfyUI…", true);
       try {
         const r = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payloadBase()) });
         const d = await r.json();
-        if (!r.ok || !d.ok) { goBtn.disabled = false; progWrap.hidden = true; showErr(errEl, d.error || "ComfyUI nije prihvatio zadatak."); return; }
+        if (!r.ok || !d.ok) { goBtn.disabled = false; progWrap.hidden = true; resultsEl.innerHTML = ""; if ($("resultsHead")) $("resultsHead").hidden = true; showErr(errEl, d.error || "ComfyUI nije prihvatio zadatak."); return; }
         const meta = { prompt: d.prompt, seed: d.seed, width: d.width, height: d.height, model: d.model, steps: d.steps, turbo: !!(d.turbo || turboMode) };
         lastMeta = meta;
         setProgress(0.08, "U redu. Seed " + d.seed + " — čekam slike… Prvo pokretanje može trajati dulje.", true);
         stopPoll();
         pollTimer = setInterval(() => pollJob(d.prompt_id, meta), 700);
         pollJob(d.prompt_id, meta);
-      } catch (e) { goBtn.disabled = false; progWrap.hidden = true; showErr(errEl, "Ne mogu poslati zadatak: " + e); }
+      } catch (e) { goBtn.disabled = false; progWrap.hidden = true; resultsEl.innerHTML = ""; if ($("resultsHead")) $("resultsHead").hidden = true; showErr(errEl, "Ne mogu poslati zadatak: " + e); }
     }
 
     $("goVideo").addEventListener("click", async () => {
@@ -2406,15 +2601,104 @@
     if ($("lowVram")) $("lowVram").addEventListener("change", persistFlags);
     if ($("browserPref")) $("browserPref").addEventListener("change", persistFlags);
 
+    let confirmResolve = null;
+    function closeConfirm(ok) {
+      const modal = $("confirmModal");
+      if (modal) modal.hidden = true;
+      const fn = confirmResolve;
+      confirmResolve = null;
+      if (fn) fn(!!ok);
+    }
+    function askConfirm(message, title) {
+      return new Promise((resolve) => {
+        confirmResolve = resolve;
+        if ($("confirmTitle")) $("confirmTitle").textContent = title || "Potvrda";
+        if ($("confirmText")) $("confirmText").textContent = message || "";
+        const modal = $("confirmModal");
+        if (modal) modal.hidden = false;
+        if ($("confirmOk")) $("confirmOk").focus();
+      });
+    }
+    if ($("confirmCancel")) $("confirmCancel").addEventListener("click", () => closeConfirm(false));
+    if ($("confirmOk")) $("confirmOk").addEventListener("click", () => closeConfirm(true));
+    if ($("confirmModal")) $("confirmModal").addEventListener("click", (e) => {
+      if (e.target.id === "confirmModal") closeConfirm(false);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && $("confirmModal") && !$("confirmModal").hidden) {
+        e.stopPropagation();
+        closeConfirm(false);
+      }
+    });
+    async function copyText(text, okMsg) {
+      const value = String(text || "");
+      if (!value) { showToast("Nema što kopirati.", true); return; }
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(value);
+        else {
+          const ta = document.createElement("textarea");
+          ta.value = value;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          ta.remove();
+        }
+        showToast(okMsg || "Kopirano.");
+      } catch (err) {
+        showToast("Kopiranje nije uspjelo.", true);
+      }
+    }
+    function figToItem(fig) {
+      if (!fig) return null;
+      return {
+        filename: fig.dataset.filename || "",
+        subfolder: fig.dataset.subfolder || "",
+        type: fig.dataset.type || "output",
+        seed: fig.dataset.seed,
+        prompt: fig.dataset.prompt || "",
+        url: fig.dataset.url || ""
+      };
+    }
     document.addEventListener("click", (e) => {
-      const remix = e.target.closest && e.target.closest(".remix");
-      if (remix) {
-        const seed = Number(remix.dataset.seed);
-        if (!Number.isNaN(seed) && seed >= 0) seedEl.value = String(seed);
-        if (remix.dataset.prompt) promptEl.value = remix.dataset.prompt;
-        showToast("Seed " + seed + " je postavljen. Pokrećem isto…");
-        generate();
-        return;
+      const actBtn = e.target.closest && e.target.closest(".shot-act, .remix");
+      if (actBtn) {
+        const fig = actBtn.closest("figure.shot");
+        const act = actBtn.dataset.act || (actBtn.classList.contains("remix") ? "remix" : "");
+        if (act === "open") {
+          e.preventDefault();
+          const img = fig && fig.querySelector("img, video");
+          openLb((img && (img.dataset.full || img.src)) || (fig && fig.dataset.url), (img && img.dataset.dl) || "");
+          return;
+        }
+        if (act === "copy-prompt") {
+          e.preventDefault();
+          copyText(fig && fig.dataset.prompt, "Prompt je kopiran.");
+          return;
+        }
+        if (act === "copy-seed") {
+          e.preventDefault();
+          const seed = fig && fig.dataset.seed;
+          if (seed === "" || seed == null) { showToast("Nema seeda.", true); return; }
+          copyText(String(seed), "Seed " + seed + " je kopiran.");
+          return;
+        }
+        if (act === "remove") {
+          e.preventDefault();
+          const item = figToItem(fig);
+          if (fig) fig.remove();
+          if (item) removeFromHistory(item);
+          if (resultsEl && !resultsEl.querySelector("figure.shot") && $("resultsHead")) $("resultsHead").hidden = true;
+          showToast("Uklonjeno iz galerije.");
+          return;
+        }
+        if (act === "remix" || actBtn.classList.contains("remix")) {
+          const seed = Number(actBtn.dataset.seed);
+          if (!Number.isNaN(seed) && seed >= 0) seedEl.value = String(seed);
+          if (actBtn.dataset.prompt) promptEl.value = actBtn.dataset.prompt;
+          showToast("Seed " + seed + " je postavljen. Pokrećem isto…");
+          generate();
+          return;
+        }
       }
     });
 
@@ -2426,19 +2710,54 @@
       box.innerHTML = items.map((c) => {
         const gb = c.size_bytes ? (c.size_bytes / (1024*1024*1024)).toFixed(2).replace(/\.00$/, "") + " GB" : "";
         const tag = c.arch === "krea2" ? "KREA 2" : (c.turbo ? "TURBO" : (c.kind === "lora" ? "LoRA" : (c.kind === "animatediff" ? "VIDEO" : (c.arch === "sd15" ? "SD 1.5" : "SDXL"))));
+        const status = c.installed ? '<span class="mini-tag">Instalirano</span>' : (c.partial ? '<span class="mini-tag warn">Djelomično</span>' : "");
+        const btnLabel = c.installed ? "Preuzmi ponovo" : "Preuzmi";
         return '<div class="model-card" data-id="' + c.id + '">'
           + '<div class="arch-tag">' + tag + "</div>"
-          + "<h3>" + escapeHtml(c.name) + (gb ? " · " + gb : "") + "</h3>"
+          + "<h3>" + escapeHtml(c.name) + (gb ? " · " + gb : "") + status + "</h3>"
           + '<div class="hint">' + escapeHtml(c.note || "") + "</div>"
-          + '<button type="button" class="btn primary dl-curated" data-id="' + c.id + '">Preuzmi</button>'
+          + '<button type="button" class="btn primary dl-curated" data-id="' + c.id + '">' + btnLabel + "</button>"
           + "</div>";
       }).join("") || '<div class="hint">Nema predloženog modela.</div>';
     }
-    function renderInstalledModels(models) {
+    function renderInstalledModels(payload) {
       const el = $("installedModels");
+      const totalEl = $("installedTotal");
+      if (totalEl) totalEl.textContent = (payload && payload.total_label) ? ("Ukupno " + payload.total_label) : "";
       if (!el) return;
-      const list = models || [];
-      el.textContent = list.length ? ("Instalirano (" + list.length + "): " + list.join(", ")) : "Još nema popisa modela (ComfyUI treba biti upaljen).";
+      const files = (payload && (payload.files || payload)) || [];
+      if (!files.length) {
+        el.innerHTML = '<div class="empty">Još nema datoteka u mapi ComfyUI models.</div>';
+        return;
+      }
+      const groups = {};
+      files.forEach((f) => {
+        const key = f.folder || "ostalo";
+        if (!groups[key]) groups[key] = { label: f.folder_label || key, items: [] };
+        groups[key].items.push(f);
+      });
+      el.innerHTML = Object.keys(groups).map((key) => {
+        const g = groups[key];
+        const rows = g.items.map((f) => {
+          const tags = [];
+          if (f.selected) tags.push('<span class="mini-tag">Odabrani</span>');
+          if (f.bundle === "turbo") tags.push('<span class="mini-tag">Turbo</span>');
+          if (f.bundle === "krea2") tags.push('<span class="mini-tag">Krea 2</span>');
+          return '<div class="installed-row" data-path="' + escapeHtml(f.path) + '">'
+            + '<div><div class="iname" title="' + escapeHtml(f.name) + '">' + escapeHtml(f.name) + "</div>"
+            + (tags.length ? '<div class="installed-meta">' + tags.join("") + "</div>" : "")
+            + "</div>"
+            + '<div class="isize">' + escapeHtml(f.size_label || "") + "</div>"
+            + '<button type="button" class="btn danger del-model" data-path="' + escapeHtml(f.path)
+            + '" data-name="' + escapeHtml(f.name)
+            + '" data-size="' + escapeHtml(f.size_label || "")
+            + '" data-selected="' + (f.selected ? "1" : "")
+            + '" data-reason="' + escapeHtml(f.required_reason || "")
+            + '">Obriši</button>'
+            + "</div>";
+        }).join("");
+        return '<div class="installed-group"><h3>' + escapeHtml(g.label) + " · " + g.items.length + "</h3>" + rows + "</div>";
+      }).join("");
     }
     function showDl(st) {
       const bar = $("dlBar"), fill = $("dlBarFill"), msg = $("dlStatus");
@@ -2462,6 +2781,7 @@
         if (st.status === "done") {
           showToast("Model je preuzet: " + (st.filename || ""));
           await loadModels();
+          await refreshModelsPanel();
           if (selectWhenDone && st.filename) {
             if ([].some.call(modelEl.options, (o) => o.value === st.filename)) {
               modelEl.value = st.filename;
@@ -2482,6 +2802,11 @@
       showDl(d.download);
       pollDownload(selectName || (d.download && d.download.filename));
     }
+    async function fetchInstalled(selectedName) {
+      const sel = selectedName || (modelEl && modelEl.value) || "";
+      const r = await fetch("/api/models/installed?selected=" + encodeURIComponent(sel), { cache: "no-store" });
+      return r.json();
+    }
     async function refreshModelsPanel() {
       try {
         const r = await fetch("/api/models", { cache: "no-store" });
@@ -2491,11 +2816,46 @@
           try { const r2 = await fetch("/api/models/download", { cache: "no-store" }); const d2 = await r2.json(); cur = d2.curated || []; } catch (e2) { cur = []; }
         }
         renderCurated(cur);
-        renderInstalledModels(d.models || []);
+        if (d.installed && d.installed.files) renderInstalledModels(d.installed);
+        else {
+          try { renderInstalledModels(await fetchInstalled()); } catch (e3) { renderInstalledModels({ files: [] }); }
+        }
         if (d.download) showDl(d.download);
         if (d.download && d.download.status === "running") pollDownload(d.download.filename);
       } catch (e) {}
     }
+    async function deleteInstalledModel(btn) {
+      const path = btn.dataset.path;
+      if (!path) return;
+      let msg = "Sigurno obrisati " + (btn.dataset.name || path) + " (" + (btn.dataset.size || "?") + ")?";
+      if (btn.dataset.selected === "1") msg += "\n\nOvo je trenutno odabrani model.";
+      if (btn.dataset.reason) msg += "\n\n" + btn.dataset.reason;
+      const ok = await askConfirm(msg, "Brisanje modela");
+      if (!ok) return;
+      try {
+        const r = await fetch("/api/models/installed", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: path, selected: (modelEl && modelEl.value) || "" })
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) {
+          showToast((d && d.error) || "Brisanje nije uspjelo.", true);
+          return;
+        }
+        showToast("Obrisano: " + (d.name || path));
+        if (d.installed) renderInstalledModels(d.installed);
+        if (d.curated) renderCurated(d.curated);
+        await loadModels();
+        if (currentTab === "modeli") refreshModelsPanel();
+      } catch (e) {
+        showToast("Brisanje nije uspjelo: " + e, true);
+      }
+    }
+    document.addEventListener("click", (e) => {
+      const del = e.target.closest && e.target.closest(".del-model");
+      if (del) deleteInstalledModel(del);
+    });
     document.addEventListener("click", (e) => {
       const b = e.target.closest && e.target.closest(".dl-curated");
       if (b) startDownload({ id: b.dataset.id }, true);

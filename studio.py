@@ -30,6 +30,7 @@ import comfy_launch
 import comfy_ws
 import image_gen
 import inbox
+import installed_models
 import model_download
 import updater
 import video as video_mod
@@ -416,6 +417,38 @@ def build_workflow(**kwargs) -> dict:
     return image_gen.build_workflow(**kwargs)
 
 
+def _image_identity(item: dict) -> tuple:
+    return (
+        str(item.get("filename") or ""),
+        str(item.get("subfolder") or ""),
+        str(item.get("type") or "output"),
+        str(item.get("kind") or ""),
+    )
+
+
+def dedupe_images(images: list[dict]) -> list[dict]:
+    """Makni duplikate i temp preview ako postoji konačni output.
+
+    ComfyUI u /history često stavi iste slike i na VAEDecode/PreviewImage
+    (type=temp) i na SaveImage (type=output). Za batch=2 to izgleda kao 4 slike.
+    """
+    unique: list[dict] = []
+    seen: set[tuple] = set()
+    for item in images or []:
+        if not isinstance(item, dict) or not item.get("filename"):
+            continue
+        key = _image_identity(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(item)
+    stills = [i for i in unique if not i.get("kind")]
+    media = [i for i in unique if i.get("kind")]
+    if any((i.get("type") or "output") == "output" for i in stills):
+        stills = [i for i in stills if (i.get("type") or "output") == "output"]
+    return stills + media
+
+
 def extract_images(hist_entry: dict) -> list[dict]:
     images = []
     outputs = (hist_entry or {}).get("outputs") or {}
@@ -446,7 +479,7 @@ def extract_images(hist_entry: dict) -> list[dict]:
                             "kind": key,
                         }
                     )
-    return images
+    return dedupe_images(images)
 
 
 def job_status(prompt_id: str) -> dict:
@@ -962,6 +995,13 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._update_check()
             return
 
+        if path == "/api/models/installed":
+            selected = (query.get("selected") or [""])[0]
+            payload = installed_models.list_installed(selected=selected or None)
+            payload["curated"] = installed_models.annotate_curated(model_download.CURATED, payload)
+            self._json(200, payload)
+            return
+
         if path == "/api/models":
             self._models_payload()
             return
@@ -1342,6 +1382,9 @@ class StudioHandler(BaseHTTPRequestHandler):
 
     def _handle_delete(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/api/models/installed":
+            self._delete_installed_model()
+            return
         m = re.fullmatch(r"/api/profiles/(\d+)", parsed.path)
         if not m:
             self._json(404, {"ok": False, "error": "Nepoznat endpoint."})
@@ -1352,6 +1395,31 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._json(400, {"ok": False, "error": str(exc)})
             return
         self._json(200, {"ok": True, "profiles": inbox.list_profiles(), "active_profile_id": inbox.active_profile_id()})
+
+    def _delete_installed_model(self) -> None:
+        raw = self._read_body()
+        try:
+            body = self._read_json_from(raw) if raw else {}
+        except json.JSONDecodeError:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        rel = (body.get("path") or body.get("rel") or (query.get("path") or [""])[0] or "").strip()
+        folder = (body.get("folder") or (query.get("folder") or [""])[0] or "").strip()
+        name = (body.get("name") or body.get("filename") or (query.get("name") or [""])[0] or "").strip()
+        selected = (body.get("selected") or (query.get("selected") or [""])[0] or "").strip()
+        try:
+            result = installed_models.delete_model(rel or None, folder=folder or None, name=name or None, selected=selected or None)
+        except installed_models.ModelPathError as exc:
+            code = 404 if getattr(exc, "code", "") == "missing" else 400
+            self._json(code, {"ok": False, "error": str(exc)})
+            return
+        if not result.get("ok"):
+            status = 409 if result.get("locked") else 400
+            self._json(status, result)
+            return
+        self._json(200, result)
 
     def _upload_reference(self, pid: int, body: dict) -> None:
         b64 = body.get("image_b64") or body.get("image") or ""
@@ -1617,6 +1685,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         default_arch = image_gen.detect_model_arch(
             default, (prof or {}).get("model_type") if prof else ""
         )
+        installed = installed_models.list_installed(selected=default)
         payload = {
             "ok": ok,
             "error": None if ok else msg,
@@ -1629,7 +1698,8 @@ class StudioHandler(BaseHTTPRequestHandler):
                 "sdxl": image_gen.SDXL_PRESETS,
                 "krea2": image_gen.KREA2_PRESETS,
             },
-            "curated": model_download.CURATED,
+            "curated": installed_models.annotate_curated(model_download.CURATED, installed),
+            "installed": installed,
             "download": model_download.snapshot(),
             "checkpoints_dir": str(comfy_launch.checkpoints_dir()),
             "diffusion_models_dir": str(comfy_launch.diffusion_models_dir()),
