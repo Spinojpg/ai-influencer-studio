@@ -312,6 +312,9 @@
       font-size: 0.82rem;
     }
     .chip:hover, .chip.on { border-color: rgba(228,181,106,0.55); color: var(--gold); }
+    .preset-box .chips { margin-top: 6px; }
+    .preset-box .preset-custom { margin-top: 8px; width: 100%; }
+    .preset-box .preset-custom[hidden] { display: none; }
     .model-card {
       display: flex; flex-direction: column; gap: 8px;
       padding: 16px; border: 1px solid var(--line); border-radius: 14px;
@@ -810,53 +813,39 @@
             <label class="lbl" for="pVibe">Dob / vibe</label>
             <input type="text" id="pVibe" />
           </div>
-          <div class="row">
-            <div class="field">
-              <label class="lbl" for="pWrite">Duljina poruka</label>
-              <select id="pWrite">
-                <option value="short">Kratko</option>
-                <option value="medium">Srednje</option>
-                <option value="long">Dugačko</option>
-              </select>
-            </div>
-            <div class="field">
-              <label class="lbl" for="pSlang">Slang</label>
-              <select id="pSlang">
-                <option value="none">Bez</option>
-                <option value="light">Malo</option>
-                <option value="heavy">Više</option>
-              </select>
-            </div>
+          <div class="field preset-box" data-preset="writing_style">
+            <label class="lbl">Duljina poruka</label>
+            <div class="chips" id="pWriteChips" role="group" aria-label="Duljina poruka"></div>
+            <input type="text" class="preset-custom" id="pWriteCustom" hidden maxlength="400" placeholder="Opisi svoju duljinu poruka…" />
           </div>
-          <div class="row">
-            <div class="field">
-              <label class="lbl" for="pEmoji">Emoji</label>
-              <select id="pEmoji">
-                <option value="none">Bez</option>
-                <option value="light">Malo</option>
-                <option value="lots">Više</option>
-              </select>
-            </div>
-            <div class="field">
-              <label class="lbl" for="pLang">Jezik</label>
-              <select id="pLang">
-                <option value="HR">Hrvatski</option>
-                <option value="EN">Engleski</option>
-                <option value="MIX">Kao fan</option>
-              </select>
-            </div>
+          <div class="field preset-box" data-preset="slang">
+            <label class="lbl">Slang</label>
+            <div class="chips" id="pSlangChips" role="group" aria-label="Slang"></div>
+            <input type="text" class="preset-custom" id="pSlangCustom" hidden maxlength="400" placeholder="Opisi slang ili dijalekt…" />
+          </div>
+          <div class="field preset-box" data-preset="emoji_use">
+            <label class="lbl">Emoji</label>
+            <div class="chips" id="pEmojiChips" role="group" aria-label="Emoji"></div>
+            <input type="text" class="preset-custom" id="pEmojiCustom" hidden maxlength="400" placeholder="Npr. 😍😘✨ ili opis kako koristi emoji…" />
+          </div>
+          <div class="field preset-box" data-preset="language">
+            <label class="lbl">Jezik</label>
+            <div class="chips" id="pLangChips" role="group" aria-label="Jezik"></div>
+            <input type="text" class="preset-custom" id="pLangCustom" hidden maxlength="80" placeholder="Npr. francuski, ili mješavina…" />
           </div>
           <div class="field">
             <label class="lbl" for="pAvoid">Teme koje izbjegava</label>
             <textarea id="pAvoid" style="min-height:70px"></textarea>
           </div>
           <div class="field">
-            <label class="lbl">Primjeri: poruka fana → idealan odgovor</label>
+            <label class="lbl">Primjeri poruka</label>
+            <div class="hint">Format: Fan: … / Luna: … — prvo što fan napiše, zatim kako želiš da influencer odgovori. 2–4 primjera nisu obavezna, ali jako pomažu da stil ostane prepoznatljiv.</div>
             <div id="pExamples"></div>
             <button class="btn" type="button" id="addExample">Dodaj primjer</button>
           </div>
           <div class="field">
             <label class="lbl" for="pRef">Referentna slika (opcionalno, sprema se lokalno)</label>
+            <div class="hint">Nije obavezna. Ako je staviš, Studio je koristi kao vizualni smjer da slike izgledaju kao ista osoba.</div>
             <input type="file" id="pRef" accept="image/png,image/jpeg,image/webp" />
             <div id="pRefPreview" style="margin-top:8px"></div>
           </div>
@@ -1600,6 +1589,152 @@
       if (row) fillProfileForm(Number(row.dataset.id));
     });
 
+    const PRESET_DEFAULTS = { writing_style: "short", slang: "light", emoji_use: "rare", language: "HR" };
+    const PRESET_ALIASES = {
+      writing_style: { long: "longer_serious" },
+      slang: { heavy: "lots" },
+      emoji_use: { none: "never", light: "rare", lots: "often" },
+      language: { MIX: "follow_fan", mix: "follow_fan" }
+    };
+    const PROFILE_PRESETS = {
+      writing_style: [
+        { id: "very_short", label: "Vrlo kratko (par riječi)" },
+        { id: "short", label: "Kratko (1 rečenica)" },
+        { id: "one_two", label: "1–2 rečenice" },
+        { id: "medium", label: "Srednje (3–4 rečenice)" },
+        { id: "longer_serious", label: "Dulje kad je tema ozbiljna" },
+        { id: "adapt_fan", label: "Prilagodi fanu" }
+      ],
+      slang: [
+        { id: "none", label: "Bez" },
+        { id: "light", label: "Malo" },
+        { id: "moderate", label: "Umjereno" },
+        { id: "lots", label: "Puno" },
+        { id: "dalmatian", label: "Dalmatinski" },
+        { id: "zagreb", label: "Zagrebački" },
+        { id: "en_internet", label: "Engleski internet slang" },
+        { id: "genz", label: "Gen Z" }
+      ],
+      emoji_use: [
+        { id: "never", label: "Nikad" },
+        { id: "rare", label: "Rijetko" },
+        { id: "one_per", label: "1 po poruci" },
+        { id: "often", label: "Često" },
+        { id: "end_only", label: "Samo na kraju" },
+        { id: "set", label: "Odabrani set" }
+      ],
+      language: [
+        { id: "HR", label: "Hrvatski" },
+        { id: "EN", label: "Engleski" },
+        { id: "DE", label: "Njemački" },
+        { id: "IT", label: "Talijanski" },
+        { id: "ES", label: "Španjolski" },
+        { id: "SR_BS", label: "Srpski / bosanski" },
+        { id: "follow_fan", label: "Prati jezik fana" },
+        { id: "HR_EN", label: "Hrvatski + engleski" }
+      ]
+    };
+    const PRESET_UI = {
+      writing_style: { chips: "pWriteChips", custom: "pWriteCustom", placeholder: "Opisi svoju duljinu poruka…" },
+      slang: { chips: "pSlangChips", custom: "pSlangCustom", placeholder: "Opisi slang ili dijalekt…" },
+      emoji_use: { chips: "pEmojiChips", custom: "pEmojiCustom", placeholder: "Npr. 😍😘✨ ili opis kako koristi emoji…" },
+      language: { chips: "pLangChips", custom: "pLangCustom", placeholder: "Npr. francuski, ili mješavina…" }
+    };
+
+    function mergeProfilePresetsFromState() {
+      const incoming = state.profile_options;
+      if (!incoming) return;
+      ["writing_style", "slang", "emoji_use", "language"].forEach((kind) => {
+        if (Array.isArray(incoming[kind]) && incoming[kind].length) {
+          PROFILE_PRESETS[kind] = incoming[kind].map((o) => ({ id: o.id, label: o.label }));
+        }
+      });
+    }
+    function presetIdList(kind) {
+      return (PROFILE_PRESETS[kind] || []).map((o) => o.id);
+    }
+    function canonicalizePreset(kind, value) {
+      const v = (value || "").trim();
+      if (!v) return PRESET_DEFAULTS[kind];
+      if (kind === "emoji_use" && /^set:/i.test(v)) return "set";
+      const aliases = PRESET_ALIASES[kind] || {};
+      if (aliases[v] || aliases[v.toLowerCase()]) return aliases[v] || aliases[v.toLowerCase()];
+      if (presetIdList(kind).indexOf(v) >= 0) return v;
+      return "custom";
+    }
+    function presetExtraText(kind, value) {
+      const v = (value || "").trim();
+      if (kind === "emoji_use" && /^set:/i.test(v)) return v.slice(4);
+      if (canonicalizePreset(kind, v) === "custom") return v;
+      return "";
+    }
+    function needsCustomInput(kind, id) {
+      return id === "custom" || (kind === "emoji_use" && id === "set");
+    }
+    function renderPresetChips(kind, stored) {
+      const ui = PRESET_UI[kind];
+      const box = $(ui.chips);
+      const input = $(ui.custom);
+      if (!box) return;
+      const id = canonicalizePreset(kind, stored);
+      const options = (PROFILE_PRESETS[kind] || []).concat([{ id: "custom", label: "Prilagođeno…" }]);
+      box.innerHTML = options.map((o) => {
+        return '<button type="button" class="chip' + (o.id === id ? " on" : "") + '" data-preset="' + kind + '" data-id="' + o.id + '">' + o.label + "</button>";
+      }).join("");
+      if (input) {
+        const show = needsCustomInput(kind, id);
+        input.hidden = !show;
+        if (show) {
+          input.value = presetExtraText(kind, stored) || input.value || "";
+          input.placeholder = id === "set" ? "Upiši emojiije koje smije koristiti, npr. 😍😘✨" : ui.placeholder;
+        }
+      }
+      box.dataset.selected = id;
+    }
+    function collectPreset(kind) {
+      const ui = PRESET_UI[kind];
+      const box = $(ui.chips);
+      const input = $(ui.custom);
+      const id = (box && box.dataset.selected) || PRESET_DEFAULTS[kind];
+      const extra = (input && input.value || "").trim();
+      if (kind === "emoji_use" && id === "set") return "set:" + extra;
+      if (id === "custom") return extra || PRESET_DEFAULTS[kind];
+      return id;
+    }
+    function bindPresetChips() {
+      document.querySelectorAll(".preset-box .chips").forEach((box) => {
+        if (box.dataset.bound) return;
+        box.dataset.bound = "1";
+        box.addEventListener("click", (e) => {
+          const b = e.target.closest(".chip[data-preset]");
+          if (!b) return;
+          const kind = b.dataset.preset;
+          const ui = PRESET_UI[kind];
+          const input = $(ui.custom);
+          box.dataset.selected = b.dataset.id;
+          box.querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === b));
+          if (input) {
+            const show = needsCustomInput(kind, b.dataset.id);
+            input.hidden = !show;
+            if (show) {
+              input.placeholder = b.dataset.id === "set" ? "Upiši emojiije koje smije koristiti, npr. 😍😘✨" : ui.placeholder;
+              input.focus();
+            }
+          }
+        });
+      });
+    }
+    function applyAllPresets(p) {
+      mergeProfilePresetsFromState();
+      renderPresetChips("writing_style", (p && p.writing_style) || PRESET_DEFAULTS.writing_style);
+      renderPresetChips("slang", (p && p.slang) || PRESET_DEFAULTS.slang);
+      renderPresetChips("emoji_use", (p && p.emoji_use) || PRESET_DEFAULTS.emoji_use);
+      renderPresetChips("language", (p && p.language) || PRESET_DEFAULTS.language);
+      bindPresetChips();
+    }
+
+
+
     function fillProfileForm(id) {
       const p = (state.profiles || []).find((x) => x.id === id);
       if (!p) return;
@@ -1612,10 +1747,8 @@
       if ($("pModelType")) $("pModelType").value = p.model_type || "auto";
       $("pStyle").value = p.style || "";
       $("pVibe").value = p.age_vibe || "";
-      $("pWrite").value = p.writing_style || "short";
-      $("pSlang").value = p.slang || "light";
-      $("pEmoji").value = p.emoji_use || "light";
-      $("pLang").value = p.language || "HR";
+
+      applyAllPresets(p);
       $("pAvoid").value = p.topics_avoid || "";
       $("pRef").value = "";
       renderExamples(p.examples || []);
@@ -1626,7 +1759,7 @@
     }
     function renderExamples(list) {
       $("pExamples").innerHTML = (list || []).map((ex, i) => {
-        return '<div class="ex-pair" data-i="' + i + '"><textarea placeholder="Fan" data-k="fan">' + escapeHtml(ex.fan || "") + '</textarea><textarea placeholder="Odgovor" data-k="reply">' + escapeHtml(ex.reply || "") + '</textarea><button type="button" class="btn danger" data-del="' + i + '">×</button></div>';
+        return '<div class="ex-pair" data-i="' + i + '"><textarea placeholder="Fan: hej, što radiš večeras?" data-k="fan">' + escapeHtml(ex.fan || "") + '</textarea><textarea placeholder="Luna: Evo, malo se odmaram. Što ti?" data-k="reply">' + escapeHtml(ex.reply || "") + '</textarea><button type="button" class="btn danger" data-del="' + i + '">×</button></div>';
       }).join("");
     }
     function collectExamples() {
@@ -1651,10 +1784,7 @@
       editingId = null;
       $("pId").value = "";
       $("profileForm").reset();
-      $("pWrite").value = "short";
-      $("pSlang").value = "light";
-      $("pEmoji").value = "light";
-      $("pLang").value = "HR";
+      applyAllPresets(null);
       renderExamples([]);
       $("pRefPreview").innerHTML = "";
       $("pOk").hidden = true;
@@ -1668,8 +1798,8 @@
         name: $("pName").value, appearance_prompt: $("pAppear").value,
         negative_prompt: $("pNeg").value, preferred_model: $("pModel").value, model_type: ($("pModelType") && $("pModelType").value) || "auto",
         style: $("pStyle").value, age_vibe: $("pVibe").value,
-        writing_style: $("pWrite").value, slang: $("pSlang").value,
-        emoji_use: $("pEmoji").value, language: $("pLang").value,
+        writing_style: collectPreset("writing_style"), slang: collectPreset("slang"),
+        emoji_use: collectPreset("emoji_use"), language: collectPreset("language"),
         topics_avoid: $("pAvoid").value, examples: collectExamples()
       };
       const id = $("pId").value;
@@ -1860,7 +1990,10 @@
     });
     if ($("refreshModels")) $("refreshModels").addEventListener("click", () => loadModels().then(refreshModelsPanel));
 
-    loadState().then(loadModels).then(loadVideoCaps).then(() => { if (currentTab === "poruke") refreshInbox(); });
+    loadState().then(loadModels).then(loadVideoCaps).then(() => {
+      if (currentTab === "poruke") refreshInbox();
+      applyAllPresets(null);
+    });
     setInterval(() => { if (!comfyOk) { refreshStatus().then((ok) => { if (ok) loadModels(); }); } }, 4000);
     setInterval(() => { if (currentTab === "poruke") refreshInbox(); }, 8000);
 

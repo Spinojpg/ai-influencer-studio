@@ -1,5 +1,8 @@
 # Promjene
 
+## 1.0.7 — 2026-11-18
+- U editoru influencera Duljina poruka, Slang, Emoji i Jezik imaju više unaprijed ponuđenih opcija (chipovi, hrvatski natpisi) i i dalje Prilagođeno za slobodan tekst. Emoji može biti i odabrani set. Stari spremljeni profili se i dalje učitavaju (npr. long, heavy, MIX, slobodan tekst). Te vrijednosti idu u prompt za chat. Polje Primjeri poruka sada jasno pokazuje format Fan: … / Luna: ….
+
 ## 1.0.6 — 2026-11-18
 - Preglednik se otvara čim Studio sluša na :7860, bez čekanja da ComfyUI završi učitavanje. Brave se pali odvojeno od pythonw (DETACHED_PROCESS, vlastiti stdio) s --no-first-run --no-default-browser-check, bez --start-maximized uz poziciju (samo veličina na primarnom monitoru). Ako Brave padne ili izađe unutar 3 s, slijedi Edge, pa Chrome, pa webbrowser.open / os.startfile. Svaki pokušaj i returncode ide u data/logs/launcher.log.
 - ComfyUI se pali skriveno (cmd /c call comfyui-studio.bat, CREATE_NO_WINDOW, cwd u C:\ComfyUI-Zluda, izlaz u data/logs/comfyui.log). Kad zatvoriš prozor aplikacije, gasi se Studio i ComfyUI stablo koje je pokretač sam upalio (taskkill /T /F /PID; tuđi ručno pokrenuti ComfyUI se ne dira). Zatvaranje se vidi po procesu preglednika (vlastiti profil) i po heartbeat-u stranice (ping svakih 5 s, 20 s tišine ili goodbye).

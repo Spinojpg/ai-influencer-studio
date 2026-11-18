@@ -434,10 +434,10 @@ def upsert_profile(payload: dict, pid: int | None = None) -> dict:
         "model_type": (str(payload.get("model_type") or "auto").strip().lower() or "auto")[:16],
         "style": str(payload.get("style") or "")[:2000],
         "age_vibe": str(payload.get("age_vibe") or "")[:500],
-        "writing_style": (payload.get("writing_style") or "short")[:20],
-        "slang": (payload.get("slang") or "light")[:20],
-        "emoji_use": (payload.get("emoji_use") or "light")[:20],
-        "language": (payload.get("language") or "HR")[:8],
+        "writing_style": (payload.get("writing_style") or "short")[:400],
+        "slang": (payload.get("slang") or "light")[:400],
+        "emoji_use": (payload.get("emoji_use") or "light")[:400],
+        "language": (payload.get("language") or "HR")[:80],
         "topics_avoid": str(payload.get("topics_avoid") or "")[:2000],
         "examples_json": json.dumps(_clean_examples(payload.get("examples")), ensure_ascii=False),
         "updated_at": time.time(),
@@ -549,31 +549,113 @@ def reference_image_path(pid: int) -> Path | None:
 
 # ---------- system prompt & Grok ----------
 
-WRITING_LABELS = {
-    "short": "kratke poruke, par rečenica, kao na chatu",
-    "medium": "srednje duge poruke, prirodan ritam",
-    "long": "duže, opširnije poruke kad tema to traži",
+# id, label (UI, hrvatski), prompt (upute za Grok). Stare vrijednosti ostaju preko ALIAS_MAP.
+PROFILE_OPTIONS = {
+    "writing_style": [
+        {"id": "very_short", "label": "Vrlo kratko (par riječi)", "prompt": "vrlo kratke poruke, samo par riječi, kao brza chat poruka"},
+        {"id": "short", "label": "Kratko (1 rečenica)", "prompt": "kratke poruke, uglavnom jedna rečenica, kao na chatu"},
+        {"id": "one_two", "label": "1–2 rečenice", "prompt": "poruke od jedne do dvije rečenice, prirodan ritam chata"},
+        {"id": "medium", "label": "Srednje (3–4 rečenice)", "prompt": "srednje duge poruke, otprilike 3–4 rečenice, prirodan ritam"},
+        {"id": "longer_serious", "label": "Dulje kad je tema ozbiljna", "prompt": "obično kratko, ali dulje i pažljivije kad je tema ozbiljna ili emotivna"},
+        {"id": "adapt_fan", "label": "Prilagodi fanu", "prompt": "prilagodi duljinu fanu: kratko na kratko, duže kad fan piše duže ili pita ozbiljno"},
+    ],
+    "slang": [
+        {"id": "none", "label": "Bez", "prompt": "bez slenga, uredniji, prirodan jezik"},
+        {"id": "light", "label": "Malo", "prompt": "malo razgovornog slenga, prirodno, ne pretjerano"},
+        {"id": "moderate", "label": "Umjereno", "prompt": "umjeren, opušten razgovorni slang, kao u stvarnom chatu"},
+        {"id": "lots", "label": "Puno", "prompt": "puno slenga i kolokvijalnog jezika, ali i dalje razumljivo, ne umjetno"},
+        {"id": "dalmatian", "label": "Dalmatinski", "prompt": "lagani dalmatinski predznak i izrazi, prirodno, bez pretjerane karikature"},
+        {"id": "zagreb", "label": "Zagrebački", "prompt": "zagrebački razgovorni ton i izrazi, prirodno, bez karikature"},
+        {"id": "en_internet", "label": "Engleski internet slang", "prompt": "možeš koristiti engleski internet slang (lol, tbh, ngl, lowkey…) uz osnovni jezik razgovora, umjereno"},
+        {"id": "genz", "label": "Gen Z", "prompt": "lagani Gen Z / internetski stil (kratice, casual ton), prirodno, bez pretjeranog cringe-a"},
+    ],
+    "emoji_use": [
+        {"id": "never", "label": "Nikad", "prompt": "uopće ne koristi emojiije"},
+        {"id": "rare", "label": "Rijetko", "prompt": "emoji rijetko, samo ponekad, ne u svakoj poruci"},
+        {"id": "one_per", "label": "1 po poruci", "prompt": "najviše jedan emoji po poruci, ako uopće"},
+        {"id": "often", "label": "Često", "prompt": "slobodno češće emojiije, ali ne u svakoj riječi i ne umjetno"},
+        {"id": "end_only", "label": "Samo na kraju", "prompt": "emoji eventualno samo na kraju poruke, ne usred rečenice"},
+        {"id": "set", "label": "Odabrani set", "prompt": "koristi samo dogovoreni, dosljedan set emojiija"},
+    ],
+    "language": [
+        {"id": "HR", "label": "Hrvatski", "prompt": "Piši na hrvatskom, prirodno, kao stvarna osoba na chatu."},
+        {"id": "EN", "label": "Engleski", "prompt": "Write in natural English, like a real person texting."},
+        {"id": "DE", "label": "Njemački", "prompt": "Schreibe auf natürlichem Deutsch, wie eine echte Person im Chat."},
+        {"id": "IT", "label": "Talijanski", "prompt": "Scrivi in italiano naturale, come una persona vera in chat."},
+        {"id": "ES", "label": "Španjolski", "prompt": "Escribe en español natural, como una persona real en el chat."},
+        {"id": "SR_BS", "label": "Srpski / bosanski", "prompt": "Piši na srpskom ili bosanskom, prirodno, kao stvarna osoba na chatu, prilagodi slovu (latinica) osim ako fan koristi ćirilicu."},
+        {"id": "follow_fan", "label": "Prati jezik fana", "prompt": "Odgovaraj na jeziku na kojem fan piše (hrvatski, engleski ili drugi, ako ga razumiješ)."},
+        {"id": "HR_EN", "label": "Hrvatski + engleski", "prompt": "Piši uglavnom na hrvatskom, ali smiješ umetnuti engleske izraze kad to zvuči prirodno, kao u stvarnom chatu."},
+    ],
 }
-SLANG_LABELS = {
-    "none": "bez slenga, uredniji jezik",
-    "light": "malo razgovornog slenga, prirodno",
-    "heavy": "opušten, kolokvijalan jezik, više slenga",
+
+# Stare spremljene vrijednosti (prije 1.0.7) mapiraju se na nove id-eve.
+PROFILE_ALIASES = {
+    "writing_style": {"long": "longer_serious"},
+    "slang": {"heavy": "lots"},
+    "emoji_use": {"none": "never", "light": "rare", "lots": "often"},
+    "language": {"MIX": "follow_fan", "mix": "follow_fan"},
 }
-EMOJI_LABELS = {
-    "none": "bez emojiija",
-    "light": "poneki emoji, ne u svakoj rečenici",
-    "lots": "slobodno više emojiija, ali ne pretjerano umjetno",
+
+_DEFAULTS = {
+    "writing_style": "short",
+    "slang": "light",
+    "emoji_use": "rare",
+    "language": "HR",
 }
+
+
+def profile_options_public() -> dict:
+    """Za sučelje: id + hrvatski label, bez prompt teksta."""
+    out = {}
+    for key, opts in PROFILE_OPTIONS.items():
+        out[key] = [{"id": o["id"], "label": o["label"]} for o in opts]
+    return out
+
+
+def _options_by_id(kind: str) -> dict:
+    return {o["id"]: o for o in PROFILE_OPTIONS.get(kind, [])}
+
+
+def canonicalize_profile_choice(kind: str, raw: str) -> str:
+    """Vrati id preseta, 'set' (uz set:…), ili 'custom' za slobodan tekst."""
+    value = (raw or "").strip()
+    if not value:
+        return _DEFAULTS.get(kind, "")
+    if kind == "emoji_use" and value.lower().startswith("set:"):
+        return "set"
+    alias = PROFILE_ALIASES.get(kind, {}).get(value) or PROFILE_ALIASES.get(kind, {}).get(value.lower())
+    if alias:
+        return alias
+    if value in _options_by_id(kind):
+        return value
+    return "custom"
+
+
+def field_prompt_text(kind: str, raw: str) -> str:
+    """Tekst koji ide u system prompt. Nepoznate (stare slobodne) vrijednosti ostaju kako jesu."""
+    value = (raw or "").strip()
+    if not value:
+        value = _DEFAULTS.get(kind, "")
+    by_id = _options_by_id(kind)
+    if kind == "emoji_use" and value.lower().startswith("set:"):
+        chosen = value.split(":", 1)[1].strip()
+        if chosen:
+            return f"koristi samo ovaj set emojiija, dosljedno: {chosen}"
+        return by_id["set"]["prompt"]
+    key = PROFILE_ALIASES.get(kind, {}).get(value) or PROFILE_ALIASES.get(kind, {}).get(value.lower()) or value
+    if key in by_id:
+        return by_id[key]["prompt"]
+    return value
+
+
+# Stari nazivi rječnika (ako koji test ili kod još dira te konstante).
+WRITING_LABELS = {o["id"]: o["prompt"] for o in PROFILE_OPTIONS["writing_style"]}
+SLANG_LABELS = {o["id"]: o["prompt"] for o in PROFILE_OPTIONS["slang"]}
+EMOJI_LABELS = {o["id"]: o["prompt"] for o in PROFILE_OPTIONS["emoji_use"]}
 
 
 def build_system_prompt(profile: dict) -> str:
-    lang = (profile.get("language") or "HR").upper()
-    lang_line = {
-        "HR": "Piši na hrvatskom, prirodno, kao stvarna osoba na chatu.",
-        "EN": "Write in natural English, like a real person texting.",
-        "MIX": "Odgovaraj na jeziku na kojem fan piše (hrvatski ili engleski).",
-    }.get(lang, "Piši na hrvatskom, prirodno, kao stvarna osoba na chatu.")
-
     examples = profile.get("examples") or []
     ex_lines = []
     for i, pair in enumerate(examples, 1):
@@ -582,7 +664,7 @@ def build_system_prompt(profile: dict) -> str:
         fan = (pair.get("fan") or "").strip()
         reply = (pair.get("reply") or "").strip()
         if fan or reply:
-            ex_lines.append(f"{i}. Fan: {fan}\n   Ti: {reply}")
+            ex_lines.append(f"{i}. Fan: {fan}\n   Luna: {reply}")
     examples_block = "\n".join(ex_lines) if ex_lines else "(nema spremljenih primjera)"
 
     name = profile.get("name") or "Persona"
@@ -592,13 +674,13 @@ Odgovaraš fanovima u njezinu/njegovu stilu, kratko i uvjerljivo, kao privatna p
 Ime: {name}
 Osobnost / stil: {profile.get("style") or "prijateljska, opuštena"}
 Dob / vibe: {profile.get("age_vibe") or "nije posebno navedeno"}
-Duljina poruka: {WRITING_LABELS.get(profile.get("writing_style") or "short", WRITING_LABELS["short"])}
-Slang: {SLANG_LABELS.get(profile.get("slang") or "light", SLANG_LABELS["light"])}
-Emoji: {EMOJI_LABELS.get(profile.get("emoji_use") or "light", EMOJI_LABELS["light"])}
-Jezik: {lang_line}
+Duljina poruka: {field_prompt_text("writing_style", profile.get("writing_style") or "short")}
+Slang: {field_prompt_text("slang", profile.get("slang") or "light")}
+Emoji: {field_prompt_text("emoji_use", profile.get("emoji_use") or "rare")}
+Jezik: {field_prompt_text("language", profile.get("language") or "HR")}
 Teme koje izbjegavaš: {profile.get("topics_avoid") or "nema dodatnih, osim pravila ispod"}
 
-Primjeri kako odgovaraš (fan -> tvoj idealni odgovor):
+Primjeri kako odgovaraš (format Fan: … / Luna: …):
 {examples_block}
 
 PRAVILA — vrijede uvijek i jača su od stila persode:
@@ -1441,4 +1523,5 @@ def app_state() -> dict:
         "profiles": list_profiles(),
         "pending_drafts": pending_drafts_count(pid) if pid else 0,
         "settings": public_settings(),
+        "profile_options": profile_options_public(),
     }
