@@ -96,24 +96,53 @@ def which_browser_exe(names: Iterable[str]) -> Path | None:
     return None
 
 
+def is_browser_exe(path: Path) -> bool:
+    """Odbaci prazne ili ne-.exe datoteke (kriv put iz which/registry)."""
+    try:
+        if not path.is_file():
+            return False
+        if sys.platform == "win32" and path.suffix.lower() != ".exe":
+            return False
+        if path.stat().st_size < 1024:
+            return False
+        return True
+    except OSError:
+        return False
+
+
 def find_browser(kind: str, environ: dict | None = None) -> Path | None:
     """Vrati putanju exe-a ili None. kind: brave/edge/chrome."""
     kind = normalize_browser(kind)
     if kind == "default":
         return None
+    seen: set[Path] = set()
+    candidates: list[Path] = []
     for path in candidate_paths(kind, environ):
-        if path.is_file():
-            return path
+        candidates.append(path)
     for exe_name in _APP_PATHS.get(kind, ()):
         found = registry_app_path(exe_name)
         if found is not None:
-            return found
+            candidates.append(found)
     which_names = {
         "brave": ("brave.exe", "brave"),
         "edge": ("msedge.exe", "msedge"),
         "chrome": ("chrome.exe", "google-chrome", "chrome"),
     }.get(kind, ())
-    return which_browser_exe(which_names)
+    wh = which_browser_exe(which_names)
+    if wh is not None:
+        candidates.append(wh)
+    for path in candidates:
+        try:
+            key = path.resolve()
+        except OSError:
+            key = path
+        if key in seen:
+            continue
+        seen.add(key)
+        if is_browser_exe(path):
+            return path
+    return None
+
 
 
 def browser_profile_dir(data_dir: Path) -> Path:
@@ -199,20 +228,19 @@ def build_app_args(
     url: str,
     profile_dir: Path,
     placement: tuple[int, int, int, int] | None = None,
-    *,
-    maximized: bool = True,
 ) -> list[str]:
+    """Zastavice za Chromium --app. Bez --start-maximized (smetalo je s pozicijom)."""
     url = url if "://" in url else "http://" + url
     args = [
         f"--user-data-dir={str(Path(profile_dir).resolve())}",
+        "--no-first-run",
+        "--no-default-browser-check",
         "--new-window",
     ]
     if placement:
         x, y, w, h = placement
         args.append(f"--window-position={int(x)},{int(y)}")
         args.append(f"--window-size={int(w)},{int(h)}")
-    if maximized:
-        args.append("--start-maximized")
     args.append(f"--app={url}")
     return args
 
@@ -227,6 +255,100 @@ def preference_order(preference: str) -> list[str]:
     return ["brave", "edge", "chrome"]
 
 
+def format_cmd(cmd: list[str]) -> str:
+    if sys.platform == "win32":
+        try:
+            return subprocess.list2cmdline(cmd)
+        except Exception:
+            pass
+    parts = []
+    for a in cmd:
+        if any(ch in a for ch in ' \t"'):
+            parts.append('"' + a.replace('"', '\\"') + '"')
+        else:
+            parts.append(a)
+    return " ".join(parts)
+
+
+def gui_popen_kwargs() -> dict:
+    """Zastavice za GUI proces iz pythonw: odvojeni process group, bez nasljeđivanja None stdio."""
+    kwargs: dict = {
+        "close_fds": True,
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
+    if sys.platform == "win32":
+        flags = int(getattr(subprocess, "DETACHED_PROCESS", 0x00000008))
+        flags |= int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200))
+        # Ne koristiti CREATE_NO_WINDOW — sakrio bi preglednik.
+        kwargs["creationflags"] = flags
+    return kwargs
+
+
+def wait_briefly(proc, seconds: float) -> int | None:
+    """Vrati returncode ako proces izađe unutar seconds, inače None (još radi)."""
+    wait = getattr(proc, "wait", None)
+    if callable(wait) and seconds and seconds > 0:
+        try:
+            return wait(timeout=seconds)
+        except subprocess.TimeoutExpired:
+            return None
+        except TypeError:
+            pass
+    poll = getattr(proc, "poll", None)
+    if callable(poll):
+        return poll()
+    return None
+
+
+def spawn_gui(cmd: list[str], *, popen=subprocess.Popen, settle_s: float = 3.0, log=print) -> dict:
+    kwargs = gui_popen_kwargs()
+    rendered = format_cmd(cmd)
+    log(f"Pokrećem preglednik: {rendered}")
+    log(f"  Popen kwargs: close_fds={kwargs.get('close_fds')} creationflags={kwargs.get('creationflags')}")
+    try:
+        proc = popen(cmd, **kwargs)
+    except Exception as exc:
+        log(f"  Popen nije uspio: {type(exc).__name__}: {exc}")
+        return {"ok": False, "error": str(exc), "cmd": cmd, "rendered": rendered}
+    pid = getattr(proc, "pid", None)
+    log(f"  PID {pid}, čekam {settle_s:.1f}s je li ostao živ")
+    code = wait_briefly(proc, settle_s)
+    if code is not None:
+        log(f"  Proces je izašao unutar {settle_s:.1f}s, returncode={code}")
+        return {
+            "ok": False,
+            "exited": True,
+            "returncode": code,
+            "cmd": cmd,
+            "rendered": rendered,
+            "pid": pid,
+        }
+    log(f"  Proces još radi (PID {pid})")
+    return {"ok": True, "proc": proc, "cmd": cmd, "rendered": rendered, "pid": pid}
+
+
+def open_default_browser(url: str, *, log=print) -> dict:
+    try:
+        import webbrowser
+
+        ok = bool(webbrowser.open(url))
+        log(f"webbrowser.open({url}) -> {ok}")
+        if ok:
+            return {"ok": True, "browser": "default", "method": "webbrowser.open"}
+    except Exception as exc:
+        log(f"webbrowser.open nije uspio: {type(exc).__name__}: {exc}")
+    if sys.platform == "win32":
+        try:
+            os.startfile(url)  # type: ignore[attr-defined]
+            log(f"os.startfile({url}) OK")
+            return {"ok": True, "browser": "default", "method": "os.startfile"}
+        except Exception as exc:
+            log(f"os.startfile nije uspio: {type(exc).__name__}: {exc}")
+    return {"ok": False, "browser": "default", "error": "niti webbrowser.open niti startfile"}
+
+
 def open_studio_window(
     url: str,
     data_dir: Path,
@@ -235,10 +357,12 @@ def open_studio_window(
     work_area: tuple[int, int, int, int] | None | object = ...,
     popen=subprocess.Popen,
     log=print,
+    settle_s: float = 3.0,
 ) -> dict:
     """
     Otvori Studio u app načinu. Zadano Brave, vlastiti profil u data/browser-profile,
-    prozor na primarnom monitoru. Ako Brave nije tu, Edge pa Chrome pa zadani preglednik.
+    prozor na primarnom monitoru. Ako Popen padne ili proces izađe unutar settle_s,
+    ide Edge, pa Chrome, pa webbrowser.open / os.startfile.
     """
     url = url if "://" in url else "http://" + url
     pref = normalize_browser(preference)
@@ -246,18 +370,23 @@ def open_studio_window(
     if work_area is ...:
         work_area = primary_work_area()
     placement = window_placement(work_area if isinstance(work_area, tuple) else None)
-    args = build_app_args(url, profile, placement, maximized=True)
+    args = build_app_args(url, profile, placement)
+    attempts: list[dict] = []
 
     if pref != "default":
         for kind in preference_order(pref):
             exe = find_browser(kind)
             if exe is None:
+                log(f"Nema instalacije za {kind}, preskačem.")
+                attempts.append({"browser": kind, "ok": False, "error": "nije pronađen"})
                 continue
             cmd = [str(exe), *args]
-            try:
-                popen(cmd, close_fds=True)
+            log(f"Pokušaj {kind}: {exe}")
+            result = spawn_gui(cmd, popen=popen, settle_s=settle_s, log=log)
+            attempts.append({"browser": kind, "exe": str(exe), **{k: result[k] for k in result if k != "proc"}})
+            if result.get("ok"):
                 log(
-                    f"Otvaram {exe.name} ({kind}) u app načinu na primarnom monitoru: {url}"
+                    f"Otvoren {exe.name} ({kind}) u app načinu: {url}"
                     + (f" @ {placement}" if placement else "")
                 )
                 return {
@@ -267,17 +396,22 @@ def open_studio_window(
                     "cmd": cmd,
                     "placement": placement,
                     "profile": str(profile),
+                    "pid": result.get("pid"),
+                    "proc": result.get("proc"),
+                    "attempts": attempts,
                 }
-            except OSError as exc:
-                log(f"Nisam mogao pokrenuti {exe}: {exc}")
-                continue
+            log(f"{kind} nije ostao pokrenut — sljedeći u lancu.")
 
-    try:
-        import webbrowser
-
-        webbrowser.open(url)
-        log("Otvaram zadani preglednik:", url)
-        return {"ok": True, "browser": "default", "exe": "", "cmd": [], "placement": placement, "profile": str(profile)}
-    except Exception as exc:
-        log("Ne mogu otvoriti preglednik:", exc)
-        return {"ok": False, "browser": "default", "error": str(exc), "profile": str(profile)}
+    log("Lanac Chromium preglednika nije uspio, otvaram zadani preglednik.")
+    fallback = open_default_browser(url, log=log)
+    attempts.append(fallback)
+    return {
+        "ok": bool(fallback.get("ok")),
+        "browser": "default",
+        "exe": "",
+        "cmd": [],
+        "placement": placement,
+        "profile": str(profile),
+        "attempts": attempts,
+        "error": fallback.get("error"),
+    }

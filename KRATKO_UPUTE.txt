@@ -34,9 +34,13 @@ Instalacija kao Windows aplikacija
      otvara ComfyUI-jev preglednik, i u okruženje procesa stavi
      TORCH_BACKENDS_CUDNN_ENABLED=0 (inače prvo pokretanje može zapeti na
      "Compilation is in progress"; sam set u comfyui-n.bat se nije primijenio).
-     Pokreće se u minimiziranom konzolnom prozoru i čeka :8188 do 5 minuta.
+     Pokreće se SKRIVENO (nema konzolnog prozora); izlaz ide u
+     data\logs\comfyui.log. Studio i preglednik se otvaraju čim Studio
+     sluša na :7860, bez čekanja da ComfyUI završi učitavanje.
      Opciju cuDNN možeš ugasiti u postavkama. Ako je ComfyUI već upaljen
      bez te varijable, zatvori ga i pokreni Studio ponovo.
+     Kad zatvoriš prozor aplikacije, gasi se i Studio i ComfyUI koji je
+     pokrenuo ovaj pokretač (tuđi ručno upaljeni ComfyUI se ne dira).
    - pokrene Studio poslužitelj u pozadini,
    - otvori Brave u app načinu na primarnom monitoru (Display 1),
      s vlastitim profilom u data\browser-profile (novi proces, ne
@@ -118,8 +122,9 @@ Ako nešto ne radi
 -----------------
 
 "ComfyUI nije pokrenut. Pokreni comfyui-n.bat"
-  Upali ComfyUI preko start_comfy.bat ili pokreni_sve.bat.
-  U pregledniku provjeri http://127.0.0.1:8188
+  Pokretač bi trebao sam upaliti ComfyUI skriveno. Pogledaj
+  data\logs\launcher.log i data\logs\comfyui.log.
+  Rucno: start_comfy.bat ili pokreni_sve.bat, pa http://127.0.0.1:8188
 
 Port 7860 ili 8188 zauzet
   Zatvori stari prozor Studija / ComfyUI-ja pa pokreni ponovo.

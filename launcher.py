@@ -20,6 +20,7 @@ if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 os.chdir(APP_DIR)
 
+import app_session  # noqa: E402
 import applog  # noqa: E402
 import browser_launch  # noqa: E402
 import comfy_launch  # noqa: E402
@@ -31,6 +32,8 @@ COMFY_URL = os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188").rstrip("/")
 COMFY_DIR_DEFAULT = r"C:\ComfyUI-Zluda"
 COMFY_WAIT_S = int(os.environ.get("COMFYUI_WAIT_SECONDS", "300"))
 STUDIO_WAIT_S = int(os.environ.get("STUDIO_WAIT_SECONDS", "60"))
+
+_comfy_log_fh = None
 
 
 def _py_console() -> str:
@@ -82,8 +85,8 @@ def comfy_dir() -> Path:
     return Path(raw)
 
 
-def start_comfy_if_needed() -> subprocess.Popen | None:
-    """Pokreni comfyui-studio.bat (generiran iz comfyui-n.bat) u minimiziranom prozoru."""
+def start_comfy_if_needed(*, wait: bool = False) -> subprocess.Popen | None:
+    """Pokreni comfyui-studio.bat skriveno (bez konzole), izlaz u data/logs/comfyui.log. Po zadanom ne čeka da oživi."""
     if url_ok(COMFY_URL + "/system_stats"):
         print("ComfyUI vec radi.")
         return None
@@ -120,40 +123,65 @@ def start_comfy_if_needed() -> subprocess.Popen | None:
     except Exception:
         log_path = None
     proc = None
+    global _comfy_log_fh
     if sys.platform == "win32":
-        # pythonw nema valjani stdin/stdout. CREATE_NEW_CONSOLE + nasljeđivanje
-        # pokvarenih handlea često zatvori konzolu odmah. `start /MIN /D`
-        # otvara pravi novi prozor s vlastitim stdio i ispravnim cwd
-        # (važno za pushd zluda u comfyui-n.bat).
-        start_cmd = comfy_launch.windows_start_command(run_bat, folder, keep_open=True)
-        print("Naredba za ComfyUI:", start_cmd)
+        argv = comfy_launch.hidden_comfy_argv(run_bat)
+        print("Naredba za ComfyUI (skriveno):", argv, "cwd=", folder, "log=", log_path)
         try:
             if log_path is not None:
-                with log_path.open("a", encoding="utf-8") as fh:
-                    fh.write(f"cmd: {start_cmd}\n")
-        except Exception:
-            pass
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                banner = (
+                    f"\n===== {__import__('datetime').datetime.now().isoformat(timespec='seconds')} "
+                    f"cmd {' '.join(argv)} cwd={folder} =====\n"
+                )
+                _comfy_log_fh = log_path.open("a", encoding="utf-8", errors="replace")
+                _comfy_log_fh.write(banner)
+                _comfy_log_fh.flush()
+            else:
+                _comfy_log_fh = subprocess.DEVNULL
+        except Exception as exc:
+            print("Ne mogu otvoriti comfyui.log:", exc)
+            _comfy_log_fh = subprocess.DEVNULL
         flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+        flags |= int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200))
         proc = subprocess.Popen(
-            start_cmd,
+            argv,
             cwd=str(folder),
             env=env,
-            shell=True,
-            close_fds=True,
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=_comfy_log_fh,
+            stderr=subprocess.STDOUT,
+            close_fds=True,
             creationflags=flags,
         )
-        print("Pokrenut start-proces PID", proc.pid)
+        print("Pokrenut skriveni ComfyUI PID", proc.pid, "(nema konzolnog prozora, izlaz u comfyui.log)")
     else:
+        try:
+            if log_path is not None:
+                _comfy_log_fh = log_path.open("a", encoding="utf-8", errors="replace")
+            else:
+                _comfy_log_fh = subprocess.DEVNULL
+        except Exception:
+            _comfy_log_fh = subprocess.DEVNULL
         proc = subprocess.Popen(
             ["bash", str(run_bat)],
             cwd=str(folder),
             env=env,
             start_new_session=True,
             stdin=subprocess.DEVNULL,
+            stdout=_comfy_log_fh,
+            stderr=subprocess.STDOUT,
         )
+    if not wait:
+        print("ComfyUI je pokrenut u pozadini; ne cekam ga prije otvaranja Studija.")
+        if log_path is not None:
+            try:
+                with log_path.open("a", encoding="utf-8") as fh:
+                    from datetime import datetime
+                    fh.write(f"{datetime.now().isoformat(timespec='seconds')} pokrenut u pozadini, bez cekanja\n")
+            except Exception:
+                pass
+        return proc
     print("Cekam ComfyUI na", COMFY_URL, "do", COMFY_WAIT_S, "s ...")
     ok = wait_url(COMFY_URL + "/system_stats", COMFY_WAIT_S)
     if ok:
@@ -190,13 +218,13 @@ def start_studio_hidden(app_dir: Path, data_dir: Path) -> subprocess.Popen:
     return subprocess.Popen(cmd, **kwargs)
 
 
-def open_app_window(url: str, data_dir: Path | None = None) -> None:
+def open_app_window(url: str, data_dir: Path | None = None) -> dict:
     data_dir = Path(data_dir) if data_dir is not None else inbox.DATA_DIR
     try:
         pref = inbox.get_setting("browser", browser_launch.DEFAULT_BROWSER) or browser_launch.DEFAULT_BROWSER
     except Exception:
         pref = browser_launch.DEFAULT_BROWSER
-    browser_launch.open_studio_window(url, data_dir, preference=pref, log=print)
+    return browser_launch.open_studio_window(url, data_dir, preference=pref, log=print)
 
 
 def maybe_update(app_dir: Path, data_dir: Path, force: bool = False) -> bool:
@@ -369,23 +397,45 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def start_app_windows(data_dir: Path) -> int:
-    """ComfyUI prvo (i ako Studio već radi), zatim prozor ili novi poslužitelj."""
-    # ComfyUI se pali UVIJEK ako ne sluša, čak i kad Studio već radi
-    # (inače ikona samo otvori prozor i ostavi "ComfyUI nije pokrenut").
-    start_comfy_if_needed()
+    """Studio i preglednik čim :7860 odgovori; ComfyUI u pozadini, skriven. Čekamo zatvaranje prozora pa gasimo sesiju."""
+    app_session.clear_heartbeat(data_dir)
+    comfy_proc = start_comfy_if_needed(wait=False)
+    we_started_comfy = comfy_proc is not None
+    if we_started_comfy:
+        try:
+            app_session.write_comfy_pid(data_dir, int(comfy_proc.pid))
+            print("Zapisao comfy.pid", comfy_proc.pid)
+        except Exception as exc:
+            print("Nisam zapisao comfy.pid:", exc)
 
+    we_started_studio = False
+    studio_proc = None
     if url_ok(STUDIO_URL):
         print("Studio vec radi, otvaram prozor.")
-        open_app_window(STUDIO_URL, data_dir)
-        return 0
+    else:
+        studio_proc = start_studio_hidden(APP_DIR, data_dir)
+        we_started_studio = True
+        if not wait_url(STUDIO_URL, STUDIO_WAIT_S):
+            print("GRESKA: Studio posluzitelj nije krenuo na", STUDIO_URL)
+            if studio_proc.poll() is not None:
+                print("Proces je zavrsio sa kodom", studio_proc.returncode)
+            return 1
+        print("Studio slusa na", STUDIO_URL, "- otvaram preglednik.")
 
-    proc = start_studio_hidden(APP_DIR, data_dir)
-    if not wait_url(STUDIO_URL, STUDIO_WAIT_S):
-        print("GRESKA: Studio posluzitelj nije krenuo na", STUDIO_URL)
-        if proc.poll() is not None:
-            print("Proces je zavrsio sa kodom", proc.returncode)
-        return 1
-    open_app_window(STUDIO_URL, data_dir)
+    result = open_app_window(STUDIO_URL, data_dir) or {}
+    browser_proc = result.get("proc") if isinstance(result, dict) else None
+    print("Cekam zatvaranje prozora aplikacije...")
+    reason = app_session.wait_for_app_close(data_dir, browser_proc)
+    print("Prozor je zatvoren (", reason, ") — gasim Studio i eventualno ComfyUI.")
+    app_session.shutdown_session(
+        data_dir,
+        studio_proc=studio_proc,
+        studio_url=STUDIO_URL,
+        we_started_comfy=we_started_comfy,
+        comfy_pid=int(getattr(comfy_proc, "pid", 0) or 0),
+        stop_studio=True,
+        log=print,
+    )
     return 0
 
 

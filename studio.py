@@ -24,6 +24,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import app_session
 import applog
 import comfy_launch
 import comfy_ws
@@ -505,6 +506,11 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._json(200, {"ok": ok, "message": msg, "comfy": COMFY_BASE})
             return
 
+        if path == "/api/heartbeat":
+            hb = app_session.read_heartbeat(inbox.DATA_DIR) or {}
+            self._json(200, {"ok": True, "heartbeat": hb})
+            return
+
         if path == "/api/state":
             ok, msg = comfy_up()
             state = inbox.app_state()
@@ -659,6 +665,25 @@ class StudioHandler(BaseHTTPRequestHandler):
 
         if path in ("/webhook/instagram", "/api/ig/webhook"):
             self._ig_incoming(raw)
+            return
+
+        if path == "/api/heartbeat":
+            qs = urllib.parse.parse_qs(parsed.query)
+            bye = "bye" in qs or (qs.get("bye") or [""])[0] in {"1", "true", "yes"}
+            if raw:
+                try:
+                    extra = self._read_json_from(raw)
+                    if isinstance(extra, dict) and extra.get("bye"):
+                        bye = True
+                except Exception:
+                    pass
+            hb = app_session.touch_heartbeat(inbox.DATA_DIR, bye=bye)
+            self._json(200, {"ok": True, "heartbeat": hb})
+            return
+
+        if path == "/api/shutdown":
+            self._json(200, {"ok": True, "message": "Gasim poslužitelj."})
+            _schedule_studio_exit()
             return
 
         try:

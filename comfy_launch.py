@@ -61,6 +61,20 @@ def strip_auto_launch(text: str) -> str:
     return text
 
 
+def strip_pause(text: str) -> str:
+    """Makni pause iz wrappera — skriveni proces nema tipkovnicu, log ide u comfyui.log."""
+    return re.sub(
+        r"(?im)^([ \t]*)pause\b.*$",
+        r"\1rem pause removed — output goes to comfyui.log",
+        text,
+    )
+
+
+def hidden_comfy_argv(bat: Path) -> list[str]:
+    """cmd /c call <bat> — bez vidljive konzole kad se koristi s CREATE_NO_WINDOW."""
+    return ["cmd", "/c", "call", str(Path(bat))]
+
+
 def _win_quote(path: Path) -> str:
     s = str(path).replace('"', "")
     return f'"{s}"'
@@ -98,6 +112,7 @@ def build_comfy_studio_bat(
     dest = Path(dest) if dest is not None else src.parent / WRAPPER_NAME
     text = _read_text(src)
     text = strip_auto_launch(text)
+    text = strip_pause(text)
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     # Skinuti vodeći @echo off da ga stavimo jednom na vrh.
     body = text.lstrip("\ufeff")

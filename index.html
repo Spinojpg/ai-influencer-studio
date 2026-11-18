@@ -1863,6 +1863,21 @@
     loadState().then(loadModels).then(loadVideoCaps).then(() => { if (currentTab === "poruke") refreshInbox(); });
     setInterval(() => { if (!comfyOk) { refreshStatus().then((ok) => { if (ok) loadModels(); }); } }, 4000);
     setInterval(() => { if (currentTab === "poruke") refreshInbox(); }, 8000);
+
+    (function studioHeartbeat() {
+      const beat = (bye) => {
+        const url = bye ? "/api/heartbeat?bye=1" : "/api/heartbeat";
+        if (bye && navigator.sendBeacon) {
+          try { navigator.sendBeacon(url, ""); } catch (e) {}
+          return;
+        }
+        fetch(url, { method: "POST", cache: "no-store", keepalive: !!bye }).catch(() => {});
+      };
+      beat(false);
+      setInterval(() => beat(false), 5000);
+      window.addEventListener("pagehide", () => beat(true));
+      window.addEventListener("beforeunload", () => beat(true));
+    })();
   })();
   </script>
 </body>

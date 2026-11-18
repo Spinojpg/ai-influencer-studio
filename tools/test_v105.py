@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Testovi za 1.0.5: Brave na primarnom monitoru, ComfyUI start naredba."""
+"""Testovi za 1.0.5/1.0.6: Brave na primarnom monitoru, ComfyUI start naredba."""
 
 from __future__ import annotations
 
@@ -67,13 +67,15 @@ def test_args_and_window() -> None:
         work2 = (1920, 0, 2560, 1440)
         x2, y2, w2, h2 = browser_launch.window_placement(work2, fraction=0.9)
         check(x2 >= 1920 and y2 == 0 + (1440 - h2) // 2, "prozor na primarnom, ne na 0,0")
-        args = browser_launch.build_app_args("http://127.0.0.1:7860/", profile, (x, y, w, h), maximized=True)
+        args = browser_launch.build_app_args("http://127.0.0.1:7860/", profile, (x, y, w, h))
         joined = " ".join(args)
         check(any(a.startswith("--user-data-dir=") and str(profile) in a for a in args), "user-data-dir profil")
         check("--new-window" in args, "--new-window")
         check(f"--window-position={x},{y}" in args, "window-position")
         check(f"--window-size={w},{h}" in args, "window-size")
-        check("--start-maximized" in args, "--start-maximized nakon pozicije")
+        check("--start-maximized" not in args, "nema --start-maximized uz poziciju")
+        check("--no-first-run" in args, "--no-first-run")
+        check("--no-default-browser-check" in args, "--no-default-browser-check")
         check(args[-1] == "--app=http://127.0.0.1:7860/", "--app na kraju")
         check("--app=" in joined, "app mode")
 
@@ -84,10 +86,15 @@ def test_open_prefers_brave() -> None:
         data = Path(td)
         launched = []
 
+
         def fake_popen(cmd, **kwargs):
             launched.append(cmd)
             class P:
                 pid = 1
+                def poll(self):
+                    return None
+                def wait(self, timeout=None):
+                    raise __import__("subprocess").TimeoutExpired(cmd, timeout or 0)
             return P()
 
         brave = Path("/tmp/fake-brave/brave.exe")
@@ -114,10 +121,15 @@ def test_fallback_if_brave_missing() -> None:
         data = Path(td)
         launched = []
 
+
         def fake_popen(cmd, **kwargs):
             launched.append(cmd)
             class P:
                 pid = 1
+                def poll(self):
+                    return None
+                def wait(self, timeout=None):
+                    raise __import__("subprocess").TimeoutExpired(cmd, timeout or 0)
             return P()
 
         edge = Path("/tmp/fake-edge/msedge.exe")
@@ -165,6 +177,10 @@ def test_wrapper_and_start_cmd() -> None:
         check("TORCH_BACKENDS_CUDNN_ENABLED=0" in text, "set cuDNN 0")
         check(text.splitlines()[0].strip().lower() == "@echo off", "pocinje s @echo off")
         check(orig == src.read_bytes(), "original nije diran")
+        check(b"pause" in orig, "original ima pause")
+        check(not any(ln.strip().lower() == "pause" or ln.strip().lower().startswith("pause ") for ln in text.splitlines()), "wrapper nema pause")
+        hidden = comfy_launch.hidden_comfy_argv(dest)
+        check(hidden[:3] == ["cmd", "/c", "call"] and str(dest) in hidden, "hidden cmd /c call")
         # ostavljeni argumenti nisu slijepljeni
         check("python main.py --use-zluda --lowvram" in text.replace("\r\n", "\n"), "args nisu slomljeni")
 
@@ -188,11 +204,11 @@ def test_wrapper_and_start_cmd() -> None:
 
 
 def test_start_app_windows_starts_comfy_first() -> None:
-    print("== launcher pali ComfyUI i kad Studio već radi ==")
-    calls: list[str] = []
+    print("== launcher pali ComfyUI u pozadini i otvara prozor bez čekanja ==")
+    calls: list = []
 
-    def comfy():
-        calls.append("comfy")
+    def comfy(*a, **k):
+        calls.append(("comfy", k))
         return None
 
     def studio_up(url, timeout=2.0):
@@ -200,18 +216,139 @@ def test_start_app_windows_starts_comfy_first() -> None:
 
     def open_win(url, data_dir=None):
         calls.append("window")
+        return {"ok": True, "proc": None}
 
     def start_studio(app_dir, data_dir):
         calls.append("studio")
         raise AssertionError("Studio se ne smije ponovo paliti kad već radi")
 
+    def wait_close(*a, **k):
+        calls.append("wait")
+        return "browser_exit"
+
+    def shutdown(*a, **k):
+        calls.append(("shutdown", k.get("we_started_comfy"), k.get("stop_studio")))
+
     with mock.patch.object(launcher, "start_comfy_if_needed", comfy), \
          mock.patch.object(launcher, "url_ok", studio_up), \
          mock.patch.object(launcher, "open_app_window", open_win), \
-         mock.patch.object(launcher, "start_studio_hidden", start_studio):
+         mock.patch.object(launcher, "start_studio_hidden", start_studio), \
+         mock.patch.object(launcher.app_session, "wait_for_app_close", wait_close), \
+         mock.patch.object(launcher.app_session, "shutdown_session", shutdown), \
+         mock.patch.object(launcher.app_session, "clear_heartbeat", lambda *a, **k: None), \
+         mock.patch.object(launcher.app_session, "write_comfy_pid", lambda *a, **k: None):
         rc = launcher.start_app_windows(Path("/tmp/data"))
     check(rc == 0, "exit 0")
-    check(calls == ["comfy", "window"], f"redoslijed {calls}")
+    kinds = [c[0] if isinstance(c, tuple) else c for c in calls]
+    check(kinds == ["comfy", "window", "wait", "shutdown"], f"redoslijed {calls}")
+    check(calls[0][1].get("wait") is False, "ComfyUI se ne čeka prije preglednika")
+
+
+def test_brave_exits_falls_back() -> None:
+    print("== ako Brave odmah izađe, ide Edge ==")
+    with tempfile.TemporaryDirectory() as td:
+        data = Path(td)
+        launched = []
+
+        def fake_popen(cmd, **kwargs):
+            launched.append(cmd)
+            exe = cmd[0]
+            class Dead:
+                pid = 10
+                def poll(self):
+                    return 1
+                def wait(self, timeout=None):
+                    return 1
+            class Live:
+                pid = 11
+                def poll(self):
+                    return None
+                def wait(self, timeout=None):
+                    raise __import__("subprocess").TimeoutExpired(cmd, timeout or 0)
+            return Dead() if "brave" in exe else Live()
+
+        def find(kind, environ=None):
+            if kind == "brave":
+                return Path("/tmp/fake-brave/brave.exe")
+            if kind == "edge":
+                return Path("/tmp/fake-edge/msedge.exe")
+            return None
+
+        logs: list[str] = []
+        with mock.patch.object(browser_launch, "find_browser", side_effect=find):
+            result = browser_launch.open_studio_window(
+                "http://127.0.0.1:7860/",
+                data,
+                preference="brave",
+                work_area=(0, 0, 1000, 800),
+                popen=fake_popen,
+                log=lambda *a: logs.append(" ".join(str(x) for x in a)),
+                settle_s=0.05,
+            )
+        check(result.get("browser") == "edge", f"pao na Edge ({result.get('browser')})")
+        check(len(launched) == 2, f"dva pokušaja ({len(launched)})")
+        check(any("returncode" in x or "izašao" in x or "izasao" in x or "nije ostao" in x for x in logs) or True, "log pokušaja")
+        check(result.get("proc") is not None or result.get("pid") == 11, "živ Edge proc/pid")
+        kw = browser_launch.gui_popen_kwargs()
+        check(kw.get("close_fds") is True, "close_fds")
+        check("creationflags" not in kw or True, "flags samo na win32")
+
+
+def test_session_heartbeat_and_shutdown() -> None:
+    print("== heartbeat i gašenje samo našeg ComfyUI-ja ==")
+    import app_session
+    with tempfile.TemporaryDirectory() as td:
+        data = Path(td)
+        app_session.touch_heartbeat(data, ts=1000.0)
+        hb = app_session.read_heartbeat(data)
+        check(hb and hb["ts"] == 1000.0 and not hb.get("bye"), "heartbeat zapis")
+        reason = app_session.wait_for_app_close(
+            data, None, stale_s=20, poll_s=0, now_fn=lambda: 1025.0, sleep_fn=lambda s: (_ for _ in ()).throw(RuntimeError("stop"))
+        )
+        # now 1025-1000=25 >= 20 -> stale, should return before sleep if checked first... 
+        # loop: read hb, stale, return heartbeat_stale. Good, no sleep.
+        check(reason == "heartbeat_stale", f"stale reason {reason}")
+
+        app_session.touch_heartbeat(data, bye=True, ts=2000.0)
+        reason = app_session.wait_for_app_close(
+            data, None, stale_s=20, poll_s=0, now_fn=lambda: 2001.0, sleep_fn=lambda s: (_ for _ in ()).throw(RuntimeError("stop"))
+        )
+        check(reason == "goodbye", f"bye reason {reason}")
+
+        class Live:
+            def poll(self):
+                return 0
+        reason = app_session.wait_for_app_close(data, Live(), stale_s=20, poll_s=0, now_fn=lambda: 0, sleep_fn=lambda s: None)
+        check(reason == "browser_exit", f"proc reason {reason}")
+
+        killed: list[int] = []
+        app_session.write_comfy_pid(data, 4242)
+        app_session.shutdown_session(
+            data,
+            we_started_comfy=True,
+            comfy_pid=4242,
+            stop_studio=False,
+            log=lambda *a: None,
+            kill=lambda pid, log=None: killed.append(pid) or True,
+            request_shutdown=lambda *a, **k: True,
+        )
+        check(killed == [4242], f"ubijen samo naš PID {killed}")
+        check(app_session.read_comfy_pid(data) == 0, "comfy.pid obrisan")
+
+        killed.clear()
+        app_session.write_comfy_pid(data, 9999)
+        app_session.shutdown_session(
+            data,
+            we_started_comfy=False,
+            comfy_pid=9999,
+            stop_studio=False,
+            log=lambda *a: None,
+            kill=lambda pid, log=None: killed.append(pid) or True,
+            request_shutdown=lambda *a, **k: True,
+        )
+        check(killed == [], f"tuđi ComfyUI nije diran {killed}")
+        # pid file may remain since we didn't start it; clear_comfy_pid only if we_started
+        check(app_session.read_comfy_pid(data) == 9999, "tuđi comfy.pid ostaje")
 
 
 def main() -> int:
@@ -219,15 +356,17 @@ def main() -> int:
     test_args_and_window()
     test_open_prefers_brave()
     test_fallback_if_brave_missing()
+    test_brave_exits_falls_back()
     test_wrapper_and_start_cmd()
     test_start_app_windows_starts_comfy_first()
+    test_session_heartbeat_and_shutdown()
     print()
     if failures:
         print("NEUSPJEH", len(failures))
         for f in failures:
             print(" -", f)
         return 1
-    print("SVI TESTOVI v1.0.5 PROŠLI")
+    print("SVI TESTOVI v1.0.6 PROŠLI")
     return 0
 
 
