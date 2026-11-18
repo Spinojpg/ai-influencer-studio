@@ -50,8 +50,42 @@ foreach ($lnk in $destinations) {
     $s.WindowStyle = 7
     $s.Description = "AI Influencer Studio"
     if (Test-Path -LiteralPath $IconPath) {
-        $s.IconLocation = $IconPath
+        # ",0" bira prvu ikonu u ICO-u; novi zapis tjera Explorer da ne drzi stari cache.
+        $s.IconLocation = "$IconPath,0"
     }
     $s.Save()
     Write-Host "Napravljen precac: $lnk"
+}
+
+# Osvjezi Windowsev cache ikona (inace prečac često ostane na staroj ikoni).
+$notifyPaths = @()
+if (Test-Path -LiteralPath $IconPath) { $notifyPaths += $IconPath }
+$notifyPaths += $destinations
+try {
+    Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class StudioShellNotify {
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    public static extern void SHChangeNotify(int eventId, uint flags, string item1, string item2);
+    [DllImport("shell32.dll")]
+    public static extern void SHChangeNotify(int eventId, uint flags, IntPtr item1, IntPtr item2);
+}
+"@
+    foreach ($p in $notifyPaths) {
+        try { [StudioShellNotify]::SHChangeNotify(0x00002000, 0x1005, [string]$p, $null) } catch {}
+    }
+    [StudioShellNotify]::SHChangeNotify(0x08000000, 0x1000, [IntPtr]::Zero, [IntPtr]::Zero)
+    Write-Host "SHChangeNotify poslan"
+} catch {
+    Write-Host "SHChangeNotify nije uspio: $_"
+}
+$ie4 = Join-Path $env:SystemRoot "System32\ie4uinit.exe"
+if (Test-Path -LiteralPath $ie4) {
+    try {
+        & $ie4 -show | Out-Null
+        Write-Host "ie4uinit -show"
+    } catch {
+        Write-Host "ie4uinit: $_"
+    }
 }

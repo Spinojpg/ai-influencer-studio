@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AI Influencer Studio — Jednostavno</title>
+  <link rel="icon" href="/app.ico" type="image/x-icon" />
+  <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon" />
   <style>
     :root {
       --bg0: #0e1014;
@@ -624,6 +626,7 @@
             <button type="button" data-mode="quality" data-steps="30" class="on">Kvaliteta<br>30 koraka</button>
           </div>
           <div class="hint" id="turboHint">Turbo (Hyper-SDXL LoRA) na RX 6600 skraćuje sliku s ~8–9 min na ~2–2,5 min. Preuzmi LoRA u kartici Modeli. Samo za SDXL.</div>
+          <div class="hint hint-warn" id="kreaHint" hidden>Krea 2 Turbo: 8 koraka, cfg 1, euler/simple (bez Hyper-SDXL LoRA i bez hires fixa). Paket je ~18,6 GB. Na RX 6600 (8 GB) vjerojatno nije izvedivo — fp8 na ZLUDA/RDNA2 često ide u fp16.</div>
         </div>
 
         <div class="active-model" id="activeModelLine" aria-live="polite">
@@ -892,6 +895,7 @@
               <option value="auto">Automatski</option>
               <option value="sd15">SD 1.5</option>
               <option value="sdxl">SDXL</option>
+              <option value="krea2">Krea 2</option>
             </select>
             <div class="hint">Automatski prepoznaje XL / RealVisXL / Juggernaut. Realistic Vision ostaje SD 1.5.</div>
           </div>
@@ -1326,7 +1330,8 @@
           const o = document.createElement("option");
           o.value = name;
           const arch = info[name] || detectArch(name);
-          o.textContent = name + (arch === "sdxl" ? "  ·  SDXL" : "  ·  SD 1.5");
+          const tag = arch === "krea2" ? "Krea 2" : (arch === "sdxl" ? "SDXL" : "SD 1.5");
+          o.textContent = name + "  ·  " + tag;
           o.dataset.arch = arch;
           if (name === preferred) o.selected = true;
           modelEl.appendChild(o);
@@ -1352,6 +1357,7 @@
         const ver = (m[1] || "").replace(/\.0$/, "");
         return "RealVisXL" + (ver ? " V" + ver : "");
       }
+      if (lower.replace(/\s+/g, "").indexOf("krea2") >= 0 || /\bkrea\s*2\b/.test(lower)) return "Krea 2 Turbo";
       if (lower.indexOf("juggernaut") >= 0) {
         if (lower.indexOf("ragnarok") >= 0 || /(^|\s)xl(\s|$)/.test(lower) || lower.replace(/\s+/g, "").indexOf("juggernautxl") >= 0) return "Juggernaut XL";
         if (/\bxiii\b/.test(lower)) return "Juggernaut XIII";
@@ -1375,10 +1381,11 @@
       const nameEl = $("activeModelName");
       const badge = $("activeTurboBadge");
       if (nameEl) nameEl.textContent = shortModelName(modelEl && modelEl.value) || "—";
-      if (badge) badge.hidden = !turboMode;
+      if (badge) badge.hidden = !(turboMode || currentArch === "krea2");
     }
     function detectArch(name) {
       const n = (name || "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
+      if (n.indexOf("krea2") >= 0 || n.indexOf("krea_2") >= 0) return "krea2";
       if (n.indexOf("realistic_vision") >= 0) return "sd15";
       if (n.indexOf("sdxl") >= 0 || n.indexOf("juggernaut") >= 0) return "sdxl";
       if (n.indexOf("realvis") >= 0) return "sdxl";
@@ -1389,12 +1396,14 @@
     function applyArchFromModel() {
       const opt = modelEl.options[modelEl.selectedIndex];
       const override = (state.active_profile && state.active_profile.model_type) || "auto";
-      const arch = (override === "sdxl" || override === "sd15") ? override : (opt && opt.dataset.arch) || detectArch(modelEl.value);
+      const arch = (override === "sdxl" || override === "sd15" || override === "krea2") ? override : (opt && opt.dataset.arch) || detectArch(modelEl.value);
       const prev = currentArch;
       currentArch = arch;
-      const presets = (window._presets && window._presets[arch]) || (arch === "sdxl"
+      const presets = (window._presets && window._presets[arch]) || (arch === "krea2"
+        ? [{width:1024,height:1024,label:"Kvadrat"},{width:832,height:1216,label:"Portret"},{width:1216,height:832,label:"Pejzaž"}]
+        : (arch === "sdxl"
         ? [{width:768,height:1152,label:"Portret"},{width:832,height:1216,label:"Portret HD"},{width:1024,height:1024,label:"Kvadrat"},{width:1216,height:832,label:"Pejzaž"}]
-        : [{width:512,height:768,label:"Portret"},{width:512,height:512,label:"Kvadrat"},{width:768,height:512,label:"Pejzaž"}]);
+        : [{width:512,height:768,label:"Portret"},{width:512,height:512,label:"Kvadrat"},{width:768,height:512,label:"Pejzaž"}]));
       const box = $("sizes");
       const prevW = width, prevH = height;
       if (box) {
@@ -1421,9 +1430,11 @@
       if (on) { width = Number(on.dataset.w); height = Number(on.dataset.h); }
       const hint = $("archHint");
       if (hint) {
-        hint.textContent = arch === "sdxl"
+        hint.textContent = arch === "krea2"
+          ? "Model: Krea 2 Turbo · formati 1024×1024 (zadano, službeni predložak), 832×1216, 1216×832. 8 koraka, cfg 1, euler/simple."
+          : (arch === "sdxl"
           ? "Model: SDXL · formati 768×1152 (zadano, sigurnije na 8 GB), 832×1216 Portret HD, 1024×1024, 1216×832, cfg 5. U postavkama možeš uključiti Low VRAM."
-          : "Model: SD 1.5 · formati 512×768 / 512×512 / 768×512, cfg 5,5. Na RX 6600 u postavkama možeš uključiti Low VRAM.";
+          : "Model: SD 1.5 · formati 512×768 / 512×512 / 768×512, cfg 5,5. Na RX 6600 u postavkama možeš uključiti Low VRAM.");
       }
       const hh = $("hiresHint");
       if (hh) {
@@ -1432,7 +1443,14 @@
           : "Hires fix (latent 1,5× + drugi KSampler, denoise 0.4) je namijenjen SD 1.5. Na 8 GB može biti tijesno.";
         hh.classList.toggle("hint-warn", arch === "sdxl");
       }
-      if (prev !== arch && prev) showToast("Formati su prilagođeni za " + (arch === "sdxl" ? "SDXL" : "SD 1.5") + ".");
+      if (prev !== arch && prev) showToast("Formati su prilagođeni za " + (arch === "krea2" ? "Krea 2" : (arch === "sdxl" ? "SDXL" : "SD 1.5")) + ".");
+      const qBox = $("quality") ? $("quality").closest(".field") : null;
+      if (qBox) qBox.hidden = arch === "krea2";
+      const hiresField = $("hiresFix") ? $("hiresFix").closest(".field") : null;
+      if (hiresField) hiresField.hidden = arch === "krea2";
+      if (arch === "krea2" && $("hiresFix")) $("hiresFix").checked = false;
+      if ($("kreaHint")) $("kreaHint").hidden = arch !== "krea2";
+      if (arch === "krea2") turboMode = false;
       updateActiveModelLine();
     }
 
@@ -1648,8 +1666,8 @@
         seed: Number(seedEl.value),
         quality_prefix: $("qualityPrefix") ? $("qualityPrefix").checked : true,
         hires: $("hiresFix") ? $("hiresFix").checked : false,
-        turbo: !!turboMode,
-        model_type: currentArch === "sdxl" ? "sdxl" : (currentArch === "sd15" ? "sd15" : "auto")
+        turbo: currentArch === "krea2" ? false : !!turboMode,
+        model_type: currentArch === "sdxl" ? "sdxl" : (currentArch === "sd15" ? "sd15" : (currentArch === "krea2" ? "krea2" : "auto"))
       };
     }
 
@@ -2198,7 +2216,7 @@
       const items = list || [];
       box.innerHTML = items.map((c) => {
         const gb = c.size_bytes ? (c.size_bytes / (1024*1024*1024)).toFixed(2).replace(/\.00$/, "") + " GB" : "";
-        const tag = c.turbo ? "TURBO" : (c.kind === "lora" ? "LoRA" : (c.kind === "animatediff" ? "VIDEO" : (c.arch === "sd15" ? "SD 1.5" : "SDXL")));
+        const tag = c.arch === "krea2" ? "KREA 2" : (c.turbo ? "TURBO" : (c.kind === "lora" ? "LoRA" : (c.kind === "animatediff" ? "VIDEO" : (c.arch === "sd15" ? "SD 1.5" : "SDXL"))));
         return '<div class="model-card" data-id="' + c.id + '">'
           + '<div class="arch-tag">' + tag + "</div>"
           + "<h3>" + escapeHtml(c.name) + (gb ? " · " + gb : "") + "</h3>"

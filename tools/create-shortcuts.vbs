@@ -36,7 +36,7 @@ Sub WriteLnk(path)
   s.WorkingDirectory = appDir
   s.WindowStyle = 7
   s.Description = "AI Influencer Studio"
-  If fso.FileExists(iconPath) Then s.IconLocation = iconPath
+  If fso.FileExists(iconPath) Then s.IconLocation = iconPath & ",0"
   s.Save
 End Sub
 WriteLnk desktop & "\AI Influencer Studio.lnk"

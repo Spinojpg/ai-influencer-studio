@@ -1,5 +1,9 @@
 # Promjene
 
+## 1.0.13 — 2026-11-18
+- Kartica Modeli: paket Krea 2 Turbo (FP8) s Hugging Facea (Comfy-Org/Krea-2) — diffusion model 13,1 GB u models/diffusion_models, Qwen3-VL encoder 5,24 GB u text_encoders i VAE 254 MB u vae (ukupno ~18,6 GB, resume je podržan). Studio ga pali kao poseban arh: UNETLoader + CLIPLoader (type=krea2) + VAELoader, bez Load Checkpoint. 8 koraka, cfg 1, euler/simple, zadano 1024×1024. Hires i Hyper-SDXL LoRA se ne koriste. Ako CLIPLoader nema tip krea2, ažuriraj ComfyUI na 0.45.0 ili noviji. Na RX 6600 (8 GB) ovaj model vjerojatno nije izvediv: sam fp8 UNET je 13 GB, a na ZLUDA/RDNA2 se fp8 često pretvara u fp16 (~26 GB). Samostalni ComfyUI workflow je u workflows/krea2_turbo_fp8.json (službeni latent je EmptyLatentImage).
+- Nova ikona aplikacije (crni zaobljeni kvadrat, zlatni crtež lica) s prozirnim uglovima, ICO 16/24/32/48/64/128/256 px, i kao favicon. Nakon ažuriranja pokretač ponovo napiše prečace na radnoj površini i u Start izborniku te isprazni Windows cache ikona (SHChangeNotify / ie4uinit).
+
 ## 1.0.12 — 2026-11-18
 - Na ekranu Slike, uz gumb Generiraj (izvan Napredno) vidi se kratko ime aktivnog modela (npr. RealVisXL V5, Juggernaut XL) i bedž Turbo kad je uključen.
 - Ispod svake slike, pored seeda, stoji isti model i Turbo ako je korišten. Povijest to pamti; stare stavke bez tih podataka ostaju samo sa seedom.

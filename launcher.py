@@ -347,6 +347,14 @@ def apply_pending(app_dir: Path, data_dir: Path) -> bool:
                 "message": f"Ažurirano na verziju {ver}",
             },
         )
+        try:
+            import shortcuts
+            shortcuts.refresh_app_shortcuts(Path(app_dir), log=lambda m: applog.get_logger("launcher").info("%s", m))
+        except Exception as exc:
+            try:
+                applog.get_logger("launcher").info("prečaci/ikona nisu osvježeni: %s", exc)
+            except Exception:
+                pass
         shutil.rmtree(pending, ignore_errors=True)
         return True
     except Exception as exc:

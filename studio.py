@@ -110,6 +110,14 @@ def parse_ckpt_list(data) -> list[str]:
 
 
 def list_models() -> list[str]:
+    names = list_checkpoint_models()
+    for n in list_diffusion_models():
+        if n not in names:
+            names.append(n)
+    return names
+
+
+def list_checkpoint_models() -> list[str]:
     for path in ("/models/checkpoints", "/object_info/CheckpointLoaderSimple"):
         try:
             data, _, _ = comfy_request(path, timeout=8)
@@ -118,7 +126,38 @@ def list_models() -> list[str]:
                 return names
         except Exception:
             continue
+    return comfy_launch.list_files(comfy_launch.checkpoints_dir())
+
+
+def parse_unet_list(data) -> list[str]:
+    if isinstance(data, list):
+        return [str(x) for x in data if x]
+    if not isinstance(data, dict):
+        return []
+    node = data.get("UNETLoader", data)
+    try:
+        names = node["input"]["required"]["unet_name"][0]
+        if isinstance(names, list):
+            return [str(x) for x in names if x]
+    except Exception:
+        pass
     return []
+
+
+def list_diffusion_models() -> list[str]:
+    names: list[str] = []
+    for path in ("/models/diffusion_models", "/object_info/UNETLoader"):
+        try:
+            data, _, _ = comfy_request(path, timeout=8)
+            found = parse_unet_list(data)
+            if found:
+                names = found
+                break
+        except Exception:
+            continue
+    if not names:
+        names = comfy_launch.list_files(comfy_launch.diffusion_models_dir())
+    return names
 
 
 def object_info() -> dict:
@@ -130,8 +169,61 @@ def object_info() -> dict:
 
 
 def model_entries(names: list[str] | None = None) -> list[dict]:
-    names = list(names if names is not None else list_models())
-    return [{"name": n, "arch": image_gen.detect_model_arch(n)} for n in names]
+    if names is None:
+        ckpts = list_checkpoint_models()
+        diffs = list_diffusion_models()
+        entries = []
+        seen = set()
+        for n in diffs:
+            if n in seen:
+                continue
+            seen.add(n)
+            arch = image_gen.detect_model_arch(n)
+            if arch != "krea2":
+                arch = "krea2" if "krea" in n.lower() else arch
+            label = "Krea 2" if arch == "krea2" else ("SDXL" if arch == "sdxl" else "SD 1.5")
+            entries.append({"name": n, "arch": arch, "kind": "diffusion", "group": label})
+        for n in ckpts:
+            if n in seen:
+                continue
+            seen.add(n)
+            arch = image_gen.detect_model_arch(n)
+            label = "SDXL" if arch == "sdxl" else "SD 1.5"
+            entries.append({"name": n, "arch": arch, "kind": "checkpoint", "group": label})
+        return entries
+    return [{"name": n, "arch": image_gen.detect_model_arch(n), "kind": "checkpoint", "group": ""} for n in names]
+
+
+def krea2_file_status() -> dict:
+    """Koje Krea 2 datoteke već stoje u ComfyUI mapama."""
+    unet = image_gen.KREA2_UNET
+    clip = image_gen.KREA2_CLIP
+    vae = image_gen.KREA2_VAE
+    unet_dir = comfy_launch.diffusion_models_dir()
+    clip_dir = comfy_launch.text_encoders_dir()
+    vae_dir = comfy_launch.vae_dir()
+    have_unet = (unet_dir / unet).is_file() or unet in set(comfy_launch.list_files(unet_dir))
+    have_clip = (clip_dir / clip).is_file() or clip in set(comfy_launch.list_files(clip_dir))
+    have_vae = (vae_dir / vae).is_file() or vae in set(comfy_launch.list_files(vae_dir))
+    missing = []
+    if not have_unet:
+        missing.append(f"{unet} (models/diffusion_models)")
+    if not have_clip:
+        missing.append(f"{clip} (models/text_encoders)")
+    if not have_vae:
+        missing.append(f"{vae} (models/vae)")
+    return {
+        "unet": have_unet,
+        "clip": have_clip,
+        "vae": have_vae,
+        "ready": have_unet and have_clip and have_vae,
+        "missing": missing,
+        "paths": {
+            "diffusion_models": str(unet_dir),
+            "text_encoders": str(clip_dir),
+            "vae": str(vae_dir),
+        },
+    }
 
 
 _JOBS: dict[str, float] = {}
@@ -406,13 +498,14 @@ def plan_image_generation(
     built = image_gen.build_positive_prompt(scene=scene, appearance=appearance, quality=bool(quality_on))
     prompt = built["prompt"]
 
+    dim_max = 2048 if arch == "krea2" else 1536
     defaults = image_gen.presets_for(arch)[0]
-    width = clamp_int(body.get("width"), 256, 1536, defaults["width"])
-    height = clamp_int(body.get("height"), 256, 1536, defaults["height"])
-    width = max(256, min(1536, width - (width % 8)))
-    height = max(256, min(1536, height - (height % 8)))
+    width = clamp_int(body.get("width"), 256, dim_max, defaults["width"])
+    height = clamp_int(body.get("height"), 256, dim_max, defaults["height"])
+    width = max(256, min(dim_max, width - (width % 8)))
+    height = max(256, min(dim_max, height - (height % 8)))
     batch = clamp_int(body.get("batch"), 1, 4, 1)
-    steps = clamp_int(body.get("steps"), 4, 50, 30)
+    steps = clamp_int(body.get("steps"), 4, 50, image_gen.default_steps(arch))
     cfg = body.get("cfg")
     try:
         cfg = float(cfg) if cfg is not None and cfg != "" else image_gen.default_cfg(arch)
@@ -431,9 +524,38 @@ def plan_image_generation(
 
     turbo = bool(body.get("turbo"))
     lora = (body.get("lora") or "").strip()
-    sampler_name = "dpmpp_2m"
-    scheduler = "karras"
-    if turbo:
+    sampler_name, scheduler = image_gen.default_sampler(arch)
+
+    if arch == "krea2":
+        err = image_gen.krea2_support_error(object_info)
+        if err:
+            return {"ok": False, "status": 400, "error": err, "need": "comfy-update", "arch": "krea2"}
+        st = krea2_file_status()
+        if not st["ready"]:
+            missing = ", ".join(st["missing"])
+            return {
+                "ok": False,
+                "status": 400,
+                "error": (
+                    "Nedostaju datoteke za Krea 2 Turbo. Otvori karticu Modeli i preuzmi paket "
+                    "„Krea 2 Turbo (FP8)”. Nedostaje: " + missing
+                ),
+                "need": "krea2-files",
+                "missing": st["missing"],
+            }
+        spec = image_gen.KREA2_TURBO
+        steps = int(spec["steps"])
+        cfg = float(spec["cfg"])
+        sampler_name = spec["sampler_name"]
+        scheduler = spec["scheduler"]
+        hires = False
+        lora = ""
+        turbo = False  # ne miješaj Hyper-SDXL LoRA; meta.krea_turbo označava način
+        krea_turbo = True
+    else:
+        krea_turbo = False
+
+    if turbo and arch != "krea2":
         if arch != "sdxl":
             return {
                 "ok": False,
@@ -474,7 +596,7 @@ def plan_image_generation(
         lora=lora,
         lora_strength=float(image_gen.TURBO_SDXL["lora_strength"] if turbo else 1.0),
         turbo=turbo,
-        prompt_chunks=built["chunks"],
+        prompt_chunks=None if arch == "krea2" else built["chunks"],
     )
     return {
         "ok": True,
@@ -491,7 +613,8 @@ def plan_image_generation(
             "cfg": cfg,
             "arch": arch,
             "hires": hires,
-            "turbo": turbo,
+            "turbo": bool(turbo or krea_turbo),
+            "krea_turbo": krea_turbo,
             "prompt": prompt,
             "tokens": built["tokens"],
             "token_warn": built["warn"],
@@ -683,6 +806,14 @@ class StudioHandler(BaseHTTPRequestHandler):
                 self._send(500, "Nedostaje index.html.".encode("utf-8"), "text/plain; charset=utf-8")
                 return
             self._send(200, INDEX.read_bytes(), "text/html; charset=utf-8")
+            return
+
+        if path in ("/app.ico", "/favicon.ico"):
+            ico = ROOT / "app.ico"
+            if not ico.is_file():
+                self._send(404, b"", "image/x-icon")
+                return
+            self._send(200, ico.read_bytes(), "image/x-icon")
             return
 
         if path in ("/webhook/instagram", "/api/ig/webhook"):
@@ -1361,10 +1492,19 @@ class StudioHandler(BaseHTTPRequestHandler):
             "models_info": models,
             "default": default,
             "default_arch": default_arch,
-            "presets": {"sd15": image_gen.SD15_PRESETS, "sdxl": image_gen.SDXL_PRESETS},
+            "presets": {
+                "sd15": image_gen.SD15_PRESETS,
+                "sdxl": image_gen.SDXL_PRESETS,
+                "krea2": image_gen.KREA2_PRESETS,
+            },
             "curated": model_download.CURATED,
             "download": model_download.snapshot(),
             "checkpoints_dir": str(comfy_launch.checkpoints_dir()),
+            "diffusion_models_dir": str(comfy_launch.diffusion_models_dir()),
+            "text_encoders_dir": str(comfy_launch.text_encoders_dir()),
+            "vae_dir": str(comfy_launch.vae_dir()),
+            "krea2": image_gen.KREA2_TURBO,
+            "krea2_files": krea2_file_status(),
             "loras_dir": str(comfy_launch.loras_dir()),
             "loras": image_gen.list_loras(),
             "turbo": image_gen.TURBO_SDXL,
@@ -1390,9 +1530,16 @@ class StudioHandler(BaseHTTPRequestHandler):
             if not item:
                 self._json(400, {"ok": False, "error": "Nepoznat predloženi model."})
                 return
-            url = item["url"]
-            filename = filename or item["filename"]
-            dest_dir = model_download.dest_dir_for(item.get("kind") or "checkpoint")
+            try:
+                info = model_download.start_curated(item)
+            except (ValueError, RuntimeError) as exc:
+                self._json(400, {"ok": False, "error": str(exc)})
+                return
+            except Exception as exc:
+                self._json(500, {"ok": False, "error": str(exc)})
+                return
+            self._json(200, {"ok": True, "download": info})
+            return
         try:
             info = model_download.start_download(url, filename or None, dest_dir=dest_dir)
         except (ValueError, RuntimeError) as exc:

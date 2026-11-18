@@ -221,6 +221,13 @@ def main() -> int:
             },
         )
         log(f"OK Ažurirano na {ver}")
+        try:
+            if str(APP_DIR) not in sys.path:
+                sys.path.insert(0, str(APP_DIR))
+            import shortcuts  # after zip apply so new icon + script are on disk
+            shortcuts.refresh_app_shortcuts(APP_DIR, log=log)
+        except Exception as exc:
+            log(f"prečaci/ikona nisu osvježeni: {exc}")
         import shutil
 
         shutil.rmtree(pending, ignore_errors=True)

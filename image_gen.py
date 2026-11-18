@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Txt2img workflow: SD 1.5 / SDXL, quality prefix, hires fix."""
+"""Txt2img workflow: SD 1.5 / SDXL / Krea 2, quality prefix, hires fix."""
 
 from __future__ import annotations
 
@@ -26,6 +26,27 @@ SDXL_PRESETS = [
     {"id": "square", "label": "Kvadrat", "width": 1024, "height": 1024},
     {"id": "landscape", "label": "Pejzaž", "width": 1216, "height": 832},
 ]
+
+KREA2_PRESETS = [
+    {"id": "square", "label": "Kvadrat", "width": 1024, "height": 1024},
+    {"id": "portrait", "label": "Portret", "width": 832, "height": 1216},
+    {"id": "landscape", "label": "Pejzaž", "width": 1216, "height": 832},
+]
+KREA2_TURBO = {
+    "steps": 8,
+    "cfg": 1.0,
+    "sampler_name": "euler",
+    "scheduler": "simple",
+    "note": "Krea 2 Turbo: 8 koraka, cfg 1, euler + simple. Bez Hyper-SDXL LoRA i bez hires fixa.",
+}
+KREA2_UNET = "krea2_turbo_fp8_scaled.safetensors"
+KREA2_CLIP = "qwen3vl_4b_fp8_scaled.safetensors"
+KREA2_VAE = "qwen_image_vae.safetensors"
+KREA2_CLIP_TYPE = "krea2"
+# Službeni ComfyUI predložak (image_krea2_turbo_t2i) koristi EmptyLatentImage 1024×1024,
+# ne EmptySD3LatentImage ni EmptyHunyuanLatent — iako model interno koristi Wan21 latent format.
+KREA2_LATENT_NODE = "EmptyLatentImage"
+
 
 LOWVRAM_NOTE = (
     "Na 8 GB VRAM-a (RX 6600) zadani SDXL portret je 768×1152 (832×1216 je Portret HD). "
@@ -65,11 +86,15 @@ def detect_model_arch(name: str, override: str = "") -> str:
     """Vrati 'sdxl' ili 'sd15'. Realistic Vision ostaje SD 1.5 (ne 'realvis')."""
     o = (override or "").strip().lower().replace(" ", "")
     o = o.replace("1.5", "15")
+    if o in {"krea2", "krea", "krea_2"}:
+        return "krea2"
     if o in {"sdxl", "xl"}:
         return "sdxl"
     if o in {"sd15", "sd1.5", "15", "sd1", "sd14"}:
         return "sd15"
     n = re.sub(r"[^a-z0-9]+", "_", (name or "").lower()).strip("_")
+    if "krea2" in n or n.startswith("krea_2"):
+        return "krea2"
     if "realistic_vision" in n or n.startswith("realisticvision"):
         return "sd15"
     if "sdxl" in n or "sd_xl" in n:
@@ -108,6 +133,9 @@ def short_model_name(filename: str) -> str:
         ver = (m.group(1) or "").removesuffix(".0")
         return "RealVisXL" + (f" V{ver}" if ver else "")
 
+    if "krea2" in lower.replace(" ", "") or re.search(r"\bkrea\s*2\b", lower):
+        return "Krea 2 Turbo"
+
     if "juggernaut" in lower:
         if "ragnarok" in lower or "xl" in lower.split() or "juggernautxl" in lower.replace(" ", ""):
             return "Juggernaut XL"
@@ -138,11 +166,27 @@ def short_model_name(filename: str) -> str:
 
 
 def presets_for(arch: str) -> list[dict]:
+    if arch == "krea2":
+        return list(KREA2_PRESETS)
     return list(SDXL_PRESETS if arch == "sdxl" else SD15_PRESETS)
 
 
 def default_cfg(arch: str) -> float:
+    if arch == "krea2":
+        return float(KREA2_TURBO["cfg"])
     return 5.0 if arch == "sdxl" else 5.5
+
+
+def default_sampler(arch: str) -> tuple[str, str]:
+    if arch == "krea2":
+        return KREA2_TURBO["sampler_name"], KREA2_TURBO["scheduler"]
+    return "dpmpp_2m", "karras"
+
+
+def default_steps(arch: str) -> int:
+    if arch == "krea2":
+        return int(KREA2_TURBO["steps"])
+    return 30
 
 
 def apply_quality_prefix(prompt: str, enabled: bool = True) -> str:
@@ -324,11 +368,20 @@ def _node_exists(object_info: dict | None, class_type: str) -> bool:
 def _object_info_catalog(object_info: dict | None) -> dict | None:
     if not isinstance(object_info, dict) or not object_info:
         return None
-    if any(k in object_info for k in ("CLIPTextEncode", "KSampler", "CheckpointLoaderSimple", "ConditioningConcat")):
+    known = (
+        "CLIPTextEncode", "KSampler", "CheckpointLoaderSimple", "ConditioningConcat",
+        "CLIPLoader", "UNETLoader", "VAELoader", "EmptyLatentImage",
+        "ConditioningZeroOut", "VAEDecode", "SaveImage",
+    )
+    if any(k in object_info for k in known):
         return object_info
     data = object_info.get("data")
     if isinstance(data, dict) and data:
         return data
+    # ComfyUI /object_info: vrijednosti imaju shemu "input"
+    for v in object_info.values():
+        if isinstance(v, dict) and isinstance(v.get("input"), dict):
+            return object_info
     return None
 
 
@@ -383,6 +436,147 @@ def _encode_positive(
     return current
 
 
+
+def cliploader_types(object_info: dict | None) -> list[str]:
+    """Popis CLIPLoader type vrijednosti iz /object_info (npr. krea2)."""
+    catalog = _object_info_catalog(object_info)
+    if not catalog:
+        return []
+    node = catalog.get("CLIPLoader") or {}
+    if not isinstance(node, dict):
+        return []
+    required = ((node.get("input") or {}).get("required") or {})
+    typ = required.get("type") or required.get("clip_type")
+    opts: list = []
+    if isinstance(typ, list) and typ:
+        first = typ[0]
+        opts = list(first) if isinstance(first, list) else list(typ)
+    return [str(x) for x in opts if x is not None]
+
+
+def cliploader_has_type(object_info: dict | None, wanted: str) -> bool | None:
+    """True/False ako katalog ima CLIPLoader; None ako nema dovoljno podataka."""
+    types = cliploader_types(object_info)
+    catalog = _object_info_catalog(object_info)
+    if not types:
+        if catalog and "CLIPLoader" in catalog:
+            return False
+        return None
+    want = (wanted or "").strip().lower()
+    return any(str(t).strip().lower() == want for t in types)
+
+
+def krea2_support_error(object_info: dict | None) -> str | None:
+    """Hrvatska poruka ako CLIPLoader nema tip krea2 (stariji ComfyUI)."""
+    ok = cliploader_has_type(object_info, KREA2_CLIP_TYPE)
+    if ok is False:
+        types = ", ".join(cliploader_types(object_info)[:12]) or "(prazan popis)"
+        return (
+            "Ova verzija ComfyUI-ja nema CLIPLoader tip 'krea2' "
+            f"(dostupno: {types}). Ažuriraj ComfyUI na 0.45.0 ili noviji "
+            "(Krea 2 podrška), zatim ponovo pokreni ComfyUI i Studio."
+        )
+    return None
+
+
+def build_krea2_workflow(
+    *,
+    prompt: str,
+    model: str,
+    width: int,
+    height: int,
+    batch: int,
+    seed: int,
+    steps: int | None = None,
+    cfg: float | None = None,
+    sampler_name: str | None = None,
+    scheduler: str | None = None,
+    object_info: dict | None = None,
+    clip_name: str | None = None,
+    vae_name: str | None = None,
+    weight_dtype: str = "default",
+) -> dict:
+    """Krea 2 Turbo: UNETLoader + CLIPLoader(type=krea2) + VAELoader, bez CheckpointLoaderSimple.
+
+    Službeni Comfy-Org predložak koristi EmptyLatentImage (1024² zadano) i
+    ConditioningZeroOut za negativ (cfg=1).
+    """
+    spec = KREA2_TURBO
+    width = max(256, min(2048, int(width) - (int(width) % 8)))
+    height = max(256, min(2048, int(height) - (int(height) % 8)))
+    # Turbo checkpoint je destiliran na 8 koraka / cfg 1 / euler / simple.
+    steps = int(spec["steps"])
+    cfg = float(spec["cfg"])
+    sampler_name = spec["sampler_name"]
+    scheduler = spec["scheduler"]
+    unet_name = (model or KREA2_UNET).replace("\\", "/").split("/")[-1]
+    clip_name = (clip_name or KREA2_CLIP).replace("\\", "/").split("/")[-1]
+    vae_name = (vae_name or KREA2_VAE).replace("\\", "/").split("/")[-1]
+
+    clip_inputs: dict = {"clip_name": clip_name, "type": KREA2_CLIP_TYPE}
+    # Treći widget u službenom predlošku je 'default' (device).
+    catalog = _object_info_catalog(object_info) or {}
+    clip_node = catalog.get("CLIPLoader") if isinstance(catalog, dict) else None
+    clip_req = ((clip_node or {}).get("input") or {}).get("required") or {}
+    clip_opt = ((clip_node or {}).get("input") or {}).get("optional") or {}
+    if "device" in clip_req or "device" in clip_opt or not catalog:
+        clip_inputs["device"] = "default"
+
+    unet_inputs: dict = {"unet_name": unet_name}
+    unet_node = catalog.get("UNETLoader") if isinstance(catalog, dict) else None
+    unet_req = ((unet_node or {}).get("input") or {}).get("required") or {}
+    if "weight_dtype" in unet_req or not catalog:
+        unet_inputs["weight_dtype"] = weight_dtype or "default"
+
+    wf: dict = {
+        "10": {"class_type": "UNETLoader", "inputs": unet_inputs},
+        "11": {"class_type": "CLIPLoader", "inputs": clip_inputs},
+        "12": {"class_type": "VAELoader", "inputs": {"vae_name": vae_name}},
+        "6": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"text": prompt or "", "clip": ["11", 0]},
+        },
+        "5": {
+            "class_type": "EmptyLatentImage",
+            "inputs": {"width": width, "height": height, "batch_size": int(batch)},
+        },
+    }
+    # cfg=1: službeni predložak ide na ConditioningZeroOut; fallback je prazan negativni encode.
+    if (not catalog) or _node_exists(object_info, "ConditioningZeroOut"):
+        wf["13"] = {"class_type": "ConditioningZeroOut", "inputs": {"conditioning": ["6", 0]}}
+        neg_ref: list = ["13", 0]
+    else:
+        wf["7"] = {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"text": "", "clip": ["11", 0]},
+        }
+        neg_ref = ["7", 0]
+    wf["3"] = {
+        "class_type": "KSampler",
+        "inputs": {
+            "seed": int(seed),
+            "steps": int(steps),
+            "cfg": float(cfg),
+            "sampler_name": sampler_name,
+            "scheduler": scheduler,
+            "denoise": 1,
+            "model": ["10", 0],
+            "positive": ["6", 0],
+            "negative": neg_ref,
+            "latent_image": ["5", 0],
+        },
+    }
+    wf["8"] = {
+        "class_type": "VAEDecode",
+        "inputs": {"samples": ["3", 0], "vae": ["12", 0]},
+    }
+    wf["9"] = {
+        "class_type": "SaveImage",
+        "inputs": {"filename_prefix": "studio_krea2", "images": ["8", 0]},
+    }
+    return wf
+
+
 def build_workflow(
     *,
     prompt: str,
@@ -404,6 +598,20 @@ def build_workflow(
     turbo: bool = False,
     prompt_chunks: list[str] | None = None,
 ) -> dict:
+    if (arch or "").lower() in {"krea2", "krea"} or detect_model_arch(model, arch) == "krea2":
+        return build_krea2_workflow(
+            prompt=prompt,
+            model=model,
+            width=width,
+            height=height,
+            batch=batch,
+            seed=seed,
+            steps=steps,
+            cfg=cfg,
+            sampler_name=sampler_name,
+            scheduler=scheduler,
+            object_info=object_info,
+        )
     if turbo:
         spec = TURBO_SDXL
         lora = lora or spec["lora_filename"]

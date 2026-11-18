@@ -1,159 +1,167 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Napravi app.ico — jednostavna zlatna ikona portreta."""
+"""Napravi app.ico iz tools/icon_source.jpg.
+
+Bijela pozadina izvan zaobljenog kvadrata postaje prozirna (anti-alias),
+više veličina: 16/24/32/48/64/128/256. Male veličine malo zgušnjavaju zlatne linije.
+"""
 from __future__ import annotations
 
+import io
 import struct
 import sys
-import zlib
 from pathlib import Path
 
-
-def png_rgba(w: int, h: int, rgba: bytes) -> bytes:
-    def chunk(tag: bytes, data: bytes) -> bytes:
-        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
-        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
-
-    raw = b"".join(b"\x00" + rgba[y * w * 4 : (y + 1) * w * 4] for y in range(h))
-    ihdr = struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", ihdr)
-        + chunk(b"IDAT", zlib.compress(raw, 9))
-        + chunk(b"IEND", b"")
-    )
+SIZES = (16, 24, 32, 48, 64, 128, 256)
 
 
-def lerp(a: int, b: int, t: float) -> int:
-    return int(a + (b - a) * t)
+def _rounded_rect_sdf(hh, ww, x0, y0, x1, y1, rad, np):
+    yy, xx = np.ogrid[:hh, :ww]
+    x = xx.astype(np.float32) + 0.5
+    y = yy.astype(np.float32) + 0.5
+    hx = (x1 - x0) / 2.0
+    hy = (y1 - y0) / 2.0
+    px = np.abs(x - (x0 + x1) / 2.0)
+    py = np.abs(y - (y0 + y1) / 2.0)
+    qx = px - hx + rad
+    qy = py - hy + rad
+    outside = np.sqrt(np.maximum(qx, 0) ** 2 + np.maximum(qy, 0) ** 2)
+    inside = np.minimum(np.maximum(qx, qy), 0.0)
+    return inside + outside - rad
 
 
-def draw(size: int) -> bytes:
-    px = bytearray(size * size * 4)
+def build_base(src: Path):
+    import numpy as np
+    from PIL import Image
 
-    def put(x, y, r, g, b, a=255):
-        if 0 <= x < size and 0 <= y < size:
-            i = (y * size + x) * 4
-            oa = px[i + 3] / 255.0
-            na = a / 255.0
-            outa = na + oa * (1 - na)
-            if outa <= 0:
-                return
+    im = Image.open(src).convert("RGB")
+    arr = np.asarray(im).astype(np.float32)
+    h, w, _ = arr.shape
+    mn = arr.min(axis=2)
+    alpha_raw = np.clip((250.0 - mn) / 20.0, 0.0, 1.0)
+    solid = alpha_raw >= 0.6
+    ys, xs = np.where(solid)
+    if len(xs) == 0:
+        raise RuntimeError("U izvoru nisam našao zaobljeni kvadrat (sve je bijelo?).")
+    cy, cx = (int(ys.min()) + int(ys.max())) // 2, (int(xs.min()) + int(xs.max())) // 2
+    row = solid[cy]
+    left = int(np.argmax(row))
+    right = int(w - 1 - np.argmax(row[::-1]))
+    col = solid[:, cx]
+    top = int(np.argmax(col))
+    bot = int(h - 1 - np.argmax(col[::-1]))
+    top_xs = np.where(solid[top])[0]
+    cw, ch = right - left + 1, bot - top + 1
+    side0 = min(cw, ch)
+    radius = float(np.clip(float(top_xs[0] - left) if len(top_xs) else 0.17 * side0, 0.12 * side0, 0.28 * side0))
 
-            def c(nc, oc):
-                return int((nc * na + oc * oa * (1 - na)) / outa)
+    sdf = _rounded_rect_sdf(h, w, float(left), float(top), float(right + 1), float(bot + 1), radius, np)
+    mask = np.clip(0.5 - sdf / 1.0, 0.0, 1.0)
+    alpha = mask * np.maximum(alpha_raw, (sdf < -1.0).astype(np.float32))
+    fg = arr.copy()
+    pa = np.clip(alpha_raw, 0, 1)[..., None]
+    fringe = (alpha_raw > 0.02) & (alpha_raw < 0.98)
+    rec = np.clip((arr - (1.0 - pa) * 255.0) / np.maximum(pa, 1e-6), 0, 255)
+    fg[fringe] = rec[fringe]
+    rgba = np.zeros((h, w, 4), dtype=np.uint8)
+    rgba[..., :3] = np.clip(fg, 0, 255).astype(np.uint8)
+    rgba[..., 3] = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
 
-            px[i] = c(r, px[i])
-            px[i + 1] = c(g, px[i + 1])
-            px[i + 2] = c(b, px[i + 2])
-            px[i + 3] = int(outa * 255)
-
-    pad = size * 0.06
-    rad = size * 0.22
-    # dark tile
-    x0, y0, x1, y1, rad2 = pad, pad, size - pad, size - pad, rad
-    for y in range(size):
-        for x in range(size):
-            cx = min(max(x + 0.5, x0 + rad2), x1 - rad2)
-            cy = min(max(y + 0.5, y0 + rad2), y1 - rad2)
-            if x0 + rad2 <= x + 0.5 <= x1 - rad2 and y0 + rad2 <= y + 0.5 <= y1 - rad2:
-                d = 0.0
-            else:
-                dx = (x + 0.5) - cx
-                dy = (y + 0.5) - cy
-                d = (dx * dx + dy * dy) ** 0.5 - rad2
-            if d < 1:
-                a = 255 if d <= 0 else int(255 * max(0, 1 - d))
-                if a:
-                    put(x, y, 14, 16, 20, a)
-
-    inset = size * 0.16
-    ir = size * 0.18
-    x0, y0, x1, y1 = inset, inset, size - inset, size - inset
-    for y in range(size):
-        ty = (y - y0) / max(1, (y1 - y0))
-        ty = min(1, max(0, ty))
-        col = (lerp(240, 154, ty * 0.85), lerp(207, 78, ty), lerp(147, 62, ty))
-        for x in range(size):
-            cx = min(max(x + 0.5, x0 + ir), x1 - ir)
-            cy = min(max(y + 0.5, y0 + ir), y1 - ir)
-            if x0 + ir <= x + 0.5 <= x1 - ir and y0 + ir <= y + 0.5 <= y1 - ir:
-                d = 0.0
-            else:
-                dx = (x + 0.5) - cx
-                dy = (y + 0.5) - cy
-                d = (dx * dx + dy * dy) ** 0.5 - ir
-            if d < 1 and (x0 - 1 <= x <= x1 + 1 and y0 - 1 <= y <= y1 + 1):
-                a = 255 if d <= 0 else int(255 * max(0, 1 - d))
-                if a:
-                    put(x, y, *col, a)
-
-    ink = (26, 18, 12)
-    cx, cy = size / 2, size * 0.46
-    rx, ry = size * 0.16, size * 0.20
-    stroke = 2.2 * (size / 64)
-    for y in range(size):
-        for x in range(size):
-            nx = (x + 0.5 - cx) / rx
-            ny = (y + 0.5 - cy) / ry
-            dist = (nx * nx + ny * ny) ** 0.5
-            lim = stroke / min(rx, ry)
-            if abs(dist - 1.0) < lim:
-                t = abs(dist - 1.0) / lim
-                a = int(220 * max(0, 1 - t))
-                if a:
-                    put(x, y, *ink, a)
-    scx, scy = size / 2, size * 0.86
-    srx, sry = size * 0.28, size * 0.18
-    for y in range(size):
-        for x in range(size):
-            if (y + 0.5) > scy:
-                continue
-            nx = (x + 0.5 - scx) / srx
-            ny = (y + 0.5 - scy) / sry
-            dist = (nx * nx + ny * ny) ** 0.5
-            lim = stroke / min(srx, sry)
-            if abs(dist - 1.0) < lim:
-                t = abs(dist - 1.0) / lim
-                a = int(200 * max(0, 1 - t))
-                if a:
-                    put(x, y, *ink, a)
-    sx, sy = size * 0.70, size * 0.30
-    arm = size * 0.055
-    thin = size * 0.012
-    for y in range(size):
-        for x in range(size):
-            dx, dy = x + 0.5 - sx, y + 0.5 - sy
-            ax, ay = abs(dx), abs(dy)
-            if ax < thin and ay < arm:
-                put(x, y, 255, 246, 220, int(255 * max(0, 1 - ay / arm)))
-            if ay < thin and ax < arm:
-                put(x, y, 255, 246, 220, int(255 * max(0, 1 - ax / arm)))
-    return bytes(px)
+    side = min(cw, ch)
+    cx0 = left + (cw - side) // 2
+    cy0 = top + (ch - side) // 2
+    square = rgba[cy0 : cy0 + side, cx0 : cx0 + side].copy()
+    return Image.fromarray(square, "RGBA"), radius, side
 
 
-def write_ico(path: Path, sizes=(16, 32, 48, 64, 256)) -> None:
-    pngs = [(s, png_rgba(s, s, draw(s))) for s in sizes]
-    count = len(pngs)
-    offset = 6 + 16 * count
-    entries = b""
-    body = b""
-    for s, data in pngs:
-        w = 0 if s >= 256 else s
-        h = 0 if s >= 256 else s
-        entries += struct.pack("<BBBBHHII", w, h, 0, 0, 1, 32, len(data), offset)
-        offset += len(data)
-        body += data
-    path.write_bytes(struct.pack("<HHH", 0, 1, count) + entries + body)
+def _thicken_gold(img, px: int):
+    if px <= 0:
+        return img
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    a = np.asarray(img).copy()
+    rgb, al = a[..., :3].astype(np.int16), a[..., 3]
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    gold = (r > 80) & (r > b + 25) & (g > b) & (al > 80)
+    gold_img = Image.fromarray((gold.astype(np.uint8) * 255), "L")
+    gold_img = gold_img.filter(ImageFilter.MaxFilter(px * 2 + 1))
+    gmask = np.asarray(gold_img) > 0
+    if gold.any():
+        mean_col = rgb[gold].mean(axis=0)
+        paint = gmask & ~gold & (al > 200)
+        a[..., :3][paint] = mean_col.astype(np.uint8)
+    return Image.fromarray(a, "RGBA")
 
 
-def main(argv=None) -> int:
-    dest = Path(argv[1] if argv and len(argv) > 1 else Path(__file__).resolve().parents[1] / "app.ico")
+def render_size(base, radius: float, src_side: int, size: int):
+    import numpy as np
+    from PIL import Image, ImageEnhance
+
+    src = base
+    if size <= 32:
+        px = 3 if size <= 16 else (2 if size <= 24 else 1)
+        src = _thicken_gold(base, px)
+    img = src
+    if size < 64:
+        mid = max(size * 4, 64)
+        img = img.resize((mid, mid), Image.Resampling.LANCZOS)
+        rgb = ImageEnhance.Contrast(img.convert("RGB")).enhance(1.08)
+        rgb = ImageEnhance.Sharpness(rgb).enhance(1.25)
+        out = Image.new("RGBA", img.size)
+        out.paste(rgb, mask=img.split()[-1])
+        out.putalpha(img.split()[-1])
+        img = out
+    img = img.resize((size, size), Image.Resampling.LANCZOS)
+    a = np.asarray(img).astype(np.float32)
+    rad = radius * (size / src_side)
+    sdf = _rounded_rect_sdf(size, size, 0.0, 0.0, float(size), float(size), rad, np)
+    m = np.clip(0.5 - sdf / 0.85, 0.0, 1.0)
+    a[..., 3] = np.clip(a[..., 3] * m, 0, 255)
+    return Image.fromarray(a.astype(np.uint8), "RGBA")
+
+
+def write_ico(path: Path, frames: list) -> None:
+    def png_bytes(im) -> bytes:
+        buf = io.BytesIO()
+        im.save(buf, format="PNG", optimize=True)
+        return buf.getvalue()
+
+    entries = [(im.size[0], png_bytes(im)) for im in frames]
+    offset = 6 + 16 * len(entries)
+    chunks = [struct.pack("<HHH", 0, 1, len(entries))]
+    blobs = []
+    for sz, blob in entries:
+        bw = 0 if sz >= 256 else sz
+        bh = 0 if sz >= 256 else sz
+        chunks.append(struct.pack("<BBBBHHII", bw, bh, 0, 0, 1, 32, len(blob), offset))
+        blobs.append(blob)
+        offset += len(blob)
+    path.write_bytes(b"".join(chunks) + b"".join(blobs))
+
+
+def make_icon(dest: Path, source: Path | None = None) -> Path:
+    root = Path(__file__).resolve().parents[1]
+    source = Path(source) if source else root / "tools" / "icon_source.jpg"
+    if not source.is_file():
+        raise SystemExit(f"Nema izvora ikone: {source}")
+    dest = Path(dest)
+    base, radius, side = build_base(source)
+    frames = [render_size(base, radius, side, sz) for sz in SIZES]
     dest.parent.mkdir(parents=True, exist_ok=True)
-    write_ico(dest)
-    print("Napisao", dest)
+    write_ico(dest, frames)
+    return dest
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(argv if argv is not None else sys.argv[1:])
+    root = Path(__file__).resolve().parents[1]
+    dest = Path(argv[0]) if argv else root / "app.ico"
+    source = Path(argv[1]) if len(argv) > 1 else root / "tools" / "icon_source.jpg"
+    path = make_icon(dest, source)
+    print(f"Napisao {path} ({path.stat().st_size} bajtova, veličine {', '.join(str(s) for s in SIZES)})")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv))
+    raise SystemExit(main())

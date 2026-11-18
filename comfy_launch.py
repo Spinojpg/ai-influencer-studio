@@ -45,6 +45,21 @@ def animatediff_models_dir() -> Path:
     return Path(raw) if raw else models_root() / "animatediff_models"
 
 
+def diffusion_models_dir() -> Path:
+    raw = (os.environ.get("COMFYUI_DIFFUSION_MODELS_DIR") or "").strip()
+    return Path(raw) if raw else models_root() / "diffusion_models"
+
+
+def text_encoders_dir() -> Path:
+    raw = (os.environ.get("COMFYUI_TEXT_ENCODERS_DIR") or "").strip()
+    return Path(raw) if raw else models_root() / "text_encoders"
+
+
+def vae_dir() -> Path:
+    raw = (os.environ.get("COMFYUI_VAE_DIR") or "").strip()
+    return Path(raw) if raw else models_root() / "vae"
+
+
 def custom_nodes_dir() -> Path:
     return comfy_dir() / "custom_nodes"
 

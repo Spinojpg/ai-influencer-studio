@@ -205,6 +205,18 @@ Modeli (SD 1.5 i SDXL)
   stdio.h (nema Visual Studio / Windows SDK). Popravak Build Toolsa
   nije ključan za brzinu — Turbo LoRA je pravi dobitak.
 
+  Krea 2 Turbo (FP8): u kartici Modeli jedan klik preuzima službeni
+  paket s Hugging Facea (Comfy-Org/Krea-2) — diffusion model 13,1 GB
+  u models\diffusion_models, Qwen3-VL encoder 5,24 GB u text_encoders
+  i VAE 254 MB u vae (ukupno ~18,6 GB, resume je podržan). Studio ga
+  pali kao poseban arh (UNETLoader + CLIPLoader type=krea2 + VAELoader,
+  bez Load Checkpoint). 8 koraka, cfg 1, euler/simple, zadani format
+  1024×1024. Hires i Hyper-SDXL LoRA se ne koriste. Ako CLIPLoader nema
+  tip krea2, ažuriraj ComfyUI na 0.45.0 ili noviji. Na RX 6600 (8 GB)
+  ovaj model vjerojatno nije izvediv: sam fp8 UNET je 13 GB, a na
+  ZLUDA/RDNA2 se fp8 često pretvara u fp16 (~26 GB).
+
+
 Slika je gotova, a postotak stoji na 0 %
   Studio sada čita napredak preko ComfyUI websocketom. Ako progres nije
   dostupan, vidiš animiranu traku i proteklo vrijeme. Prvo pokretanje
