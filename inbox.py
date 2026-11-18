@@ -175,6 +175,13 @@ def db() -> sqlite3.Connection:
     return conn
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, decl: str) -> None:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    names = {r[1] for r in rows}
+    if column not in names:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
 def init_db() -> None:
     if not _PATHS_READY:
         configure_paths()
@@ -237,6 +244,7 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_msg_status ON messages(status);
             """
         )
+        _ensure_column(conn, "profiles", "model_type", "TEXT DEFAULT 'auto'")
         defaults = {
             "active_profile_id": "",
             "send_mode": "approve",
@@ -247,6 +255,9 @@ def init_db() -> None:
             "instagram_profile_id": "",
             "telegram_profile_id": "",
             "telegram_enabled": "0",
+            "disable_cudnn": "1",
+            "quality_prefix": "1",
+            "hires_fix": "0",
         }
         for key, val in defaults.items():
             conn.execute(
@@ -339,6 +350,7 @@ def _row_profile(row: sqlite3.Row) -> dict:
         "appearance_prompt": row["appearance_prompt"] or "",
         "negative_prompt": row["negative_prompt"] or "",
         "preferred_model": row["preferred_model"] or "",
+        "model_type": (row["model_type"] if "model_type" in row.keys() else "auto") or "auto",
         "style": row["style"] or "",
         "age_vibe": row["age_vibe"] or "",
         "writing_style": row["writing_style"] or "short",
@@ -418,6 +430,7 @@ def upsert_profile(payload: dict, pid: int | None = None) -> dict:
         "appearance_prompt": str(payload.get("appearance_prompt") or "")[:4000],
         "negative_prompt": str(payload.get("negative_prompt") or "")[:4000],
         "preferred_model": str(payload.get("preferred_model") or "")[:300],
+        "model_type": (str(payload.get("model_type") or "auto").strip().lower() or "auto")[:16],
         "style": str(payload.get("style") or "")[:2000],
         "age_vibe": str(payload.get("age_vibe") or "")[:500],
         "writing_style": (payload.get("writing_style") or "short")[:20],
@@ -443,16 +456,17 @@ def upsert_profile(payload: dict, pid: int | None = None) -> dict:
             conn.execute(
                 """
                 INSERT INTO profiles(
-                    name, appearance_prompt, negative_prompt, preferred_model,
+                    name, appearance_prompt, negative_prompt, preferred_model, model_type,
                     style, age_vibe, writing_style, slang, emoji_use, language,
                     topics_avoid, examples_json, reference_image, created_at, updated_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     fields["name"],
                     fields["appearance_prompt"],
                     fields["negative_prompt"],
                     fields["preferred_model"],
+                    fields["model_type"],
                     fields["style"],
                     fields["age_vibe"],
                     fields["writing_style"],
@@ -1354,6 +1368,9 @@ def public_settings() -> dict:
         "instagram_profile_id": get_setting("instagram_profile_id") or "",
         "telegram_profile_id": get_setting("telegram_profile_id") or "",
         "telegram_enabled": get_setting("telegram_enabled") == "1",
+        "disable_cudnn": get_setting("disable_cudnn", "1") != "0",
+        "quality_prefix": get_setting("quality_prefix", "1") != "0",
+        "hires_fix": get_setting("hires_fix", "0") == "1",
         "xai_configured": xai_configured(),
         "xai_base": xai_base(),
         "in_quiet_hours": in_quiet_hours(),
@@ -1372,6 +1389,9 @@ def update_settings(payload: dict) -> dict:
         "telegram_profile_id",
         "telegram_enabled",
         "active_profile_id",
+        "disable_cudnn",
+        "quality_prefix",
+        "hires_fix",
     }
     if "send_mode" in payload:
         mode = payload["send_mode"]
@@ -1393,6 +1413,9 @@ def update_settings(payload: dict) -> dict:
             raise ValueError("Tihi sati (kraj) moraju biti u obliku HH:MM.")
     if "telegram_enabled" in payload:
         payload = {**payload, "telegram_enabled": "1" if payload["telegram_enabled"] in {True, "1", 1, "true"} else "0"}
+    for flag in ("disable_cudnn", "quality_prefix", "hires_fix"):
+        if flag in payload:
+            payload = {**payload, flag: "1" if payload[flag] in {True, "1", 1, "true", "on"} else "0"}
     for key in allowed:
         if key in payload and payload[key] is not None:
             set_setting(key, str(payload[key]))

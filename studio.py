@@ -25,7 +25,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import applog
+import comfy_launch
+import comfy_ws
+import image_gen
 import inbox
+import model_download
 import updater
 import video as video_mod
 import subprocess
@@ -39,12 +43,8 @@ PORT = int(os.environ.get("STUDIO_PORT", "7860"))
 CLIENT_ID = "simple-studio"
 DEFAULT_MODEL = "Realistic_Vision_V6.0_NV_B1_fp16.safetensors"
 
-DEFAULT_NEGATIVE = (
-    "low quality, worst quality, blurry, deformed, ugly, bad anatomy, "
-    "extra fingers, extra limbs, mutated hands, watermark, text, logo, "
-    "jpeg artifacts, oversaturated, cartoon, 3d render, plastic skin, "
-    "cropped, out of frame"
-)
+DEFAULT_NEGATIVE = image_gen.DEFAULT_NEGATIVE
+QUALITY_PREFIX = image_gen.QUALITY_PREFIX
 
 
 def _stdio_utf8() -> None:
@@ -119,6 +119,34 @@ def list_models() -> list[str]:
     return []
 
 
+def object_info() -> dict:
+    try:
+        data, _, _ = comfy_request("/object_info", timeout=20)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def model_entries(names: list[str] | None = None) -> list[dict]:
+    names = list(names if names is not None else list_models())
+    return [{"name": n, "arch": image_gen.detect_model_arch(n)} for n in names]
+
+
+_JOBS: dict[str, float] = {}
+_OBJECT_INFO_CACHE: dict | None = None
+
+
+def remember_job(prompt_id: str) -> None:
+    _JOBS[str(prompt_id)] = time.time()
+
+
+def cached_object_info() -> dict:
+    global _OBJECT_INFO_CACHE
+    if _OBJECT_INFO_CACHE is None:
+        _OBJECT_INFO_CACHE = object_info()
+    return _OBJECT_INFO_CACHE or {}
+
+
 def video_capabilities() -> dict:
     caps = {
         "ready": False,
@@ -163,52 +191,25 @@ def build_workflow(
     batch: int,
     seed: int,
     steps: int,
+    cfg: float | None = None,
+    arch: str = "sd15",
+    hires: bool = False,
+    object_info: dict | None = None,
 ) -> dict:
-    return {
-        "4": {
-            "class_type": "CheckpointLoaderSimple",
-            "inputs": {"ckpt_name": model},
-        },
-        "5": {
-            "class_type": "EmptyLatentImage",
-            "inputs": {
-                "width": int(width),
-                "height": int(height),
-                "batch_size": int(batch),
-            },
-        },
-        "6": {
-            "class_type": "CLIPTextEncode",
-            "inputs": {"text": prompt, "clip": ["4", 1]},
-        },
-        "7": {
-            "class_type": "CLIPTextEncode",
-            "inputs": {"text": negative, "clip": ["4", 1]},
-        },
-        "3": {
-            "class_type": "KSampler",
-            "inputs": {
-                "seed": int(seed),
-                "steps": int(steps),
-                "cfg": 5,
-                "sampler_name": "dpmpp_2m",
-                "scheduler": "karras",
-                "denoise": 1,
-                "model": ["4", 0],
-                "positive": ["6", 0],
-                "negative": ["7", 0],
-                "latent_image": ["5", 0],
-            },
-        },
-        "8": {
-            "class_type": "VAEDecode",
-            "inputs": {"samples": ["3", 0], "vae": ["4", 2]},
-        },
-        "9": {
-            "class_type": "SaveImage",
-            "inputs": {"filename_prefix": "studio", "images": ["8", 0]},
-        },
-    }
+    return image_gen.build_workflow(
+        prompt=prompt,
+        negative=negative,
+        model=model,
+        width=width,
+        height=height,
+        batch=batch,
+        seed=seed,
+        steps=steps,
+        cfg=cfg,
+        arch=arch,
+        hires=hires,
+        object_info=object_info,
+    )
 
 
 def extract_images(hist_entry: dict) -> list[dict]:
@@ -245,14 +246,34 @@ def extract_images(hist_entry: dict) -> list[dict]:
 
 
 def job_status(prompt_id: str) -> dict:
-    progress = {"value": 0, "max": 1}
+    started = _JOBS.get(str(prompt_id))
+    elapsed = (time.time() - started) if started else None
+    ws = comfy_ws.progress_for(prompt_id)
+    progress = {"value": 0.0, "max": 1.0, "indeterminate": True, "source": "none"}
+    http_ok = False
     try:
-        prog, _, _ = comfy_request("/progress", timeout=5)
-        if isinstance(prog, dict):
-            progress["value"] = float(prog.get("value") or 0)
-            progress["max"] = float(prog.get("max") or 1) or 1
+        prog, _, _ = comfy_request("/progress", timeout=3)
+        if isinstance(prog, dict) and (prog.get("max") or prog.get("value")):
+            val = float(prog.get("value") or 0)
+            mx = float(prog.get("max") or 1) or 1
+            if val > 0 or mx > 1:
+                progress = {"value": val, "max": mx, "indeterminate": val <= 0, "source": "http"}
+                http_ok = True
     except Exception:
         pass
+    if ws.get("connected") or (ws.get("value") or 0) > 0:
+        val = float(ws.get("value") or 0)
+        mx = float(ws.get("max") or 1) or 1
+        if val > 0 or ws.get("last_type") == "progress":
+            progress = {"value": val, "max": mx, "indeterminate": val <= 0, "source": "ws"}
+        elif not http_ok:
+            progress = {"value": 0.0, "max": 1.0, "indeterminate": True, "source": "ws"}
+    hint = "Prvo pokretanje može trajati dulje."
+    common = {
+        "elapsed_s": elapsed,
+        "ws_connected": bool(ws.get("connected")),
+        "hint": hint,
+    }
 
     try:
         data, _, _ = comfy_request("/history/" + urllib.parse.quote(prompt_id), timeout=8)
@@ -263,6 +284,7 @@ def job_status(prompt_id: str) -> dict:
             "images": [],
             "error": None,
             "note": str(exc),
+            **common,
         }
 
     entry = None
@@ -274,7 +296,7 @@ def job_status(prompt_id: str) -> dict:
             entry = data
 
     if not entry:
-        return {"status": "running", "progress": progress, "images": [], "error": None}
+        return {"status": "running", "progress": progress, "images": [], "error": None, **common}
 
     status_obj = entry.get("status") or {}
     status_str = str(status_obj.get("status_str") or "").lower()
@@ -288,24 +310,29 @@ def job_status(prompt_id: str) -> dict:
             error_text = json.dumps(item, ensure_ascii=False)
         elif isinstance(item, dict) and item.get("type") == "error":
             error_text = json.dumps(item, ensure_ascii=False)
+    if ws.get("error") and not error_text:
+        error_text = str(ws.get("error"))
 
     if error_text or status_str in {"error", "failed", "exception"}:
         return {
             "status": "error",
-            "progress": {"value": 1, "max": 1},
+            "progress": {"value": 1, "max": 1, "indeterminate": False, "source": progress.get("source")},
             "images": images,
             "error": error_text or "ComfyUI je prijavio grešku pri generiranju.",
+            **common,
         }
 
-    if completed or images or status_str == "success":
-        return {
-            "status": "done",
-            "progress": {"value": 1, "max": 1},
-            "images": images,
-            "error": None,
-        }
+    if completed or images or status_str == "success" or ws.get("finished"):
+        if images or completed or status_str == "success":
+            return {
+                "status": "done",
+                "progress": {"value": 1, "max": 1, "indeterminate": False, "source": progress.get("source")},
+                "images": images,
+                "error": None,
+                **common,
+            }
 
-    return {"status": "running", "progress": progress, "images": images, "error": None}
+    return {"status": "running", "progress": progress, "images": images, "error": None, **common}
 
 
 def clamp_int(value, lo, hi, default):
@@ -484,6 +511,9 @@ class StudioHandler(BaseHTTPRequestHandler):
             state["comfy"] = {"ok": ok, "message": msg, "url": COMFY_BASE}
             state["version"] = updater.load_version(ROOT).get("version") or "0.0.0"
             state["update"] = updater.read_update_result(inbox.DATA_DIR)
+            state["presets"] = {"sd15": image_gen.SD15_PRESETS, "sdxl": image_gen.SDXL_PRESETS}
+            state["lowvram_note"] = image_gen.LOWVRAM_NOTE
+            state["quality_prefix_text"] = QUALITY_PREFIX
             self._json(200, state)
             return
 
@@ -492,16 +522,11 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/models":
-            ok, msg = comfy_up()
-            if not ok:
-                self._json(200, {"ok": False, "error": msg, "models": [], "default": DEFAULT_MODEL})
-                return
-            models = list_models()
-            default = DEFAULT_MODEL if DEFAULT_MODEL in models else (models[0] if models else DEFAULT_MODEL)
-            prof = inbox.get_profile(inbox.active_profile_id())
-            if prof and prof.get("preferred_model") and prof["preferred_model"] in models:
-                default = prof["preferred_model"]
-            self._json(200, {"ok": True, "models": models, "default": default})
+            self._models_payload()
+            return
+
+        if path == "/api/models/download":
+            self._json(200, {"ok": True, "download": model_download.snapshot(), "curated": model_download.CURATED})
             return
 
         if path == "/api/profiles":
@@ -934,12 +959,29 @@ class StudioHandler(BaseHTTPRequestHandler):
         if not model:
             model = DEFAULT_MODEL
 
-        width = clamp_int(body.get("width"), 256, 1024, 512)
-        height = clamp_int(body.get("height"), 256, 1024, 768)
-        width = max(256, min(1024, width - (width % 8)))
-        height = max(256, min(1024, height - (height % 8)))
+        override = (body.get("model_type") or (prof or {}).get("model_type") or "")
+        arch = image_gen.detect_model_arch(model, override)
+        quality_on = body.get("quality_prefix")
+        if quality_on is None:
+            quality_on = inbox.get_setting("quality_prefix", "1") != "0"
+        prompt = image_gen.apply_quality_prefix(prompt, bool(quality_on))
+
+        defaults = image_gen.presets_for(arch)[0]
+        width = clamp_int(body.get("width"), 256, 1536, defaults["width"])
+        height = clamp_int(body.get("height"), 256, 1536, defaults["height"])
+        width = max(256, min(1536, width - (width % 8)))
+        height = max(256, min(1536, height - (height % 8)))
         batch = clamp_int(body.get("batch"), 1, 4, 1)
-        steps = clamp_int(body.get("steps"), 4, 50, 20)
+        steps = clamp_int(body.get("steps"), 4, 50, 30)
+        cfg = body.get("cfg")
+        try:
+            cfg = float(cfg) if cfg is not None and cfg != "" else image_gen.default_cfg(arch)
+        except (TypeError, ValueError):
+            cfg = image_gen.default_cfg(arch)
+        hires = bool(body.get("hires"))
+        if hires and arch == "sdxl" and not body.get("hires_force"):
+            # dopušteno, ali UI upozorava na VRAM; ne blokiramo ako je korisnik svjesno uključio
+            pass
 
         seed = body.get("seed")
         if seed is None or seed == "" or int(seed) < 0:
@@ -956,6 +998,10 @@ class StudioHandler(BaseHTTPRequestHandler):
             batch=batch,
             seed=seed,
             steps=steps,
+            cfg=cfg,
+            arch=arch,
+            hires=hires,
+            object_info=cached_object_info(),
         )
         self._queue_prompt(workflow, {
             "ok": True,
@@ -965,6 +1011,9 @@ class StudioHandler(BaseHTTPRequestHandler):
             "height": height,
             "batch": batch,
             "steps": steps,
+            "cfg": cfg,
+            "arch": arch,
+            "hires": hires,
             "prompt": prompt,
             "kind": "image",
         })
@@ -1051,9 +1100,66 @@ class StudioHandler(BaseHTTPRequestHandler):
         if not prompt_id:
             self._json(502, {"ok": False, "error": "ComfyUI nije vratio prompt_id."})
             return
+        remember_job(str(prompt_id))
+        try:
+            comfy_ws.start_watcher(COMFY_BASE, CLIENT_ID)
+        except Exception:
+            pass
         extra = dict(extra)
         extra["prompt_id"] = prompt_id
+        extra["hint"] = "Prvo pokretanje može trajati dulje."
         self._json(200, extra)
+
+
+    def _models_payload(self) -> None:
+        ok, msg = comfy_up()
+        names = list_models() if ok else []
+        models = model_entries(names)
+        default = DEFAULT_MODEL
+        name_list = [m["name"] for m in models]
+        if default not in name_list and name_list:
+            default = name_list[0]
+        prof = inbox.get_profile(inbox.active_profile_id())
+        if prof and prof.get("preferred_model") and prof["preferred_model"] in name_list:
+            default = prof["preferred_model"]
+        default_arch = image_gen.detect_model_arch(
+            default, (prof or {}).get("model_type") if prof else ""
+        )
+        payload = {
+            "ok": ok,
+            "error": None if ok else msg,
+            "models": name_list,
+            "models_info": models,
+            "default": default,
+            "default_arch": default_arch,
+            "presets": {"sd15": image_gen.SD15_PRESETS, "sdxl": image_gen.SDXL_PRESETS},
+            "curated": model_download.CURATED,
+            "download": model_download.snapshot(),
+            "checkpoints_dir": str(comfy_launch.checkpoints_dir()),
+            "lowvram_note": image_gen.LOWVRAM_NOTE,
+        }
+        self._json(200, payload)
+
+    def _start_model_download(self, body: dict) -> None:
+        curated_id = (body.get("id") or body.get("curated") or "").strip()
+        url = (body.get("url") or "").strip()
+        filename = (body.get("filename") or "").strip()
+        if curated_id:
+            item = next((c for c in model_download.CURATED if c["id"] == curated_id), None)
+            if not item:
+                self._json(400, {"ok": False, "error": "Nepoznat predloženi model."})
+                return
+            url = item["url"]
+            filename = filename or item["filename"]
+        try:
+            info = model_download.start_download(url, filename or None)
+        except (ValueError, RuntimeError) as exc:
+            self._json(400, {"ok": False, "error": str(exc)})
+            return
+        except Exception as exc:
+            self._json(500, {"ok": False, "error": str(exc)})
+            return
+        self._json(200, {"ok": True, "download": info})
 
 
 _httpd = None
@@ -1128,6 +1234,10 @@ def main() -> int:
     inbox.init_db()
     updater.write_default_update_config(inbox.DATA_DIR)
     _write_pid(inbox.DATA_DIR)
+    try:
+        comfy_ws.start_watcher(COMFY_BASE, CLIENT_ID)
+    except Exception:
+        pass
     if inbox.get_setting("telegram_enabled") == "1" and inbox.secret("TELEGRAM_BOT_TOKEN"):
         inbox.start_telegram_worker()
         print("Telegram long polling je ukljucen.")
@@ -1163,6 +1273,10 @@ def main() -> int:
         print("\nZaustavljam...")
     finally:
         inbox.stop_telegram_worker()
+        try:
+            comfy_ws.stop_watcher()
+        except Exception:
+            pass
         httpd.server_close()
         _clear_pid()
     return 0

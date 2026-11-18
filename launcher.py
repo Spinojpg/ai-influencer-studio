@@ -22,6 +22,7 @@ if str(APP_DIR) not in sys.path:
 os.chdir(APP_DIR)
 
 import applog  # noqa: E402
+import comfy_launch  # noqa: E402
 import inbox  # noqa: E402
 import updater  # noqa: E402
 
@@ -82,35 +83,53 @@ def comfy_dir() -> Path:
 
 
 def start_comfy_if_needed() -> subprocess.Popen | None:
-    """Pokreni comfyui-n.bat u novom minimiziranom konzolnom prozoru; ne gasimo ga."""
+    """Pokreni comfyui-studio.bat (generiran iz comfyui-n.bat) u minimiziranom prozoru."""
     if url_ok(COMFY_URL + "/system_stats"):
         print("ComfyUI vec radi.")
         return None
     folder = comfy_dir()
-    bat = folder / "comfyui-n.bat"
-    if not bat.is_file():
-        print("UPOZORENJE: Nema", bat, "- preskacem pokretanje ComfyUI-ja.")
+    src = folder / "comfyui-n.bat"
+    if not src.is_file():
+        print("UPOZORENJE: Nema", src, "- preskacem pokretanje ComfyUI-ja.")
         return None
-    print("Pokrecem ComfyUI u novom minimiziranom prozoru iz", folder)
+    try:
+        inbox.init_db()
+    except Exception:
+        pass
+    disable_cudnn = comfy_launch.setting_on(inbox.get_setting("disable_cudnn", "1"), True)
+    wrapper = folder / comfy_launch.WRAPPER_NAME
+    try:
+        comfy_launch.build_comfy_studio_bat(src, wrapper, disable_cudnn=disable_cudnn)
+        run_bat = wrapper
+        print("Napravljen wrapper", wrapper, "(original comfyui-n.bat nije diran)")
+    except Exception as exc:
+        print("UPOZORENJE: nisam mogao napraviti comfyui-studio.bat:", exc)
+        run_bat = src
+    env = comfy_launch.comfy_process_env(os.environ, disable_cudnn=disable_cudnn)
+    print("Pokrecem ComfyUI iz", folder, "preko", run_bat.name)
+    if disable_cudnn:
+        print("TORCH_BACKENDS_CUDNN_ENABLED=0 je u okruzenju procesa (ne samo u .bat).")
     try:
         log_path = applog.logs_dir(inbox.DATA_DIR) / "comfyui.log"
         with log_path.open("a", encoding="utf-8") as fh:
             from datetime import datetime
-            fh.write(f"{datetime.now().isoformat(timespec='seconds')} pokrecem {bat} (cwd={folder})\n")
+            fh.write(
+                f"{datetime.now().isoformat(timespec='seconds')} pokrecem {run_bat} "
+                f"(cwd={folder}, cudnn_disabled={disable_cudnn})\n"
+            )
     except Exception:
         log_path = None
     proc = None
     if sys.platform == "win32":
-        # Novi VIDLJIVI minimizirani konzolni prozor. comfyui-n.bat zavrsava
-        # s pause, pa mu treba konzola — ne smije biti CREATE_NO_WINDOW / hidden.
         flags = int(getattr(subprocess, "CREATE_NEW_CONSOLE", 0x00000010))
         flags |= int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200))
         startup = subprocess.STARTUPINFO()
         startup.dwFlags |= int(getattr(subprocess, "STARTF_USESHOWWINDOW", 0x00000001))
-        startup.wShowWindow = 6  # SW_MINIMIZE — prozor postoji, nije skriven
+        startup.wShowWindow = 6  # SW_MINIMIZE, vidljiv prozor
         proc = subprocess.Popen(
-            ["cmd", "/c", "comfyui-n.bat"],
+            ["cmd", "/c", run_bat.name],
             cwd=str(folder),
+            env=env,
             startupinfo=startup,
             creationflags=flags,
             close_fds=False,
@@ -119,14 +138,13 @@ def start_comfy_if_needed() -> subprocess.Popen | None:
             stderr=None,
         )
     else:
-        # Linux/test: odvojeni proces, ne ubijamo ga s launcherom.
         proc = subprocess.Popen(
-            ["bash", str(bat)],
+            ["bash", str(run_bat)],
             cwd=str(folder),
+            env=env,
             start_new_session=True,
             stdin=subprocess.DEVNULL,
         )
-    # Namjerno ne cuvamo referencu radi gasenja — proces zivi samostalno.
     print("Cekam ComfyUI na", COMFY_URL, "do", COMFY_WAIT_S, "s ...")
     ok = wait_url(COMFY_URL + "/system_stats", COMFY_WAIT_S)
     if ok:
@@ -313,6 +331,10 @@ def main(argv: list[str] | None = None) -> int:
     applog.setup(data_dir, "launcher")
     _py_console()
     inbox.load_dotenv(inbox.ENV_PATH)
+    try:
+        inbox.init_db()
+    except Exception:
+        pass
     inbox.load_dotenv(APP_DIR / ".env")
     updater.write_default_update_config(data_dir)
 

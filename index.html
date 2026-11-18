@@ -37,7 +37,7 @@
     button, input, textarea, select { font-family: inherit; }
 
     .wrap {
-      max-width: 1240px;
+      max-width: 1360px;
       margin: 0 auto;
       padding: 28px 22px 64px;
     }
@@ -102,7 +102,7 @@
 
     .grid {
       display: grid;
-      grid-template-columns: minmax(320px, 420px) 1fr;
+      grid-template-columns: minmax(340px, 440px) minmax(0, 1fr);
       gap: 22px;
       align-items: start;
     }
@@ -260,8 +260,11 @@
 
     .gallery {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-      gap: 12px;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 14px;
+    }
+    .gallery.results {
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     }
     .empty {
       color: var(--muted);
@@ -281,7 +284,7 @@
     }
     figure.shot img {
       width: 100%;
-      aspect-ratio: 1 / 1.15;
+      aspect-ratio: 3 / 4;
       object-fit: cover;
       cursor: zoom-in;
       background: #111;
@@ -291,11 +294,35 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      flex-wrap: wrap;
       gap: 8px;
-      padding: 8px 10px;
-      font-size: 0.75rem;
+      padding: 10px 12px;
+      font-size: 0.78rem;
       color: var(--muted);
     }
+    figure.shot .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .chip {
+      background: var(--bg2);
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 12px;
+      cursor: pointer;
+      font-size: 0.82rem;
+    }
+    .chip:hover, .chip.on { border-color: rgba(228,181,106,0.55); color: var(--gold); }
+    .model-card {
+      display: flex; flex-direction: column; gap: 8px;
+      padding: 16px; border: 1px solid var(--line); border-radius: 14px;
+      background: var(--bg0); margin-bottom: 12px;
+    }
+    .model-card h3 { margin: 0; font-size: 1.05rem; }
+    .dlbar { height: 8px; border-radius: 99px; background: var(--bg2); overflow: hidden; border: 1px solid var(--line); }
+    .dlbar > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--gold-dim), var(--gold)); }
+    .arch-tag { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gold); }
+    .hint-warn { color: var(--rose); }
+
     figure.shot a, .dl {
       color: var(--gold);
       text-decoration: none;
@@ -493,6 +520,7 @@
           <button type="button" class="on" data-tab="slike">Slike</button>
           <button type="button" data-tab="poruke">Poruke</button>
           <button type="button" data-tab="influenceri">Influenceri</button>
+          <button type="button" data-tab="modeli">Modeli</button>
         </div>
         <div class="pick">
           <label for="activeProfile">Influencer</label>
@@ -514,7 +542,8 @@
         <div class="field">
           <label class="lbl" for="prompt">Opis</label>
           <textarea id="prompt" placeholder="Npr. portret žene u zlatnom večernjem svjetlu, fotografija, oštar fokus, prirodna koža" required></textarea>
-          <div class="hint">Opiši scenu jednostavnim jezikom. Prefix izgleda dolazi s odabranog profila. Ctrl+Enter pokreće generiranje.</div>
+          <div class="hint">Kratki, konkretni opisi rade bolje: mjesto, svjetlo, odjeća, izraz lica. Prefix izgleda dolazi s profila. Ctrl+Enter pokreće generiranje.</div>
+          <div class="chips" id="styleChips" aria-label="Brzi stilovi"></div>
         </div>
 
         <div class="field">
@@ -552,11 +581,20 @@
           <div class="field">
             <label class="lbl">Brzina</label>
             <div class="seg" id="quality">
-              <button type="button" data-steps="20" class="on">Brzo<br>20 koraka</button>
-              <button type="button" data-steps="30">Kvaliteta<br>30 koraka</button>
+              <button type="button" data-steps="20">Brzo<br>20 koraka</button>
+              <button type="button" data-steps="30" class="on">Kvaliteta<br>30 koraka</button>
             </div>
           </div>
         </div>
+        <div class="field">
+          <label class="lbl"><input type="checkbox" id="qualityPrefix" checked /> Bolja kvaliteta (RAW photo, detaljna koža)</label>
+          <div class="hint">Po zadanom se na početak opisa dodaje „RAW photo, best quality, highly detailed skin”.</div>
+        </div>
+        <div class="field">
+          <label class="lbl"><input type="checkbox" id="hiresFix" /> Hires fix (latent 1,5×, denoise 0.4)</label>
+          <div class="hint" id="hiresHint">Samo za SD 1.5 po zadanom. Na 8 GB VRAM-a može biti tijesno. Za SDXL upozoravamo na memoriju.</div>
+        </div>
+        <div class="hint" id="archHint">Model: SD 1.5 · formati 512×768 / 512×512 / 768×512. --lowvram je preporučen na RX 6600.</div>
 
         <div class="field">
           <label class="lbl" for="seed">Seed</label>
@@ -578,6 +616,7 @@
         </details>
 
         <button class="go" id="go" type="submit">Generiraj</button>
+        <div class="hint" id="firstRunHint">Prvo pokretanje može trajati dulje (kompilacija u ComfyUI-ju, posebno na AMD).</div>
         <div class="err" id="err"></div>
 
         <details class="adv" id="videoBox">
@@ -605,6 +644,7 @@
             <span id="progPct">0%</span>
           </div>
           <div class="bar" id="bar"><i id="barFill"></i></div>
+          <div class="hint" id="progHint">Prvo pokretanje može trajati dulje.</div>
         </div>
         <div id="results"></div>
         <h2 class="sec">Povijest</h2>
@@ -687,6 +727,10 @@
             <label class="lbl"><input type="checkbox" id="tgEnabled" /> Uključi Telegram long polling</label>
           </div>
           <div class="field" style="margin-top:18px">
+            <label class="lbl"><input type="checkbox" id="disableCudnn" checked /> Isključi cuDNN u ComfyUI-ju</label>
+            <div class="hint">Postavlja TORCH_BACKENDS_CUDNN_ENABLED=0 u okruženje procesa (pouzdanije nego linija u comfyui-n.bat, koja se na ovom PC-u nije primijenila). Bez toga prvo pokretanje može zapeti na „Compilation is in progress”. Vrijedi pri sljedećem paljenju ComfyUI-ja preko Studija.</div>
+          </div>
+          <div class="field" style="margin-top:18px">
             <label class="lbl">Ažuriranje aplikacije</label>
             <div class="hint">Izvor se podešava u data/update.json (GitHub owner/repo). Neobavezni GITHUB_TOKEN za privatni repo ide u data/.env — nikad se ne zapisuje u logove.</div>
             <button class="btn" type="button" id="checkUpdateSettings">Provjeri update</button>
@@ -697,6 +741,28 @@
           <div class="okline" id="setOk" hidden>Spremljeno.</div>
           <div class="err" id="setErr"></div>
         </div>
+      </div>
+    </div>
+
+    <div id="tab-modeli" class="tab-panel">
+      <div class="card pad">
+        <h2 class="sec" style="margin-top:0">Modeli</h2>
+        <p class="hint">Checkpointi se spremaju u mapu ComfyUI-ja <code>models\checkpoints</code>. Nakon preuzimanja popis se osvježi i model se odabere sam.</p>
+        <div id="curatedModels"></div>
+        <div class="field" style="margin-top:18px">
+          <label class="lbl" for="customModelUrl">Ili zalijepi izravni URL (npr. Civitai ili Hugging Face)</label>
+          <input type="text" id="customModelUrl" placeholder="https://…/ime.safetensors" />
+          <input type="text" id="customModelName" placeholder="Ime datoteke (opcionalno)" style="margin-top:8px" />
+          <div class="actions" style="margin-top:10px">
+            <button class="btn primary" type="button" id="dlCustom">Preuzmi URL</button>
+            <button class="btn" type="button" id="refreshModels">Osvježi popis</button>
+          </div>
+        </div>
+        <div class="field">
+          <div class="dlbar" id="dlBar" hidden><i id="dlBarFill"></i></div>
+          <div class="hint" id="dlStatus"></div>
+        </div>
+        <div class="hint" id="installedModels"></div>
       </div>
     </div>
 
@@ -726,6 +792,15 @@
           <div class="field">
             <label class="lbl" for="pModel">Preferirani model</label>
             <input type="text" id="pModel" />
+          </div>
+          <div class="field">
+            <label class="lbl" for="pModelType">Tip modela</label>
+            <select id="pModelType">
+              <option value="auto">Automatski</option>
+              <option value="sd15">SD 1.5</option>
+              <option value="sdxl">SDXL</option>
+            </select>
+            <div class="hint">Automatski prepoznaje XL / RealVisXL / Juggernaut. Realistic Vision ostaje SD 1.5.</div>
           </div>
           <div class="field">
             <label class="lbl" for="pStyle">Osobnost / stil</label>
@@ -808,7 +883,8 @@
 
   <script>
   (function () {
-    const DEFAULT_NEGATIVE = "low quality, worst quality, blurry, deformed, ugly, bad anatomy, extra fingers, extra limbs, mutated hands, watermark, text, logo, jpeg artifacts, oversaturated, cartoon, 3d render, plastic skin, cropped, out of frame";
+    const DEFAULT_NEGATIVE = "(worst quality, low quality:1.4), deformed, bad anatomy, bad hands, extra fingers, blurry, cartoon, child, teen";
+    const QUALITY_PREFIX = "RAW photo, best quality, highly detailed skin";
     const DEFAULT_MODEL = "Realistic_Vision_V6.0_NV_B1_fp16.safetensors";
     const LS_HISTORY = "ais-studio-history";
 
@@ -830,7 +906,7 @@
     const bar = $("bar");
     const barFill = $("barFill");
 
-    let width = 512, height = 768, batch = 1, steps = 20, frames = 8;
+    let width = 512, height = 768, batch = 1, steps = 30, frames = 8, currentArch = "sd15", lastMeta = null;
     let pollTimer = null;
     let comfyOk = false;
     let state = { profiles: [], active_profile_id: null, settings: {}, active_profile: null };
@@ -869,12 +945,13 @@
       }
       if (name === "poruke") refreshInbox();
       if (name === "influenceri") renderProfileList();
+      if (name === "modeli") refreshModelsPanel();
     }
     document.querySelector(".tabs").addEventListener("click", (e) => {
       const b = e.target.closest("button");
       if (b) showTab(b.dataset.tab);
     });
-    if (location.hash === "#poruke" || location.hash === "#influenceri" || location.hash === "#slike") {
+    if (location.hash === "#poruke" || location.hash === "#influenceri" || location.hash === "#slike" || location.hash === "#modeli") {
       showTab(location.hash.slice(1));
     }
 
@@ -995,6 +1072,9 @@
       $("quietEnd").value = s.quiet_hours_end || "";
       $("grokModel").value = s.grok_model || "grok-4";
       $("tgEnabled").checked = !!s.telegram_enabled;
+      if ($("disableCudnn")) $("disableCudnn").checked = s.disable_cudnn !== false;
+      if ($("qualityPrefix")) $("qualityPrefix").checked = s.quality_prefix !== false;
+      if ($("hiresFix")) $("hiresFix").checked = !!s.hires_fix;
       const p = s.platforms || {};
       const bits = [];
       bits.push("Instagram: " + (p.instagram && p.instagram.configured ? "token je upisan" : "nije podešen"));
@@ -1022,7 +1102,8 @@
         grok_model: $("grokModel").value.trim() || "grok-4",
         instagram_profile_id: $("igProfile").value,
         telegram_profile_id: $("tgProfile").value,
-        telegram_enabled: $("tgEnabled").checked
+        telegram_enabled: $("tgEnabled").checked,
+        disable_cudnn: $("disableCudnn") ? $("disableCudnn").checked : true
       };
       try {
         const r = await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -1052,6 +1133,8 @@
       batch = Number(b.dataset.n);
       setSeg("batch", "data-n", batch);
     });
+    modelEl.addEventListener("change", () => applyArchFromModel());
+
     $("quality").addEventListener("click", (e) => {
       const b = e.target.closest("button");
       if (!b) return;
@@ -1094,14 +1177,65 @@
           modelEl.appendChild(o);
           return;
         }
+        const info = {};
+        (d.models_info || []).forEach((m) => { info[m.name] = m.arch; });
         models.forEach((name) => {
           const o = document.createElement("option");
-          o.value = name; o.textContent = name;
+          o.value = name;
+          const arch = info[name] || detectArch(name);
+          o.textContent = name + (arch === "sdxl" ? "  ·  SDXL" : "  ·  SD 1.5");
+          o.dataset.arch = arch;
           if (name === preferred) o.selected = true;
           modelEl.appendChild(o);
         });
+        window._presets = d.presets || window._presets;
         applyProfileToImageForm(state.active_profile);
+        applyArchFromModel();
+        renderInstalledModels(models);
       } catch (e) { setStatus(false, String(e)); }
+    }
+
+    function detectArch(name) {
+      const n = (name || "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
+      if (n.indexOf("realistic_vision") >= 0) return "sd15";
+      if (n.indexOf("sdxl") >= 0 || n.indexOf("juggernaut") >= 0) return "sdxl";
+      if (n.indexOf("realvis") >= 0) return "sdxl";
+      if (/(^|_)xl(\d*)(_|$)/.test(n)) return "sdxl";
+      return "sd15";
+    }
+
+    function applyArchFromModel() {
+      const opt = modelEl.options[modelEl.selectedIndex];
+      const override = (state.active_profile && state.active_profile.model_type) || "auto";
+      const arch = (override === "sdxl" || override === "sd15") ? override : (opt && opt.dataset.arch) || detectArch(modelEl.value);
+      const prev = currentArch;
+      currentArch = arch;
+      const presets = (window._presets && window._presets[arch]) || (arch === "sdxl"
+        ? [{width:832,height:1216,label:"Portret"},{width:1024,height:1024,label:"Kvadrat"},{width:1216,height:832,label:"Pejzaž"}]
+        : [{width:512,height:768,label:"Portret"},{width:512,height:512,label:"Kvadrat"},{width:768,height:512,label:"Pejzaž"}]);
+      const btns = document.querySelectorAll("#sizes button");
+      presets.forEach((pr, i) => {
+        if (!btns[i]) return;
+        btns[i].dataset.w = pr.width;
+        btns[i].dataset.h = pr.height;
+        btns[i].innerHTML = (pr.label || pr.id) + "<br>" + pr.width + "×" + pr.height;
+      });
+      const on = document.querySelector("#sizes button.on") || btns[0];
+      if (on) { width = Number(on.dataset.w); height = Number(on.dataset.h); }
+      const hint = $("archHint");
+      if (hint) {
+        hint.textContent = arch === "sdxl"
+          ? "Model: SDXL · formati 832×1216 / 1024×1024 / 1216×832, cfg 5. Na 8 GB VRAM-a bude tijesno; --lowvram je preporučen."
+          : "Model: SD 1.5 · formati 512×768 / 512×512 / 768×512, cfg 5,5. --lowvram je preporučen na RX 6600.";
+      }
+      const hh = $("hiresHint");
+      if (hh) {
+        hh.textContent = arch === "sdxl"
+          ? "Hires fix na SDXL može potrošiti sav VRAM na RX 6600 (8 GB). Koristi na vlastitu odgovornost."
+          : "Hires fix (latent 1,5× + drugi KSampler, denoise 0.4) je namijenjen SD 1.5. Na 8 GB može biti tijesno.";
+        hh.classList.toggle("hint-warn", arch === "sdxl");
+      }
+      if (prev !== arch && prev) showToast("Formati su prilagođeni za " + (arch === "sdxl" ? "SDXL" : "SD 1.5") + ".");
     }
 
     async function loadVideoCaps() {
@@ -1149,11 +1283,12 @@
       const dl = item.url + (item.url.indexOf("?") >= 0 ? "&" : "?") + "download=1";
       const cap = (item.seed != null ? "seed " + item.seed : "");
       const safeUrl = item.url.replace(/"/g, "");
-      return '<figure class="shot"><img src="' + safeUrl + '" alt="" data-full="' + safeUrl + '" data-dl="' + dl + '" /><figcaption><span>' + cap + '</span><a class="dl" href="' + dl + '" download>Preuzmi</a></figcaption></figure>';
+      const promptAttr = escapeHtml(item.prompt || "");
+      return '<figure class="shot"><img src="' + safeUrl + '" alt="" data-full="' + safeUrl + '" data-dl="' + dl + '" /><figcaption><span>' + cap + '</span><span class="acts"><button type="button" class="dl remix" data-seed="' + (item.seed != null ? item.seed : -1) + '" data-prompt="' + promptAttr + '">Ponovi s istim seedom</button><a class="dl" href="' + dl + '" download>Preuzmi</a></span></figcaption></figure>';
     }
     function renderResults(images, meta) {
       if (!images.length) { resultsEl.innerHTML = '<div class="empty">Čekam slike…</div>'; return; }
-      resultsEl.innerHTML = '<div class="gallery">' + images.map((img) => cardHtml({ url: img.url, filename: img.filename, seed: meta.seed })).join("") + "</div>";
+      resultsEl.innerHTML = '<div class="gallery results">' + images.map((img) => cardHtml({ url: img.url, filename: img.filename, seed: meta.seed, prompt: meta.prompt })).join("") + "</div>";
     }
     function openLb(src, dl) {
       $("lbImg").src = src; $("lbDl").href = dl; $("lb").classList.add("show");
@@ -1174,6 +1309,12 @@
       barFill.style.width = pct + "%";
       progPct.textContent = indeterminate ? "…" : (pct + "%");
     }
+    function fmtElapsed(sec) {
+      if (sec == null || sec < 0) return "";
+      sec = Math.round(sec);
+      if (sec < 60) return sec + " s";
+      return Math.floor(sec / 60) + " min " + (sec % 60) + " s";
+    }
     function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
     async function pollJob(id, meta) {
@@ -1183,8 +1324,13 @@
         if (d.status === "running") {
           const max = (d.progress && d.progress.max) || 1;
           const val = (d.progress && d.progress.value) || 0;
-          const frac = max ? val / max : 0;
-          setProgress(frac || 0.08, "Generiranje u tijeku…", !val);
+          const indet = !!(d.progress && d.progress.indeterminate) || !(val > 0);
+          const elapsed = fmtElapsed(d.elapsed_s);
+          let text = indet ? "Generiranje u tijeku" : ("Korak " + Math.round(val) + " / " + Math.round(max));
+          if (elapsed) text += " · " + elapsed;
+          if (indet) text += " — Prvo pokretanje može trajati dulje";
+          setProgress(indet ? 0.35 : (max ? val / max : 0), text, indet);
+          if ($("progHint")) $("progHint").textContent = d.hint || "Prvo pokretanje može trajati dulje.";
           if (d.images && d.images.length) renderResults(d.images, meta);
           return;
         }
@@ -1194,13 +1340,17 @@
         if (d.status === "error") {
           setProgress(1, "Neuspjelo", false);
           showErr(errEl, d.error || "Generiranje nije uspjelo. Pogledaj prozor ComfyUI.");
+          showToast(d.error || "Generiranje nije uspjelo.", true);
           return;
         }
-        setProgress(1, "Gotovo", false);
+        const elapsedDone = fmtElapsed(d.elapsed_s);
+        setProgress(1, elapsedDone ? ("Gotovo · " + elapsedDone) : "Gotovo", false);
         const images = d.images || [];
         if (!images.length) { showErr(errEl, "Zadatak je završio, ali nema izlaznih datoteka."); return; }
-        renderResults(images, meta);
-        addToHistory(images, meta);
+        lastMeta = Object.assign({}, meta, { width: width, height: height, model: modelEl.value, steps: steps });
+        renderResults(images, lastMeta);
+        addToHistory(images, lastMeta);
+        showToast("Slika je gotova.");
       } catch (e) {
         stopPoll(); goBtn.disabled = false; $("goVideo").disabled = false;
         showErr(errEl, "Izgubljena veza dok se čekao rezultat: " + e);
@@ -1214,7 +1364,10 @@
         negative: negEl.value,
         model: modelEl.value,
         width: width, height: height, batch: batch, steps: steps,
-        seed: Number(seedEl.value)
+        seed: Number(seedEl.value),
+        quality_prefix: $("qualityPrefix") ? $("qualityPrefix").checked : true,
+        hires: $("hiresFix") ? $("hiresFix").checked : false,
+        model_type: currentArch === "sdxl" ? "sdxl" : (currentArch === "sd15" ? "sd15" : "auto")
       };
     }
 
@@ -1234,8 +1387,9 @@
         const r = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payloadBase()) });
         const d = await r.json();
         if (!r.ok || !d.ok) { goBtn.disabled = false; progWrap.hidden = true; showErr(errEl, d.error || "ComfyUI nije prihvatio zadatak."); return; }
-        const meta = { prompt: d.prompt, seed: d.seed };
-        setProgress(0.08, "U redu. Seed " + d.seed + " — čekam slike…", true);
+        const meta = { prompt: d.prompt, seed: d.seed, width: d.width, height: d.height, model: d.model, steps: d.steps };
+        lastMeta = meta;
+        setProgress(0.08, "U redu. Seed " + d.seed + " — čekam slike… Prvo pokretanje može trajati dulje.", true);
         stopPoll();
         pollTimer = setInterval(() => pollJob(d.prompt_id, meta), 700);
         pollJob(d.prompt_id, meta);
@@ -1407,6 +1561,7 @@
       $("pAppear").value = p.appearance_prompt || "";
       $("pNeg").value = p.negative_prompt || "";
       $("pModel").value = p.preferred_model || "";
+      if ($("pModelType")) $("pModelType").value = p.model_type || "auto";
       $("pStyle").value = p.style || "";
       $("pVibe").value = p.age_vibe || "";
       $("pWrite").value = p.writing_style || "short";
@@ -1463,7 +1618,7 @@
       $("pOk").hidden = true;
       const payload = {
         name: $("pName").value, appearance_prompt: $("pAppear").value,
-        negative_prompt: $("pNeg").value, preferred_model: $("pModel").value,
+        negative_prompt: $("pNeg").value, preferred_model: $("pModel").value, model_type: ($("pModelType") && $("pModelType").value) || "auto",
         style: $("pStyle").value, age_vibe: $("pVibe").value,
         writing_style: $("pWrite").value, slang: $("pSlang").value,
         emoji_use: $("pEmoji").value, language: $("pLang").value,
@@ -1513,6 +1668,144 @@
 
     loadHistory();
     if (!negEl.value) negEl.value = DEFAULT_NEGATIVE;
+
+    const STYLE_CHIPS = [
+      { id: "selfie", label: "Selfie", text: "casual selfie, slightly wide-angle, natural indoor light, phone camera look, candid" },
+      { id: "studio", label: "Studio portret", text: "studio portrait, softbox lighting, clean background, sharp focus, professional photography" },
+      { id: "plaza", label: "Plaža", text: "on a sunny beach, golden hour, sea in the background, warm sunlight, light breeze in hair" },
+      { id: "gym", label: "Teretana", text: "in a modern gym, athletic wear, natural muscle definition, indoor gym lighting" },
+      { id: "kafic", label: "Kafić", text: "sitting in a cozy cafe, window light, coffee cup, candid lifestyle photo" },
+      { id: "night", label: "Noćni izlazak", text: "night out, city bokeh lights, evening outfit, flash photography mixed with ambient neon" }
+    ];
+    (function initChips() {
+      const box = $("styleChips");
+      if (!box) return;
+      box.innerHTML = STYLE_CHIPS.map((c) => '<button type="button" class="chip" data-id="' + c.id + '">' + c.label + "</button>").join("");
+      box.addEventListener("click", (e) => {
+        const b = e.target.closest(".chip");
+        if (!b) return;
+        const chip = STYLE_CHIPS.find((x) => x.id === b.dataset.id);
+        if (!chip) return;
+        const cur = promptEl.value.trim();
+        if (cur.indexOf(chip.text) >= 0) {
+          promptEl.value = cur.replace(chip.text, "").replace(/,\s*,/g, ", ").replace(/^,\s*|,\s*$/g, "").trim();
+          b.classList.remove("on");
+        } else {
+          promptEl.value = cur ? (cur.replace(/,?\s*$/, "") + ", " + chip.text) : chip.text;
+          b.classList.add("on");
+        }
+        promptEl.focus();
+      });
+    })();
+
+    function persistFlags() {
+      const payload = {
+        quality_prefix: $("qualityPrefix") ? $("qualityPrefix").checked : true,
+        hires_fix: $("hiresFix") ? $("hiresFix").checked : false,
+        disable_cudnn: $("disableCudnn") ? $("disableCudnn").checked : true
+      };
+      fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).catch(() => {});
+    }
+    if ($("qualityPrefix")) $("qualityPrefix").addEventListener("change", persistFlags);
+    if ($("hiresFix")) $("hiresFix").addEventListener("change", persistFlags);
+    if ($("disableCudnn")) $("disableCudnn").addEventListener("change", persistFlags);
+
+    document.addEventListener("click", (e) => {
+      const remix = e.target.closest && e.target.closest(".remix");
+      if (remix) {
+        const seed = Number(remix.dataset.seed);
+        if (!Number.isNaN(seed) && seed >= 0) seedEl.value = String(seed);
+        if (remix.dataset.prompt) promptEl.value = remix.dataset.prompt;
+        showToast("Seed " + seed + " je postavljen. Pokrećem isto…");
+        generate();
+        return;
+      }
+    });
+
+    let dlTimer = null;
+    function renderCurated(list) {
+      const box = $("curatedModels");
+      if (!box) return;
+      const items = list || [];
+      box.innerHTML = items.map((c) => {
+        const gb = c.size_bytes ? (c.size_bytes / (1024*1024*1024)).toFixed(1) + " GB" : "";
+        return '<div class="model-card" data-id="' + c.id + '">'
+          + '<div class="arch-tag">SDXL</div>'
+          + "<h3>" + escapeHtml(c.name) + (gb ? " · " + gb : "") + "</h3>"
+          + '<div class="hint">' + escapeHtml(c.note || "") + "</div>"
+          + '<button type="button" class="btn primary dl-curated" data-id="' + c.id + '">Preuzmi</button>'
+          + "</div>";
+      }).join("") || '<div class="hint">Nema predloženog modela.</div>';
+    }
+    function renderInstalledModels(models) {
+      const el = $("installedModels");
+      if (!el) return;
+      const list = models || [];
+      el.textContent = list.length ? ("Instalirano (" + list.length + "): " + list.join(", ")) : "Još nema popisa modela (ComfyUI treba biti upaljen).";
+    }
+    function showDl(st) {
+      const bar = $("dlBar"), fill = $("dlBarFill"), msg = $("dlStatus");
+      if (!bar || !msg) return;
+      if (!st || st.status === "idle") { bar.hidden = true; msg.textContent = ""; return; }
+      bar.hidden = false;
+      fill.style.width = (st.percent || 0) + "%";
+      msg.textContent = st.message || st.error || "";
+    }
+    async function pollDownload(selectWhenDone) {
+      try {
+        const r = await fetch("/api/models/download", { cache: "no-store" });
+        const d = await r.json();
+        const st = d.download || {};
+        showDl(st);
+        if (st.status === "running") {
+          if (!dlTimer) dlTimer = setInterval(() => pollDownload(selectWhenDone), 700);
+          return;
+        }
+        if (dlTimer) { clearInterval(dlTimer); dlTimer = null; }
+        if (st.status === "done") {
+          showToast("Model je preuzet: " + (st.filename || ""));
+          await loadModels();
+          if (selectWhenDone && st.filename) {
+            if ([].some.call(modelEl.options, (o) => o.value === st.filename)) {
+              modelEl.value = st.filename;
+              applyArchFromModel();
+            }
+          }
+        } else if (st.status === "error") {
+          showToast(st.error || "Preuzimanje nije uspjelo.", true);
+        }
+      } catch (e) {
+        if (dlTimer) { clearInterval(dlTimer); dlTimer = null; }
+      }
+    }
+    async function startDownload(body, selectName) {
+      const r = await fetch("/api/models/download", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const d = await r.json();
+      if (!r.ok || !d.ok) { showToast(d.error || "Preuzimanje nije krenulo.", true); return; }
+      showDl(d.download);
+      pollDownload(selectName || (d.download && d.download.filename));
+    }
+    async function refreshModelsPanel() {
+      try {
+        const r = await fetch("/api/models", { cache: "no-store" });
+        const d = await r.json();
+        renderCurated(d.curated || []);
+        renderInstalledModels(d.models || []);
+        if (d.download) showDl(d.download);
+        if (d.download && d.download.status === "running") pollDownload(d.download.filename);
+      } catch (e) {}
+    }
+    document.addEventListener("click", (e) => {
+      const b = e.target.closest && e.target.closest(".dl-curated");
+      if (b) startDownload({ id: b.dataset.id }, true);
+    });
+    if ($("dlCustom")) $("dlCustom").addEventListener("click", () => {
+      const url = $("customModelUrl").value.trim();
+      if (!url) { showToast("Zalijepi izravni URL datoteke.", true); return; }
+      startDownload({ url: url, filename: $("customModelName").value.trim() });
+    });
+    if ($("refreshModels")) $("refreshModels").addEventListener("click", () => loadModels().then(refreshModelsPanel));
+
     loadState().then(loadModels).then(loadVideoCaps).then(() => { if (currentTab === "poruke") refreshInbox(); });
     setInterval(() => { if (!comfyOk) { refreshStatus().then((ok) => { if (ok) loadModels(); }); } }, 4000);
     setInterval(() => { if (currentTab === "poruke") refreshInbox(); }, 8000);
