@@ -1150,7 +1150,8 @@
         instagram_profile_id: $("igProfile").value,
         telegram_profile_id: $("tgProfile").value,
         telegram_enabled: $("tgEnabled").checked,
-        disable_cudnn: $("disableCudnn") ? $("disableCudnn").checked : true
+        disable_cudnn: $("disableCudnn") ? $("disableCudnn").checked : true,
+        browser: $("browserPref") ? $("browserPref").value : "brave"
       };
       try {
         const r = await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -1749,13 +1750,15 @@
       const payload = {
         quality_prefix: $("qualityPrefix") ? $("qualityPrefix").checked : true,
         hires_fix: $("hiresFix") ? $("hiresFix").checked : false,
-        disable_cudnn: $("disableCudnn") ? $("disableCudnn").checked : true
+        disable_cudnn: $("disableCudnn") ? $("disableCudnn").checked : true,
+        browser: $("browserPref") ? $("browserPref").value : "brave"
       };
       fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).catch(() => {});
     }
     if ($("qualityPrefix")) $("qualityPrefix").addEventListener("change", persistFlags);
     if ($("hiresFix")) $("hiresFix").addEventListener("change", persistFlags);
     if ($("disableCudnn")) $("disableCudnn").addEventListener("change", persistFlags);
+    if ($("browserPref")) $("browserPref").addEventListener("change", persistFlags);
 
     document.addEventListener("click", (e) => {
       const remix = e.target.closest && e.target.closest(".remix");

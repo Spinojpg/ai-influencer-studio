@@ -1,5 +1,9 @@
 # Promjene
 
+## 1.0.5 — 2026-11-18
+- Pokretač uvijek otvara Studio u Braveu (app način) na primarnom monitoru (Display 1), s vlastitim profilom u data/browser-profile da se ne prikači na postojeći Brave na drugom ekranu. Ako Brave nije instaliran, koristi se Edge, zatim Chrome, zatim zadani preglednik. Preglednik se bira u Postavkama (zadano Brave).
+- Ispravak paljenja ComfyUI-ja: pokretač ga pali i kada Studio već radi na :7860 (prije je u tom slučaju samo otvorio prozor, pa je UI javio "ComfyUI nije pokrenut"). Wrapper comfyui-studio.bat sada radi cd /d "%~dp0" da relativni pushd zluda radi, čisti --auto-launch i iz COMMANDLINE_ARGS=..., i pali se preko start /MIN /D da konzola ima ispravan cwd i stdio čak i iz pythonw. Koraci su u data/logs/launcher.log i data/logs/comfyui.log.
+
 ## 1.0.4 — 2026-11-18
 - Popravljeno preuzimanje modela (gumb Preuzmi / Preuzmi URL) i prikaz predlozenog modela kad ComfyUI nije upaljen.
 

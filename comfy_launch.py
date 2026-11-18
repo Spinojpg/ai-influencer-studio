@@ -52,9 +52,34 @@ def _read_text(path: Path) -> str:
 
 
 def strip_auto_launch(text: str) -> str:
-    text = re.sub(r"(?i)\s+--auto-launch\b", "", text)
-    text = re.sub(r"(?i)\s+--auto_launch\b", "", text)
+    """Makni --auto-launch i iz COMMANDLINE_ARGS=--auto-launch (bez razmaka pred zastavicom)."""
+    text = re.sub(r"(?i)(?<=\s)--auto[-_]launch\b(=\S*)?", "", text)
+    text = re.sub(r"(?i)(?<==)--auto[-_]launch\b(=\S*)?", "", text)
+    text = re.sub(r"(?i)^[ \t]*--auto[-_]launch\b(=\S*)?", "", text, flags=re.M)
+    # Ne ostavljaj dvostruke razmake između preostalih argumenata.
+    text = re.sub(r"[ \t]{2,}", " ", text)
     return text
+
+
+def _win_quote(path: Path) -> str:
+    s = str(path).replace('"', "")
+    return f'"{s}"'
+
+
+def windows_start_command(bat: Path, folder: Path, *, keep_open: bool = True) -> str:
+    """
+    cmd /c start naredba koja:
+    - otvori pravi novi konzolni prozor (stdio nije naslijeđen od pythonw),
+    - postavi radni dir na ComfyUI mapu (/D) da relativni pushd zluda radi,
+    - minimizira prozor.
+    """
+    bat = Path(bat)
+    folder = Path(folder)
+    switch = "/k" if keep_open else "/c"
+    return (
+        f'start "ComfyUI Studio" /MIN /D {_win_quote(folder)} '
+        f"cmd {switch} call {_win_quote(bat)}"
+    )
 
 
 def build_comfy_studio_bat(
@@ -84,6 +109,9 @@ def build_comfy_studio_bat(
     ]
     if disable_cudnn:
         header.append("set TORCH_BACKENDS_CUDNN_ENABLED=0")
+    # Relativni pushd .\zluda i slične naredbe moraju ići iz mape .bat datoteke,
+    # ne iz cwd pokretača (često %LOCALAPPDATA%\AIInfluencerStudio\app).
+    header.append('cd /d "%~dp0"')
     header.append("")
     out = "\r\n".join(header) + body.replace("\n", "\r\n")
     if not out.endswith("\r\n"):

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Pokretač Windows aplikacije: update, ComfyUI, skriveni poslužitelj, Edge --app."""
+"""Pokretač Windows aplikacije: update, ComfyUI, skriveni poslužitelj, Brave --app."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ import sys
 import time
 import urllib.error
 import urllib.request
-import webbrowser
 from pathlib import Path
 
 # Osiguraj da je mapa aplikacije na sys.path i radni dir.
@@ -22,6 +21,7 @@ if str(APP_DIR) not in sys.path:
 os.chdir(APP_DIR)
 
 import applog  # noqa: E402
+import browser_launch  # noqa: E402
 import comfy_launch  # noqa: E402
 import inbox  # noqa: E402
 import updater  # noqa: E402
@@ -121,22 +121,31 @@ def start_comfy_if_needed() -> subprocess.Popen | None:
         log_path = None
     proc = None
     if sys.platform == "win32":
-        flags = int(getattr(subprocess, "CREATE_NEW_CONSOLE", 0x00000010))
-        flags |= int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200))
-        startup = subprocess.STARTUPINFO()
-        startup.dwFlags |= int(getattr(subprocess, "STARTF_USESHOWWINDOW", 0x00000001))
-        startup.wShowWindow = 6  # SW_MINIMIZE, vidljiv prozor
+        # pythonw nema valjani stdin/stdout. CREATE_NEW_CONSOLE + nasljeđivanje
+        # pokvarenih handlea često zatvori konzolu odmah. `start /MIN /D`
+        # otvara pravi novi prozor s vlastitim stdio i ispravnim cwd
+        # (važno za pushd zluda u comfyui-n.bat).
+        start_cmd = comfy_launch.windows_start_command(run_bat, folder, keep_open=True)
+        print("Naredba za ComfyUI:", start_cmd)
+        try:
+            if log_path is not None:
+                with log_path.open("a", encoding="utf-8") as fh:
+                    fh.write(f"cmd: {start_cmd}\n")
+        except Exception:
+            pass
+        flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
         proc = subprocess.Popen(
-            ["cmd", "/c", run_bat.name],
+            start_cmd,
             cwd=str(folder),
             env=env,
-            startupinfo=startup,
+            shell=True,
+            close_fds=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             creationflags=flags,
-            close_fds=False,
-            stdin=None,
-            stdout=None,
-            stderr=None,
         )
+        print("Pokrenut start-proces PID", proc.pid)
     else:
         proc = subprocess.Popen(
             ["bash", str(run_bat)],
@@ -181,38 +190,13 @@ def start_studio_hidden(app_dir: Path, data_dir: Path) -> subprocess.Popen:
     return subprocess.Popen(cmd, **kwargs)
 
 
-def _edge_candidates() -> list[Path]:
-    names = []
-    for env in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
-        base = os.environ.get(env)
-        if not base:
-            continue
-        names.append(Path(base) / r"Microsoft\Edge\Application\msedge.exe")
-        names.append(Path(base) / r"Google\Chrome\Application\chrome.exe")
-    # Also typical user chrome
-    local = os.environ.get("LOCALAPPDATA")
-    if local:
-        names.append(Path(local) / r"Google\Chrome\Application\chrome.exe")
-    return names
-
-
-def open_app_window(url: str) -> None:
-    url = url if "://" in url else "http://" + url
-    if sys.platform == "win32":
-        for exe in _edge_candidates():
-            if not exe.is_file():
-                continue
-            try:
-                subprocess.Popen([str(exe), f"--app={url}"], close_fds=True)
-                print("Otvaram", exe.name, "u app rezimu:", url)
-                return
-            except OSError:
-                continue
+def open_app_window(url: str, data_dir: Path | None = None) -> None:
+    data_dir = Path(data_dir) if data_dir is not None else inbox.DATA_DIR
     try:
-        webbrowser.open(url)
-        print("Otvaram zadani preglednik:", url)
-    except Exception as exc:
-        print("Ne mogu otvoriti preglednik:", exc)
+        pref = inbox.get_setting("browser", browser_launch.DEFAULT_BROWSER) or browser_launch.DEFAULT_BROWSER
+    except Exception:
+        pref = browser_launch.DEFAULT_BROWSER
+    browser_launch.open_studio_window(url, data_dir, preference=pref, log=print)
 
 
 def maybe_update(app_dir: Path, data_dir: Path, force: bool = False) -> bool:
@@ -381,19 +365,27 @@ def main(argv: list[str] | None = None) -> int:
             # Helper je pokrenut i primijenit će update kad ovaj proces izađe.
             return 0
 
+    return start_app_windows(data_dir)
+
+
+def start_app_windows(data_dir: Path) -> int:
+    """ComfyUI prvo (i ako Studio već radi), zatim prozor ili novi poslužitelj."""
+    # ComfyUI se pali UVIJEK ako ne sluša, čak i kad Studio već radi
+    # (inače ikona samo otvori prozor i ostavi "ComfyUI nije pokrenut").
+    start_comfy_if_needed()
+
     if url_ok(STUDIO_URL):
         print("Studio vec radi, otvaram prozor.")
-        open_app_window(STUDIO_URL)
+        open_app_window(STUDIO_URL, data_dir)
         return 0
 
-    start_comfy_if_needed()
     proc = start_studio_hidden(APP_DIR, data_dir)
     if not wait_url(STUDIO_URL, STUDIO_WAIT_S):
         print("GRESKA: Studio posluzitelj nije krenuo na", STUDIO_URL)
         if proc.poll() is not None:
             print("Proces je zavrsio sa kodom", proc.returncode)
         return 1
-    open_app_window(STUDIO_URL)
+    open_app_window(STUDIO_URL, data_dir)
     return 0
 
 

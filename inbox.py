@@ -258,6 +258,7 @@ def init_db() -> None:
             "disable_cudnn": "1",
             "quality_prefix": "1",
             "hires_fix": "0",
+            "browser": "brave",
         }
         for key, val in defaults.items():
             conn.execute(
@@ -1371,6 +1372,7 @@ def public_settings() -> dict:
         "disable_cudnn": get_setting("disable_cudnn", "1") != "0",
         "quality_prefix": get_setting("quality_prefix", "1") != "0",
         "hires_fix": get_setting("hires_fix", "0") == "1",
+        "browser": (get_setting("browser", "brave") or "brave").strip().lower() or "brave",
         "xai_configured": xai_configured(),
         "xai_base": xai_base(),
         "in_quiet_hours": in_quiet_hours(),
@@ -1392,6 +1394,7 @@ def update_settings(payload: dict) -> dict:
         "disable_cudnn",
         "quality_prefix",
         "hires_fix",
+        "browser",
     }
     if "send_mode" in payload:
         mode = payload["send_mode"]
@@ -1413,6 +1416,11 @@ def update_settings(payload: dict) -> dict:
             raise ValueError("Tihi sati (kraj) moraju biti u obliku HH:MM.")
     if "telegram_enabled" in payload:
         payload = {**payload, "telegram_enabled": "1" if payload["telegram_enabled"] in {True, "1", 1, "true"} else "0"}
+    if "browser" in payload:
+        raw = str(payload.get("browser") or "").strip().lower()
+        if raw not in {"brave", "edge", "chrome", "default"}:
+            raise ValueError("Preglednik mora biti brave, edge, chrome ili default.")
+        payload = {**payload, "browser": raw}
     for flag in ("disable_cudnn", "quality_prefix", "hires_fix"):
         if flag in payload:
             payload = {**payload, flag: "1" if payload[flag] in {True, "1", 1, "true", "on"} else "0"}

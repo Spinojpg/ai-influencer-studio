@@ -38,8 +38,11 @@ Instalacija kao Windows aplikacija
      Opciju cuDNN možeš ugasiti u postavkama. Ako je ComfyUI već upaljen
      bez te varijable, zatvori ga i pokreni Studio ponovo.
    - pokrene Studio poslužitelj u pozadini,
-   - otvori Edge u app načinu (msedge --app=http://127.0.0.1:7860).
-     Ako nema Edgea, pokuša Chrome --app, zatim zadani preglednik.
+   - otvori Brave u app načinu na primarnom monitoru (Display 1),
+     s vlastitim profilom u data\browser-profile (novi proces, ne
+     prikači se na postojeći Brave na drugom monitoru). Ako Brave nije
+     instaliran, pokuša Edge, zatim Chrome, zatim zadani preglednik.
+     Preglednik se može promijeniti u Postavkama (zadano je Brave).
    Python: C:\ComfyUI-Zluda\venv\Scripts\pythonw.exe, ili py -3.11.
 
 Ključevi (xAI, Instagram, Telegram, opcionalni GITHUB_TOKEN) pišu se u:
