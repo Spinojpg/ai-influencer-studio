@@ -103,11 +103,32 @@ def apply_quality_prefix(prompt: str, enabled: bool = True) -> str:
 
 CLIP_TOKEN_WARN = 75
 ADULT_TERM = "adult woman"
+SCENE_WEIGHT = 1.3
 _PORTRAIT_PREFIX_RE = re.compile(
     r"(?is)^(a\s+)?((photorealistic|realistic|beautiful|stunning|detailed|close[- ]up)\s+)*"
     r"portraits?(\s+photo)?(\s+of(\s+an?)?|\s+shot)?\s*[,:]?\s*"
 )
 _TOKEN_RE = re.compile(r"[A-Za-z0-9]+(?:'[A-Za-z]+)?|[^\s\w]", re.UNICODE)
+# Generički studio/pozni tropi iz opisa izgleda koji preglasaju scenu (leži na krevetu, itd.).
+_APPEARANCE_CONFLICT_RE = re.compile(
+    r"(?i)(?:^|,)\s*(?:"
+    r"looking(?:\s+directly)?\s+at\s+(?:the\s+)?camera|"
+    r"looking\s+into\s+(?:the\s+)?camera|"
+    r"staring\s+at\s+(?:the\s+)?camera|"
+    r"facing\s+(?:the\s+)?camera|"
+    r"smiling\s+at\s+(?:the\s+)?camera|"
+    r"studio\s+(?:lighting|lights|portrait|photo|shot|background)|"
+    r"softbox(?:\s+lighting)?|"
+    r"headshot|(?:close[- ]up|closeup)\s+(?:portrait|face|shot|photo)|"
+    r"professional\s+(?:studio\s+)?portrait|"
+    r"standing\s+pose|"
+    r"(?:clean|white|neutral|plain)\s+background"
+    r")\s*(?=,|$)"
+)
+_EMBEDDED_PORTRAIT_RE = re.compile(
+    r"(?is)(?:^|,)\s*(?:a\s+)?(?:(?:photorealistic|realistic|beautiful|stunning|detailed|close[- ]up)\s+)*"
+    r"portraits?(?:\s+photo)?(?:\s+of(?:\s+an?)?|\s+shot)?\s*[,:]?\s*"
+)
 
 
 def estimate_clip_tokens(text: str) -> int:
@@ -132,6 +153,32 @@ def has_adult_term(text: str) -> bool:
     return bool(re.search(r"(?i)\badult\b", text or ""))
 
 
+def emphasize_scene(scene: str, weight: float = SCENE_WEIGHT) -> str:
+    """Stavi scenu u (tekst:1.3) da CLIP/model jače prati opis, osim ako već ima težinu."""
+    scene = (scene or "").strip()
+    if not scene:
+        return ""
+    if re.match(r"^\(.*:\s*[\d.]+\s*\)$", scene):
+        return scene
+    return f"({scene}:{weight:g})"
+
+
+def sanitize_appearance(text: str, *, drop_conflicts: bool = True) -> str:
+    """Makni 'portrait of' (i na početku i u sredini) i, uz scenu, studio/pozne trope."""
+    t = strip_leading_portrait(text or "")
+    if drop_conflicts and t:
+        prev = None
+        while prev != t:
+            prev = t
+            t = _EMBEDDED_PORTRAIT_RE.sub(",", t)
+            t = _APPEARANCE_CONFLICT_RE.sub(",", t)
+        t = re.sub(r"\s*,\s*", ", ", t)
+        t = re.sub(r"(?:,\s*){2,}", ", ", t)
+        t = re.sub(r"\s+", " ", t)
+        t = t.strip(" ,")
+    return t
+
+
 def build_positive_prompt(
     *,
     scene: str,
@@ -147,7 +194,7 @@ def build_positive_prompt(
     chunk (ConditioningConcat) umjesto da scena padne iza dugog opisa izgleda.
     """
     scene = (scene or "").strip()
-    appearance = strip_leading_portrait(appearance or "")
+    appearance = sanitize_appearance(appearance or "", drop_conflicts=bool(scene))
     quality_text = QUALITY_PREFIX if quality else ""
 
     head_parts: list[str] = []
@@ -173,6 +220,11 @@ def build_positive_prompt(
             kept.append(" ".join(acc))
         head = ", ".join(p for p in kept if p)
 
+    # Prvi chunk ostaje samo adult + scena (naglašena), izgled ide u sljedeći
+    # da ne potisne scenu unutar prvih 77 CLIP tokena.
+    if scene and scene in head:
+        head = head.replace(scene, emphasize_scene(scene), 1)
+
     chunks: list[str] = []
     if head:
         chunks.append(head)
@@ -181,7 +233,13 @@ def build_positive_prompt(
         if appearance.lower() not in low_head:
             chunks.append(appearance)
     if quality_text:
-        chunks.append(quality_text)
+        # Kratki odjek scene na kraju da model ne "zaboravi" pozu kad izgled predug.
+        if scene:
+            chunks.append(f"{quality_text}, {scene}")
+        else:
+            chunks.append(quality_text)
+    elif scene and (appearance or (used_adult and scene not in (used_adult or ""))):
+        chunks.append(scene)
 
     full = ", ".join(chunks)
     tokens = estimate_clip_tokens(full)
@@ -209,6 +267,33 @@ def _node_exists(object_info: dict | None, class_type: str) -> bool:
     return bool(data and class_type in data)
 
 
+def _object_info_catalog(object_info: dict | None) -> dict | None:
+    if not isinstance(object_info, dict) or not object_info:
+        return None
+    if any(k in object_info for k in ("CLIPTextEncode", "KSampler", "CheckpointLoaderSimple", "ConditioningConcat")):
+        return object_info
+    data = object_info.get("data")
+    if isinstance(data, dict) and data:
+        return data
+    return None
+
+
+def _should_concat(object_info: dict | None, parts: list[str]) -> bool:
+    """ConditioningConcat je ugrađeni ComfyUI čvor.
+
+    Koristi ga kad ima više komada, osim ako object_info izričito nabraja čvorove
+    i među njima nema ConditioningConcat. Prazan/None object_info (cache još
+    nije spreman) više ne spaja sve u jedan CLIPTextEncode — to je točno kako
+    dug izgled s profila potisne scenu unutar prvih 77 tokena.
+    """
+    if len(parts) <= 1:
+        return False
+    catalog = _object_info_catalog(object_info)
+    if catalog is None:
+        return True
+    return "ConditioningConcat" in catalog
+
+
 
 def _encode_positive(
     wf: dict,
@@ -221,7 +306,7 @@ def _encode_positive(
     parts = [c.strip() for c in (chunks or []) if isinstance(c, str) and c.strip()]
     if not parts:
         parts = [(prompt or "").strip() or ""]
-    can_concat = _node_exists(object_info, "ConditioningConcat") and len(parts) > 1
+    can_concat = _should_concat(object_info, parts)
     if not can_concat:
         wf["6"] = {
             "class_type": "CLIPTextEncode",

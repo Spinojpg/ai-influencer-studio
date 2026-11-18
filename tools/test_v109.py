@@ -33,19 +33,19 @@ def test_prompt_order():
         appearance="portrait of a woman, long brown hair, green eyes, studio lighting, looking at camera",
         quality=True,
     )
-    check(built["chunks"][0].startswith("adult woman, lying on a bed"), f"head={built['chunks'][0]!r}")
+    check(built["chunks"][0].startswith("adult woman") and "lying on a bed" in built["chunks"][0], f"head={built['chunks'][0]!r}")
     check(not built["appearance"].lower().startswith("portrait"), f"appearance={built['appearance']!r}")
-    check(built["chunks"][-1].startswith("RAW photo"), f"quality={built['chunks'][-1]!r}")
+    check(any(c.startswith("RAW photo") for c in built["chunks"]), f"quality in chunks={built['chunks']!r}")
     check(built["prompt"].index("lying on a bed") < built["prompt"].index("long brown hair"), "scena prije izgleda")
     check(built["prompt"].index("long brown hair") < built["prompt"].index("RAW photo"), "izgled prije kvalitete")
     # already has adult
     b2 = image_gen.build_positive_prompt(scene="adult woman sitting", appearance="brown hair", quality=False)
-    check(b2["chunks"][0].startswith("adult woman sitting"), f"no dup adult {b2['chunks'][0]!r}")
+    check("adult woman sitting" in b2["chunks"][0] and b2["chunks"][0].lower().count("adult woman") == 1, f"no dup adult {b2['chunks'][0]!r}")
     check(b2["adult_term"] == "", "adult already present")
     long_app = ", ".join(["long brown hair, green eyes, detailed skin"] * 10)
     b3 = image_gen.build_positive_prompt(scene="on a bed taking a phone selfie", appearance=long_app, quality=True)
     check(b3["warn"] and b3["tokens"] > 75, f"warn tokens={b3['tokens']}")
-    check(b3["chunks"][0].startswith("adult woman, on a bed"), "scena ostaje u prvom chunku i kad je ukupno dugo")
+    check(b3["chunks"][0].startswith("adult woman") and "on a bed" in b3["chunks"][0], "scena ostaje u prvom chunku i kad je ukupno dugo")
     check("portrait of" not in image_gen.strip_leading_portrait("a photorealistic portrait of a woman smiling").lower(), "strip portrait prefix")
     info = {"ConditioningConcat": {}, "LoraLoader": {}}
     wf = image_gen.build_workflow(

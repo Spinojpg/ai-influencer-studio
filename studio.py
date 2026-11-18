@@ -367,6 +367,140 @@ def clamp_int(value, lo, hi, default):
     return max(lo, min(hi, n))
 
 
+
+def plan_image_generation(
+    body: dict,
+    *,
+    profile: dict | None = None,
+    object_info: dict | None = None,
+) -> dict:
+    """Složi ComfyUI workflow za /api/generate (bez HTTP-a i bez reda čekanja).
+
+    Vraća {ok, workflow, meta} ili {ok: False, status, error, ...}.
+    """
+    prof = profile
+    appearance = (body.get("persona") or "").strip()
+    if not appearance and prof:
+        appearance = prof.get("appearance_prompt") or ""
+    scene = (body.get("prompt") or "").strip()
+    if not scene:
+        return {"ok": False, "status": 400, "error": "Upiši opis slike."}
+
+    negative = (body.get("negative") or "").strip()
+    if not negative and prof:
+        negative = (prof.get("negative_prompt") or "").strip()
+    if not negative:
+        negative = DEFAULT_NEGATIVE
+
+    model = (body.get("model") or "").strip()
+    if not model and prof:
+        model = (prof.get("preferred_model") or "").strip()
+    if not model:
+        model = DEFAULT_MODEL
+
+    override = (body.get("model_type") or (prof or {}).get("model_type") or "")
+    arch = image_gen.detect_model_arch(model, override)
+    quality_on = body.get("quality_prefix")
+    if quality_on is None:
+        quality_on = inbox.get_setting("quality_prefix", "1") != "0"
+    built = image_gen.build_positive_prompt(scene=scene, appearance=appearance, quality=bool(quality_on))
+    prompt = built["prompt"]
+
+    defaults = image_gen.presets_for(arch)[0]
+    width = clamp_int(body.get("width"), 256, 1536, defaults["width"])
+    height = clamp_int(body.get("height"), 256, 1536, defaults["height"])
+    width = max(256, min(1536, width - (width % 8)))
+    height = max(256, min(1536, height - (height % 8)))
+    batch = clamp_int(body.get("batch"), 1, 4, 1)
+    steps = clamp_int(body.get("steps"), 4, 50, 30)
+    cfg = body.get("cfg")
+    try:
+        cfg = float(cfg) if cfg is not None and cfg != "" else image_gen.default_cfg(arch)
+    except (TypeError, ValueError):
+        cfg = image_gen.default_cfg(arch)
+    hires = bool(body.get("hires"))
+    if hires and arch == "sdxl" and not body.get("hires_force"):
+        # dopušteno, ali UI upozorava na VRAM; ne blokiramo ako je korisnik svjesno uključio
+        pass
+
+    seed = body.get("seed")
+    if seed is None or seed == "" or int(seed) < 0:
+        seed = random.randint(0, 2_147_483_647)
+    else:
+        seed = clamp_int(seed, 0, 2_147_483_647, random.randint(0, 2_147_483_647))
+
+    turbo = bool(body.get("turbo"))
+    lora = (body.get("lora") or "").strip()
+    sampler_name = "dpmpp_2m"
+    scheduler = "karras"
+    if turbo:
+        if arch != "sdxl":
+            return {
+                "ok": False,
+                "status": 400,
+                "error": "Turbo (8 koraka) radi samo sa SDXL modelima (npr. RealVisXL).",
+                "need": "sdxl",
+            }
+        spec = image_gen.TURBO_SDXL
+        lora = lora or spec["lora_filename"]
+        if not image_gen.lora_available(lora):
+            return {
+                "ok": False,
+                "status": 400,
+                "error": "Turbo LoRA još nije preuzet. Otvori karticu Modeli i preuzmi Hyper-SDXL Turbo (8 koraka).",
+                "need_lora": spec["id"],
+            }
+        steps = spec["steps"]
+        cfg = spec["cfg"]
+        sampler_name = spec["sampler_name"]
+        scheduler = spec["scheduler"]
+        hires = False
+
+    workflow = build_workflow(
+        prompt=prompt,
+        negative=negative,
+        model=model,
+        width=width,
+        height=height,
+        batch=batch,
+        seed=seed,
+        steps=steps,
+        cfg=cfg,
+        sampler_name=sampler_name,
+        scheduler=scheduler,
+        arch=arch,
+        hires=hires,
+        object_info=object_info if object_info is not None else {},
+        lora=lora,
+        lora_strength=float(image_gen.TURBO_SDXL["lora_strength"] if turbo else 1.0),
+        turbo=turbo,
+        prompt_chunks=built["chunks"],
+    )
+    return {
+        "ok": True,
+        "workflow": workflow,
+        "built": built,
+        "meta": {
+            "ok": True,
+            "seed": seed,
+            "model": model,
+            "width": width,
+            "height": height,
+            "batch": batch,
+            "steps": steps,
+            "cfg": cfg,
+            "arch": arch,
+            "hires": hires,
+            "turbo": turbo,
+            "prompt": prompt,
+            "tokens": built["tokens"],
+            "token_warn": built["warn"],
+            "token_limit": built["limit"],
+            "kind": "image",
+        },
+    }
+
+
 def compose_prompt(persona: str, prompt: str) -> str:
     persona = (persona or "").strip()
     prompt = (prompt or "").strip()
@@ -1053,119 +1187,16 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._json(503, {"ok": False, "error": msg})
             return
 
-        prof = inbox.get_profile(inbox.active_profile_id())
-        appearance = (body.get("persona") or "").strip()
-        if not appearance and prof:
-            appearance = prof.get("appearance_prompt") or ""
-        scene = (body.get("prompt") or "").strip()
-        if not scene:
-            self._json(400, {"ok": False, "error": "Upiši opis slike."})
-            return
-
-        negative = (body.get("negative") or "").strip()
-        if not negative and prof:
-            negative = (prof.get("negative_prompt") or "").strip()
-        if not negative:
-            negative = DEFAULT_NEGATIVE
-
-        model = (body.get("model") or "").strip()
-        if not model and prof:
-            model = (prof.get("preferred_model") or "").strip()
-        if not model:
-            model = DEFAULT_MODEL
-
-        override = (body.get("model_type") or (prof or {}).get("model_type") or "")
-        arch = image_gen.detect_model_arch(model, override)
-        quality_on = body.get("quality_prefix")
-        if quality_on is None:
-            quality_on = inbox.get_setting("quality_prefix", "1") != "0"
-        built = image_gen.build_positive_prompt(scene=scene, appearance=appearance, quality=bool(quality_on))
-        prompt = built["prompt"]
-
-        defaults = image_gen.presets_for(arch)[0]
-        width = clamp_int(body.get("width"), 256, 1536, defaults["width"])
-        height = clamp_int(body.get("height"), 256, 1536, defaults["height"])
-        width = max(256, min(1536, width - (width % 8)))
-        height = max(256, min(1536, height - (height % 8)))
-        batch = clamp_int(body.get("batch"), 1, 4, 1)
-        steps = clamp_int(body.get("steps"), 4, 50, 30)
-        cfg = body.get("cfg")
-        try:
-            cfg = float(cfg) if cfg is not None and cfg != "" else image_gen.default_cfg(arch)
-        except (TypeError, ValueError):
-            cfg = image_gen.default_cfg(arch)
-        hires = bool(body.get("hires"))
-        if hires and arch == "sdxl" and not body.get("hires_force"):
-            # dopušteno, ali UI upozorava na VRAM; ne blokiramo ako je korisnik svjesno uključio
-            pass
-
-        seed = body.get("seed")
-        if seed is None or seed == "" or int(seed) < 0:
-            seed = random.randint(0, 2_147_483_647)
-        else:
-            seed = clamp_int(seed, 0, 2_147_483_647, random.randint(0, 2_147_483_647))
-
-        turbo = bool(body.get("turbo"))
-        lora = (body.get("lora") or "").strip()
-        sampler_name = "dpmpp_2m"
-        scheduler = "karras"
-        if turbo:
-            if arch != "sdxl":
-                self._json(400, {"ok": False, "error": "Turbo (8 koraka) radi samo sa SDXL modelima (npr. RealVisXL).", "need": "sdxl"})
-                return
-            spec = image_gen.TURBO_SDXL
-            lora = lora or spec["lora_filename"]
-            if not image_gen.lora_available(lora):
-                self._json(400, {
-                    "ok": False,
-                    "error": "Turbo LoRA još nije preuzet. Otvori karticu Modeli i preuzmi Hyper-SDXL Turbo (8 koraka).",
-                    "need_lora": spec["id"],
-                })
-                return
-            steps = spec["steps"]
-            cfg = spec["cfg"]
-            sampler_name = spec["sampler_name"]
-            scheduler = spec["scheduler"]
-            hires = False
-
-        workflow = build_workflow(
-            prompt=prompt,
-            negative=negative,
-            model=model,
-            width=width,
-            height=height,
-            batch=batch,
-            seed=seed,
-            steps=steps,
-            cfg=cfg,
-            sampler_name=sampler_name,
-            scheduler=scheduler,
-            arch=arch,
-            hires=hires,
+        result = plan_image_generation(
+            body,
+            profile=inbox.get_profile(inbox.active_profile_id()),
             object_info=cached_object_info(),
-            lora=lora,
-            lora_strength=float(image_gen.TURBO_SDXL["lora_strength"] if turbo else 1.0),
-            turbo=turbo,
-            prompt_chunks=built["chunks"],
         )
-        self._queue_prompt(workflow, {
-            "ok": True,
-            "seed": seed,
-            "model": model,
-            "width": width,
-            "height": height,
-            "batch": batch,
-            "steps": steps,
-            "cfg": cfg,
-            "arch": arch,
-            "hires": hires,
-            "turbo": turbo,
-            "prompt": prompt,
-            "tokens": built["tokens"],
-            "token_warn": built["warn"],
-            "token_limit": built["limit"],
-            "kind": "image",
-        })
+        if not result.get("ok"):
+            payload = {k: v for k, v in result.items() if k not in {"workflow", "built", "status"}}
+            self._json(int(result.get("status") or 400), payload)
+            return
+        self._queue_prompt(result["workflow"], result["meta"])
 
     def _preview_prompt(self, body: dict) -> dict:
         prof = inbox.get_profile(inbox.active_profile_id())

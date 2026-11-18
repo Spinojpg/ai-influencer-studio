@@ -1,5 +1,10 @@
 # Promjene
 
+## 1.0.11 — 2026-11-18
+- Kartica Modeli: Juggernaut XL Ragnarok (fp16, ~6,6 GB) s Hugging Facea (Kandoo/Juggernaut-XL-Ragnarok), javni URL. SDXL, preporuka 30 koraka, cfg 5, dpmpp_2m karras; radi i s Turbo LoRA.
+- Prompt: scena ostaje sama u prvom CLIPTextEncode i kad object_info još nije spreman (ConditioningConcat se tada ipak koristi). Scena je naglašena, s izgleda se skidaju „portrait of” i studio/pozni tropi, na kraju je kratki odjek scene — da opis (npr. leži na krevetu) ne postane običan nasmiješeni portret.
+- Testovi: /api/generate end-to-end (regresija greške 500 iz 1.0.9), poredak scene uz dugi izgled, ispravak tvrdnje u test_v102 (zadani SDXL portret je 768×1152).
+
 ## 1.0.10 — 2026-11-18
 - Popravak: 'Unutarnja greška poslužitelja' pri generiranju (Turbo i Kvaliteta) u 1.0.9.
 

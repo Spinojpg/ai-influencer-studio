@@ -113,11 +113,13 @@ Samo ComfyUI (ispravak greške s krivom radnom mapom):
 Kako koristiti
 --------------
 
-- Upiši opis SCENE (što se događa, gdje, kakva je slika). Izgled s
-  profila ide IZA scene, pa oznake kvalitete — da CLIP (~75 tokena)
-  ne odreže scenu. „Portrait of” se skida s izgleda. Brojač tokena
-  upozori kad je opis predugačak; višak se spaja (ConditioningConcat).
-  „adult woman” ostaje na početku.
+- Upiši opis SCENE (što se događa, gdje, kakva je slika). Scena ide
+  prva i malo je naglašena, izgled s profila ide u sljedeći komad
+  (ConditioningConcat), pa oznake kvalitete — da CLIP (~75 tokena)
+  ne odreže scenu. S izgleda se skida „portrait of” i generički
+  studio/pozni tropi (looking at the camera, studio lighting) koji
+  bi pretvorili sliku u običan portret. Brojač tokena upozori kad je
+  opis predugačak. „adult woman” ostaje na početku.
 - Odaberi format i brzinu: Turbo (8 koraka, treba Hyper-SDXL LoRA iz
   Modelâ, samo SDXL) ili Kvaliteta (30 koraka). Model, seed, negativni
   prompt i hires su pod Napredno.
@@ -185,8 +187,10 @@ ComfyUI zapinje na "Compilation is in progress"
   Ako želiš cuDNN, odtijepi kvačicu u postavkama i ponovo upali ComfyUI.
 
 Modeli (SD 1.5 i SDXL)
-  Kartica "Modeli": jedan klik preuzima RealVisXL V5.0 fp16 s Hugging
-  Facea (javni URL, ~6,5 GB, može se nastaviti ako prekine). Možeš i
+  Kartica "Modeli": jedan klik preuzima RealVisXL V5.0 fp16 (~6,5 GB)
+  ili Juggernaut XL Ragnarok (~6,6 GB, svestrani fotoreal SDXL;
+  30 koraka, cfg 5, dpmpp_2m karras; radi i s Turbo LoRA) s Hugging
+  Facea (javni URL, može se nastaviti ako prekine). Možeš i
   zalijepiti bilo koji izravni URL (npr. Civitai). Datoteka ide u
   C:\ComfyUI-Zluda\models\checkpoints, zatim se popis osvježi i model
   se odabere. SDXL formati: 768×1152 (zadano, sigurnije na 8 GB), 832×1216

@@ -30,6 +30,23 @@ CURATED = [
         "note": "Fotorealistični SDXL s Hugging Facea, bez prijave. Oko 6,5 GB. Resume je podržan.",
     },
     {
+        "id": "juggernaut-xl-ragnarok",
+        "name": "Juggernaut XL Ragnarok (fp16)",
+        "filename": "juggernautXL_ragnarok.safetensors",
+        "url": "https://huggingface.co/Kandoo/Juggernaut-XL-Ragnarok/resolve/main/juggernautXL_ragnarok.safetensors",
+        "arch": "sdxl",
+        "kind": "checkpoint",
+        "turbo_compatible": True,
+        "size_bytes": 7105350162,
+        "recommended": {
+            "cfg": 5.0,
+            "steps": 30,
+            "sampler_name": "dpmpp_2m",
+            "scheduler": "karras",
+        },
+        "note": "Svestrani fotorealistični SDXL (najnoviji Ragnarok, autor Kandoo / RunDiffusion) s Hugging Facea, bez prijave. Oko 6,6 GB. Preporuka: 30 koraka, cfg 5, dpmpp_2m karras. Radi i s Turbo LoRA (8 koraka).",
+    },
+    {
         "id": "hyper-sdxl-8step-cfg",
         "name": "Hyper-SDXL Turbo (8 koraka, CFG)",
         "filename": "Hyper-SDXL-8steps-CFG-lora.safetensors",
