@@ -41,12 +41,19 @@ Instalacija kao Windows aplikacija
      bez te varijable, zatvori ga i pokreni Studio ponovo.
      Kad zatvoriš prozor aplikacije, gasi se i Studio i ComfyUI koji je
      pokrenuo ovaj pokretač (tuđi ručno upaljeni ComfyUI se ne dira).
+     Gašenje čeka da nestane proces preglednika s profilom
+     data\browser-profile (ne samo prvi PID koji je pokretač otvorio)
+     i ne pali se dok ComfyUI ima posao u redu ili Studio generira
+     sliku. pagehide i tišina heartbeat-a (120 s) su samo nagovještaj.
+     Razlog gašenja je u data\logs\launcher.log.
    - pokrene Studio poslužitelj u pozadini,
    - otvori Brave u app načinu na primarnom monitoru (Display 1),
      s vlastitim profilom u data\browser-profile (novi proces, ne
      prikači se na postojeći Brave na drugom monitoru). Ako Brave nije
      instaliran, pokuša Edge, zatim Chrome, zatim zadani preglednik.
      Preglednik se može promijeniti u Postavkama (zadano je Brave).
+     U postavkama je i Low VRAM (--lowvram pri sljedećem paljenju
+     ComfyUI-ja). Pokretač ionako dodaje --use-split-cross-attention.
    Python: C:\ComfyUI-Zluda\venv\Scripts\pythonw.exe, ili py -3.11.
 
 Ključevi (xAI, Instagram, Telegram, opcionalni GITHUB_TOKEN) pišu se u:
@@ -182,9 +189,11 @@ Modeli (SD 1.5 i SDXL)
   Facea (javni URL, ~6,5 GB, može se nastaviti ako prekine). Možeš i
   zalijepiti bilo koji izravni URL (npr. Civitai). Datoteka ide u
   C:\ComfyUI-Zluda\models\checkpoints, zatim se popis osvježi i model
-  se odabere. SDXL formati: 832×1216, 1024×1024, 1216×832. SD 1.5 ostaje
-  na 512. Hires fix (1,5× latent + drugi sampler, denoise 0.4) je za
-  SD 1.5; na SDXL upozoravamo na VRAM. Na 8 GB koristi --lowvram.
+  se odabere. SDXL formati: 768×1152 (zadano, sigurnije na 8 GB), 832×1216
+  Portret HD, 1024×1024, 1216×832. SD 1.5 ostaje na 512. Hires fix
+  (1,5× latent + drugi sampler, denoise 0.4) je za SD 1.5; na SDXL
+  upozoravamo na VRAM. Pokretač dodaje --use-split-cross-attention;
+  Low VRAM (--lowvram) uključi u postavkama ako zapne memorija.
 
 Slika je gotova, a postotak stoji na 0 %
   Studio sada čita napredak preko ComfyUI websocketom. Ako progres nije

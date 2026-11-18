@@ -259,6 +259,7 @@ def init_db() -> None:
             "quality_prefix": "1",
             "hires_fix": "0",
             "browser": "brave",
+            "low_vram": "0",
         }
         for key, val in defaults.items():
             conn.execute(
@@ -1455,6 +1456,7 @@ def public_settings() -> dict:
         "quality_prefix": get_setting("quality_prefix", "1") != "0",
         "hires_fix": get_setting("hires_fix", "0") == "1",
         "browser": (get_setting("browser", "brave") or "brave").strip().lower() or "brave",
+        "low_vram": get_setting("low_vram", "0") == "1",
         "xai_configured": xai_configured(),
         "xai_base": xai_base(),
         "in_quiet_hours": in_quiet_hours(),
@@ -1477,6 +1479,7 @@ def update_settings(payload: dict) -> dict:
         "quality_prefix",
         "hires_fix",
         "browser",
+        "low_vram",
     }
     if "send_mode" in payload:
         mode = payload["send_mode"]
@@ -1503,7 +1506,7 @@ def update_settings(payload: dict) -> dict:
         if raw not in {"brave", "edge", "chrome", "default"}:
             raise ValueError("Preglednik mora biti brave, edge, chrome ili default.")
         payload = {**payload, "browser": raw}
-    for flag in ("disable_cudnn", "quality_prefix", "hires_fix"):
+    for flag in ("disable_cudnn", "quality_prefix", "hires_fix", "low_vram"):
         if flag in payload:
             payload = {**payload, flag: "1" if payload[flag] in {True, "1", 1, "true", "on"} else "0"}
     for key in allowed:

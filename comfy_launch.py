@@ -96,17 +96,84 @@ def windows_start_command(bat: Path, folder: Path, *, keep_open: bool = True) ->
     )
 
 
+
+ATTN_FLAGS = (
+    "--use-split-cross-attention",
+    "--use-quad-cross-attention",
+    "--use-pytorch-cross-attention",
+    "--use-sage-attention",
+    "--use-flash-attention",
+)
+VRAM_FLAGS = ("--lowvram", "--novram", "--highvram", "--normalvram", "--cpu", "--gpu-only")
+
+
+def text_has_flag(text: str, flag: str) -> bool:
+    return re.search(rf"(?i)(?:^|[\s=]){re.escape(flag)}\b", text or "") is not None
+
+
+def planned_cli_flags(source_text: str, *, low_vram: bool = False, extra: list[str] | None = None) -> list[str]:
+    """Zastavice koje dodajemo u wrapper, bez udvostručavanja onih koje su već u originalu."""
+    flags: list[str] = []
+    if not any(text_has_flag(source_text, f) for f in ATTN_FLAGS):
+        flags.append("--use-split-cross-attention")
+    if low_vram and not any(text_has_flag(source_text, f) for f in VRAM_FLAGS):
+        flags.append("--lowvram")
+    for item in extra or []:
+        item = (item or "").strip()
+        if item and item not in flags and not text_has_flag(source_text, item) and item not in flags:
+            flags.append(item)
+    return flags
+
+
+def inject_cli_flags(text: str, flags: list[str]) -> str:
+    """Dodaj zastavice u set COMMANDLINE_ARGS= ili na liniju s main.py."""
+    to_add = [f for f in flags if f and not text_has_flag(text, f)]
+    if not to_add:
+        return text
+    addition = " ".join(to_add)
+
+    def append_args_line(match: re.Match) -> str:
+        line = match.group(0).rstrip("\r\n")
+        # Ne diraj nastavak linije sa ^ ili \
+        if line.endswith("^") or line.endswith("\\"):
+            return match.group(0)
+        nl = "\r\n" if match.group(0).endswith("\r\n") else ("\n" if match.group(0).endswith("\n") else "")
+        return line + " " + addition + nl
+
+    new, n = re.subn(r"(?im)^[ \t]*set[ \t]+COMMANDLINE_ARGS=.*$", append_args_line, text, count=1)
+    if n:
+        text = new
+
+        def maybe_main(match: re.Match) -> str:
+            line = match.group(0)
+            if "COMMANDLINE_ARGS" in line.upper():
+                return line
+            return append_args_line(match)
+
+        new2, n2 = re.subn(r"(?im)^.*\bmain\.py\b.*$", maybe_main, text, count=1)
+        return new2 if n2 else text
+    new, n = re.subn(r"(?im)^.*\bmain\.py\b.*$", append_args_line, text, count=1)
+    if n:
+        return new
+    # Ako nema ni COMMANDLINE_ARGS ni main.py, dodaj set na vrh tijela kasnije.
+    return text + ("" if text.endswith("\n") else "\n") + f"set COMMANDLINE_ARGS=%COMMANDLINE_ARGS% {addition}\n"
+
+
 def build_comfy_studio_bat(
     src: Path,
     dest: Path | None = None,
     *,
     disable_cudnn: bool = True,
+    low_vram: bool = False,
+    extra_flags: list[str] | None = None,
 ) -> Path:
     """
     Napravi comfyui-studio.bat iz comfyui-n.bat:
     - original se NE mijenja
     - makni --auto-launch (ComfyUI ne otvara svoj 8188 prozor)
     - na vrh stavi set TORCH_BACKENDS_CUDNN_ENABLED=0 ako je uključeno
+    - dodaj --use-split-cross-attention (brzina/memorija na RX 6600) ako već nema attention zastavice
+    - opcionalno --lowvram ako je uključeno i original nema VRAM zastavicu
     """
     src = Path(src)
     dest = Path(dest) if dest is not None else src.parent / WRAPPER_NAME
@@ -114,6 +181,8 @@ def build_comfy_studio_bat(
     text = strip_auto_launch(text)
     text = strip_pause(text)
     text = text.replace("\r\n", "\n").replace("\r", "\n")
+    flags = planned_cli_flags(text, low_vram=low_vram, extra=extra_flags)
+    text = inject_cli_flags(text, flags)
     # Skinuti vodeći @echo off da ga stavimo jednom na vrh.
     body = text.lstrip("\ufeff")
     if body.lower().startswith("@echo off"):

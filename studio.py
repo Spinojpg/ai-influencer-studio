@@ -141,6 +141,49 @@ def remember_job(prompt_id: str) -> None:
     _JOBS[str(prompt_id)] = time.time()
 
 
+
+def forget_finished_job(prompt_id: str) -> None:
+    _JOBS.pop(str(prompt_id), None)
+
+
+def comfy_queue_busy() -> dict:
+    try:
+        data, _, _ = comfy_request("/queue", timeout=3)
+    except Exception as exc:
+        return {"ok": False, "busy": False, "running": 0, "pending": 0, "error": str(exc)}
+    if not isinstance(data, dict):
+        return {"ok": False, "busy": False, "running": 0, "pending": 0, "error": "neočekivani /queue"}
+    running = data.get("queue_running") or []
+    pending = data.get("queue_pending") or []
+    n_run = len(running) if isinstance(running, list) else 0
+    n_pend = len(pending) if isinstance(pending, list) else 0
+    return {"ok": True, "busy": (n_run + n_pend) > 0, "running": n_run, "pending": n_pend, "error": ""}
+
+
+def studio_busy_payload() -> dict:
+    """Za pokretač: ne gasi se dok ComfyUI red ili naši poslovi rade."""
+    queue = comfy_queue_busy()
+    active = []
+    for pid, started in list(_JOBS.items()):
+        try:
+            st = job_status(pid)
+        except Exception:
+            st = {"status": "running"}
+        status = str(st.get("status") or "running")
+        if status in {"done", "error"}:
+            forget_finished_job(pid)
+            continue
+        active.append({"prompt_id": pid, "status": status, "started": started})
+    busy = bool(queue.get("busy") or active)
+    return {
+        "ok": True,
+        "busy": busy,
+        "jobs": len(active),
+        "active": active,
+        "queue": {k: queue.get(k) for k in ("ok", "busy", "running", "pending", "error")},
+    }
+
+
 def cached_object_info() -> dict:
     global _OBJECT_INFO_CACHE
     if _OBJECT_INFO_CACHE is None:
@@ -509,6 +552,10 @@ class StudioHandler(BaseHTTPRequestHandler):
         if path == "/api/heartbeat":
             hb = app_session.read_heartbeat(inbox.DATA_DIR) or {}
             self._json(200, {"ok": True, "heartbeat": hb})
+            return
+
+        if path == "/api/busy":
+            self._json(200, studio_busy_payload())
             return
 
         if path == "/api/state":

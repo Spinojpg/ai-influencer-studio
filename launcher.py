@@ -100,11 +100,12 @@ def start_comfy_if_needed(*, wait: bool = False) -> subprocess.Popen | None:
     except Exception:
         pass
     disable_cudnn = comfy_launch.setting_on(inbox.get_setting("disable_cudnn", "1"), True)
+    low_vram = comfy_launch.setting_on(inbox.get_setting("low_vram", "0"), False)
     wrapper = folder / comfy_launch.WRAPPER_NAME
     try:
-        comfy_launch.build_comfy_studio_bat(src, wrapper, disable_cudnn=disable_cudnn)
+        comfy_launch.build_comfy_studio_bat(src, wrapper, disable_cudnn=disable_cudnn, low_vram=low_vram)
         run_bat = wrapper
-        print("Napravljen wrapper", wrapper, "(original comfyui-n.bat nije diran)")
+        print("Napravljen wrapper", wrapper, "(original comfyui-n.bat nije diran, low_vram=", low_vram, ")")
     except Exception as exc:
         print("UPOZORENJE: nisam mogao napraviti comfyui-studio.bat:", exc)
         run_bat = src
@@ -118,7 +119,7 @@ def start_comfy_if_needed(*, wait: bool = False) -> subprocess.Popen | None:
             from datetime import datetime
             fh.write(
                 f"{datetime.now().isoformat(timespec='seconds')} pokrecem {run_bat} "
-                f"(cwd={folder}, cudnn_disabled={disable_cudnn})\n"
+                f"(cwd={folder}, cudnn_disabled={disable_cudnn}, low_vram={low_vram})\n"
             )
     except Exception:
         log_path = None
@@ -424,9 +425,18 @@ def start_app_windows(data_dir: Path) -> int:
 
     result = open_app_window(STUDIO_URL, data_dir) or {}
     browser_proc = result.get("proc") if isinstance(result, dict) else None
-    print("Cekam zatvaranje prozora aplikacije...")
-    reason = app_session.wait_for_app_close(data_dir, browser_proc)
-    print("Prozor je zatvoren (", reason, ") — gasim Studio i eventualno ComfyUI.")
+    print(
+        "Cekam zatvaranje prozora (heartbeat 120s, potvrda procesa s --user-data-dir, "
+        "ne gasim dok ComfyUI/Studio imaju posao)..."
+    )
+    reason = app_session.wait_for_app_close(
+        data_dir,
+        browser_proc,
+        stale_s=app_session.DEFAULT_STALE_S,
+        grace_s=app_session.DEFAULT_GRACE_S,
+        log=print,
+    )
+    print("Potvrdjeno zatvaranje. Razlog:", reason, "— gasim Studio i eventualno ComfyUI.")
     app_session.shutdown_session(
         data_dir,
         studio_proc=studio_proc,

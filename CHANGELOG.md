@@ -1,5 +1,10 @@
 # Promjene
 
+## 1.0.8 — 2026-11-18
+- Gašenje više ne ubija ComfyUI usred generiranja: pokretač ne gasi sesiju dok /queue na :8188 ima posla ili Studio generira sliku.
+- Zatvaranje prozora se potvrđuje po procesima preglednika s našim --user-data-dir (PowerShell ili WMIC), ne samo po prvom PID-u koji je pokretač otvorio. pagehide/goodbye i tišina heartbeat-a (sada 120 s) su samo nagovještaj; nakon kratkog čekanja ponovno se provjerava. Razlog gašenja ide u data/logs/launcher.log.
+- Za RX 6600 (8 GB): wrapper dodaje --use-split-cross-attention (ako original već nema attention zastavicu). U postavkama je Low VRAM (--lowvram, vrijedi pri sljedećem paljenju ComfyUI-ja). Zadani SDXL portret je 768×1152 (sigurnije na 8 GB); 832×1216 ostaje kao Portret HD.
+
 ## 1.0.7 — 2026-11-18
 - U editoru influencera Duljina poruka, Slang, Emoji i Jezik imaju više unaprijed ponuđenih opcija (chipovi, hrvatski natpisi) i i dalje Prilagođeno za slobodan tekst. Emoji može biti i odabrani set. Stari spremljeni profili se i dalje učitavaju (npr. long, heavy, MIX, slobodan tekst). Te vrijednosti idu u prompt za chat. Polje Primjeri poruka sada jasno pokazuje format Fan: … / Luna: ….
 

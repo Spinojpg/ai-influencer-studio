@@ -597,7 +597,7 @@
           <label class="lbl"><input type="checkbox" id="hiresFix" /> Hires fix (latent 1,5×, denoise 0.4)</label>
           <div class="hint" id="hiresHint">Samo za SD 1.5 po zadanom. Na 8 GB VRAM-a može biti tijesno. Za SDXL upozoravamo na memoriju.</div>
         </div>
-        <div class="hint" id="archHint">Model: SD 1.5 · formati 512×768 / 512×512 / 768×512. --lowvram je preporučen na RX 6600.</div>
+        <div class="hint" id="archHint">Model: SD 1.5 · formati 512×768 / 512×512 / 768×512. Na RX 6600 (8 GB) u postavkama možeš uključiti Low VRAM.</div>
 
         <div class="field">
           <label class="lbl" for="seed">Seed</label>
@@ -732,6 +732,10 @@
           <div class="field" style="margin-top:18px">
             <label class="lbl"><input type="checkbox" id="disableCudnn" checked /> Isključi cuDNN u ComfyUI-ju</label>
             <div class="hint">Postavlja TORCH_BACKENDS_CUDNN_ENABLED=0 u okruženje procesa (pouzdanije nego linija u comfyui-n.bat, koja se na ovom PC-u nije primijenila). Bez toga prvo pokretanje može zapeti na „Compilation is in progress”. Vrijedi pri sljedećem paljenju ComfyUI-ja preko Studija.</div>
+          </div>
+          <div class="field" style="margin-top:12px">
+            <label class="lbl"><input type="checkbox" id="lowVram" /> Low VRAM u ComfyUI-ju</label>
+            <div class="hint">Pri sljedećem paljenju ComfyUI-ja preko Studija dodaje --lowvram (manje VRAM-a, ponekad sporije). --use-split-cross-attention se ionako dodaje radi brzine na RX 6600 (8 GB). Zadani SDXL portret je 768×1152; 832×1216 ostaje kao Portret HD.</div>
           </div>
           <div class="field" style="margin-top:18px">
             <label class="lbl">Ažuriranje aplikacije</label>
@@ -1110,6 +1114,7 @@
       $("tgEnabled").checked = !!s.telegram_enabled;
       if ($("disableCudnn")) $("disableCudnn").checked = s.disable_cudnn !== false;
       if ($("qualityPrefix")) $("qualityPrefix").checked = s.quality_prefix !== false;
+      if ($("lowVram")) $("lowVram").checked = !!s.low_vram;
       if ($("hiresFix")) $("hiresFix").checked = !!s.hires_fix;
       const p = s.platforms || {};
       const bits = [];
@@ -1140,6 +1145,7 @@
         telegram_profile_id: $("tgProfile").value,
         telegram_enabled: $("tgEnabled").checked,
         disable_cudnn: $("disableCudnn") ? $("disableCudnn").checked : true,
+        low_vram: $("lowVram") ? $("lowVram").checked : false,
         browser: $("browserPref") ? $("browserPref").value : "brave"
       };
       try {
@@ -1248,22 +1254,37 @@
       const prev = currentArch;
       currentArch = arch;
       const presets = (window._presets && window._presets[arch]) || (arch === "sdxl"
-        ? [{width:832,height:1216,label:"Portret"},{width:1024,height:1024,label:"Kvadrat"},{width:1216,height:832,label:"Pejzaž"}]
+        ? [{width:768,height:1152,label:"Portret"},{width:832,height:1216,label:"Portret HD"},{width:1024,height:1024,label:"Kvadrat"},{width:1216,height:832,label:"Pejzaž"}]
         : [{width:512,height:768,label:"Portret"},{width:512,height:512,label:"Kvadrat"},{width:768,height:512,label:"Pejzaž"}]);
-      const btns = document.querySelectorAll("#sizes button");
-      presets.forEach((pr, i) => {
-        if (!btns[i]) return;
-        btns[i].dataset.w = pr.width;
-        btns[i].dataset.h = pr.height;
-        btns[i].innerHTML = (pr.label || pr.id) + "<br>" + pr.width + "×" + pr.height;
-      });
-      const on = document.querySelector("#sizes button.on") || btns[0];
+      const box = $("sizes");
+      const prevW = width, prevH = height;
+      if (box) {
+        box.innerHTML = "";
+        let matched = false;
+        presets.forEach((pr, i) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.dataset.w = pr.width;
+          b.dataset.h = pr.height;
+          b.innerHTML = (pr.label || pr.id) + "<br>" + pr.width + "×" + pr.height;
+          if (Number(pr.width) === Number(prevW) && Number(pr.height) === Number(prevH)) {
+            b.classList.add("on");
+            matched = true;
+          }
+          box.appendChild(b);
+        });
+        if (!matched) {
+          const first = box.querySelector("button");
+          if (first) first.classList.add("on");
+        }
+      }
+      const on = document.querySelector("#sizes button.on") || document.querySelector("#sizes button");
       if (on) { width = Number(on.dataset.w); height = Number(on.dataset.h); }
       const hint = $("archHint");
       if (hint) {
         hint.textContent = arch === "sdxl"
-          ? "Model: SDXL · formati 832×1216 / 1024×1024 / 1216×832, cfg 5. Na 8 GB VRAM-a bude tijesno; --lowvram je preporučen."
-          : "Model: SD 1.5 · formati 512×768 / 512×512 / 768×512, cfg 5,5. --lowvram je preporučen na RX 6600.";
+          ? "Model: SDXL · formati 768×1152 (zadano, sigurnije na 8 GB), 832×1216 Portret HD, 1024×1024, 1216×832, cfg 5. U postavkama možeš uključiti Low VRAM."
+          : "Model: SD 1.5 · formati 512×768 / 512×512 / 768×512, cfg 5,5. Na RX 6600 u postavkama možeš uključiti Low VRAM.";
       }
       const hh = $("hiresHint");
       if (hh) {
@@ -1881,6 +1902,7 @@
         quality_prefix: $("qualityPrefix") ? $("qualityPrefix").checked : true,
         hires_fix: $("hiresFix") ? $("hiresFix").checked : false,
         disable_cudnn: $("disableCudnn") ? $("disableCudnn").checked : true,
+        low_vram: $("lowVram") ? $("lowVram").checked : false,
         browser: $("browserPref") ? $("browserPref").value : "brave"
       };
       fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).catch(() => {});
@@ -1888,6 +1910,7 @@
     if ($("qualityPrefix")) $("qualityPrefix").addEventListener("change", persistFlags);
     if ($("hiresFix")) $("hiresFix").addEventListener("change", persistFlags);
     if ($("disableCudnn")) $("disableCudnn").addEventListener("change", persistFlags);
+    if ($("lowVram")) $("lowVram").addEventListener("change", persistFlags);
     if ($("browserPref")) $("browserPref").addEventListener("change", persistFlags);
 
     document.addEventListener("click", (e) => {

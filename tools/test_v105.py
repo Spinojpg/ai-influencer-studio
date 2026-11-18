@@ -302,23 +302,41 @@ def test_session_heartbeat_and_shutdown() -> None:
         app_session.touch_heartbeat(data, ts=1000.0)
         hb = app_session.read_heartbeat(data)
         check(hb and hb["ts"] == 1000.0 and not hb.get("bye"), "heartbeat zapis")
+        # U 1.0.8 stale je samo nagovještaj; s grace_s=0 i praznim procesima odmah se potvrdi.
+        none_browsers = lambda: {"ok": True, "pids": [], "source": "test"}
+        idle = lambda: {"busy": False, "reason": ""}
+        clock = {"t": 1000.0}
+
+        def now():
+            return clock["t"]
+
+        def step(_s):
+            clock["t"] += 1
+
+        clock["t"] = 1025.0
         reason = app_session.wait_for_app_close(
-            data, None, stale_s=20, poll_s=0, now_fn=lambda: 1025.0, sleep_fn=lambda s: (_ for _ in ()).throw(RuntimeError("stop"))
+            data, None, stale_s=20, grace_s=0, poll_s=0, now_fn=now, sleep_fn=step,
+            browsers_fn=none_browsers, busy_fn=idle,
         )
-        # now 1025-1000=25 >= 20 -> stale, should return before sleep if checked first... 
-        # loop: read hb, stale, return heartbeat_stale. Good, no sleep.
         check(reason == "heartbeat_stale", f"stale reason {reason}")
 
         app_session.touch_heartbeat(data, bye=True, ts=2000.0)
+        clock["t"] = 2001.0
         reason = app_session.wait_for_app_close(
-            data, None, stale_s=20, poll_s=0, now_fn=lambda: 2001.0, sleep_fn=lambda s: (_ for _ in ()).throw(RuntimeError("stop"))
+            data, None, stale_s=20, grace_s=0, poll_s=0, now_fn=now, sleep_fn=step,
+            browsers_fn=none_browsers, busy_fn=idle,
         )
         check(reason == "goodbye", f"bye reason {reason}")
 
         class Live:
             def poll(self):
                 return 0
-        reason = app_session.wait_for_app_close(data, Live(), stale_s=20, poll_s=0, now_fn=lambda: 0, sleep_fn=lambda s: None)
+        app_session.clear_heartbeat(data)
+        clock["t"] = 0.0
+        reason = app_session.wait_for_app_close(
+            data, Live(), stale_s=20, grace_s=0, poll_s=0, now_fn=now, sleep_fn=step,
+            browsers_fn=none_browsers, busy_fn=idle,
+        )
         check(reason == "browser_exit", f"proc reason {reason}")
 
         killed: list[int] = []

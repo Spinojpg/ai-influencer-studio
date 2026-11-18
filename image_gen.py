@@ -18,14 +18,16 @@ SD15_PRESETS = [
     {"id": "landscape", "label": "Pejzaž", "width": 768, "height": 512},
 ]
 SDXL_PRESETS = [
-    {"id": "portrait", "label": "Portret", "width": 832, "height": 1216},
+    {"id": "portrait", "label": "Portret", "width": 768, "height": 1152},
+    {"id": "portrait_hd", "label": "Portret HD", "width": 832, "height": 1216},
     {"id": "square", "label": "Kvadrat", "width": 1024, "height": 1024},
     {"id": "landscape", "label": "Pejzaž", "width": 1216, "height": 832},
 ]
 
 LOWVRAM_NOTE = (
-    "Na 8 GB VRAM-a (RX 6600) ostavi --lowvram u ComfyUI-ju. "
-    "SD 1.5 je sigurniji izbor; SDXL i hires fix mogu zapeti na memoriji. "
+    "Na 8 GB VRAM-a (RX 6600) zadani SDXL portret je 768×1152 (832×1216 je Portret HD). "
+    "Pokretač dodaje --use-split-cross-attention radi brzine. U postavkama možeš uključiti "
+    "Low VRAM (--lowvram). SD 1.5 je i dalje sigurniji izbor; SDXL i hires fix mogu zapeti na memoriji. "
     "Hires fix je po zadanom samo za SD 1.5."
 )
 
