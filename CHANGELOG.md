@@ -1,5 +1,9 @@
 # Promjene
 
+## 1.0.12 — 2026-11-18
+- Na ekranu Slike, uz gumb Generiraj (izvan Napredno) vidi se kratko ime aktivnog modela (npr. RealVisXL V5, Juggernaut XL) i bedž Turbo kad je uključen.
+- Ispod svake slike, pored seeda, stoji isti model i Turbo ako je korišten. Povijest to pamti; stare stavke bez tih podataka ostaju samo sa seedom.
+
 ## 1.0.11 — 2026-11-18
 - Kartica Modeli: Juggernaut XL Ragnarok (fp16, ~6,6 GB) s Hugging Facea (Kandoo/Juggernaut-XL-Ragnarok), javni URL. SDXL, preporuka 30 koraka, cfg 5, dpmpp_2m karras; radi i s Turbo LoRA.
 - Prompt: scena ostaje sama u prvom CLIPTextEncode i kad object_info još nije spreman (ConditioningConcat se tada ipak koristi). Scena je naglašena, s izgleda se skidaju „portrait of” i studio/pozni tropi, na kraju je kratki odjek scene — da opis (npr. leži na krevetu) ne postane običan nasmiješeni portret.

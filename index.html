@@ -525,6 +525,36 @@
     }
     .token-row.warn { color: var(--gold); }
     .token-row.warn #tokenWarn { display: inline; }
+
+    .create-form .active-model {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 8px 0 2px;
+      font-size: 0.86rem;
+      color: var(--muted);
+    }
+    .create-form .active-model-name {
+      color: var(--text);
+      font-weight: 600;
+    }
+    .turbo-badge {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid rgba(228, 181, 106, 0.45);
+      color: var(--gold);
+      background: rgba(228, 181, 106, 0.12);
+      border-radius: 999px;
+      padding: 2px 9px;
+      font-size: 0.7rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-weight: 650;
+    }
+    .turbo-badge[hidden] { display: none; }
+    figure.shot .cap-model { color: var(--text); }
+    figure.shot .cap-turbo { color: var(--gold); font-weight: 650; }
     .create-form .go { margin-top: 6px; padding: 16px 18px; font-size: 1.12rem; border-radius: 16px; }
     .create-form .field { margin-bottom: 18px; }
     .grid { gap: 28px; }
@@ -596,6 +626,11 @@
           <div class="hint" id="turboHint">Turbo (Hyper-SDXL LoRA) na RX 6600 skraćuje sliku s ~8–9 min na ~2–2,5 min. Preuzmi LoRA u kartici Modeli. Samo za SDXL.</div>
         </div>
 
+        <div class="active-model" id="activeModelLine" aria-live="polite">
+          <span>Model</span>
+          <span class="active-model-name" id="activeModelName">—</span>
+          <span class="turbo-badge" id="activeTurboBadge" hidden>Turbo</span>
+        </div>
         <button class="go" id="go" type="submit">Generiraj</button>
         <div class="hint" id="firstRunHint">Prvo pokretanje može trajati dulje (kompilacija u ComfyUI-ju, posebno na AMD).</div>
         <div class="err" id="err"></div>
@@ -1022,6 +1057,7 @@
         const exists = Array.from(modelEl.options).some((o) => o.value === prof.preferred_model);
         if (exists) modelEl.value = prof.preferred_model;
       }
+      updateActiveModelLine();
     }
 
     async function loadState() {
@@ -1240,6 +1276,7 @@
       updateTokenCount();
       const th = $("turboHint");
       if (th) th.style.opacity = turboMode ? "1" : "0.75";
+      updateActiveModelLine();
     });
     if ($("videoSource")) $("videoSource").addEventListener("click", (e) => {
       const b = e.target.closest("button");
@@ -1301,6 +1338,45 @@
       } catch (e) { setStatus(false, String(e)); }
     }
 
+    function shortModelName(filename) {
+      const raw = String(filename || "").replace(/\\/g, "/").split("/").pop() || "";
+      const stem = raw.replace(/\.(safetensors|ckpt|pt|pth|bin)$/i, "").trim();
+      if (!stem) return "";
+      let s = stem.replace(/realvisxl/ig, "realvisxl")
+        .replace(/juggernaut[\s_\-]*xl/ig, "juggernautxl")
+        .replace(/realistic[\s_\-]*vision/ig, "realisticvision")
+        .replace(/[\s_\-]+/g, " ");
+      const lower = s.replace(/\s+/g, " ").trim().toLowerCase();
+      let m = lower.match(/realvisxl\s*v?\s*(\d+(?:\.\d+)?)?/);
+      if (m) {
+        const ver = (m[1] || "").replace(/\.0$/, "");
+        return "RealVisXL" + (ver ? " V" + ver : "");
+      }
+      if (lower.indexOf("juggernaut") >= 0) {
+        if (lower.indexOf("ragnarok") >= 0 || /(^|\s)xl(\s|$)/.test(lower) || lower.replace(/\s+/g, "").indexOf("juggernautxl") >= 0) return "Juggernaut XL";
+        if (/\bxiii\b/.test(lower)) return "Juggernaut XIII";
+        if (/\bxi\b/.test(lower)) return "Juggernaut XI";
+        if (/\bx\b/.test(lower) || /\bv\s*10\b/.test(lower)) return "Juggernaut X";
+        return "Juggernaut XL";
+      }
+      m = lower.match(/realisticvision\s*v?\s*(\d+(?:\.\d+)?)?/);
+      if (m) {
+        const ver = (m[1] || "").replace(/\.0$/, "");
+        return "Realistic Vision" + (ver ? " V" + ver : "");
+      }
+      const junk = { fp16:1, fp32:1, bf16:1, fp8:1, ema:1, noema:1, pruned:1, bakedvae:1, safetensors:1, checkpoint:1, byrundiffusion:1, rundiffusion:1, by:1, nv:1, b1:1 };
+      return lower.split(" ").filter((tok) => !junk[tok]).map((tok) => {
+        if (tok === "sdxl" || tok === "sd" || tok === "xl" || tok === "vae") return tok.toUpperCase();
+        if (/^v\d+(?:\.\d+)?$/.test(tok)) return "V" + tok.slice(1).replace(/\.0$/, "");
+        return tok.charAt(0).toUpperCase() + tok.slice(1);
+      }).join(" ") || stem;
+    }
+    function updateActiveModelLine() {
+      const nameEl = $("activeModelName");
+      const badge = $("activeTurboBadge");
+      if (nameEl) nameEl.textContent = shortModelName(modelEl && modelEl.value) || "—";
+      if (badge) badge.hidden = !turboMode;
+    }
     function detectArch(name) {
       const n = (name || "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
       if (n.indexOf("realistic_vision") >= 0) return "sd15";
@@ -1357,6 +1433,7 @@
         hh.classList.toggle("hint-warn", arch === "sdxl");
       }
       if (prev !== arch && prev) showToast("Formati su prilagođeni za " + (arch === "sdxl" ? "SDXL" : "SD 1.5") + ".");
+      updateActiveModelLine();
     }
 
     async function loadVideoCaps() {
@@ -1436,7 +1513,15 @@
       const items = loadHistory();
       const stamp = Date.now();
       images.slice().reverse().forEach((img) => {
-        items.unshift({ url: img.url, filename: img.filename, prompt: meta.prompt, seed: meta.seed, ts: stamp });
+        items.unshift({
+          url: img.url,
+          filename: img.filename,
+          prompt: meta.prompt,
+          seed: meta.seed,
+          model: (meta && meta.model) || "",
+          turbo: !!(meta && meta.turbo),
+          ts: stamp
+        });
       });
       saveHistory(items);
     }
@@ -1452,9 +1537,17 @@
       const k = (item && (item.kind || item.type) || "").toLowerCase();
       return k === "video" || k === "gifs" || k === "videos" || /\.(mp4|webm|mov|mkv|gif)$/.test(n);
     }
+    function cardCaption(item) {
+      const bits = [];
+      if (item && item.seed != null && item.seed !== "") bits.push("seed " + item.seed);
+      const label = item && (item.model_label || shortModelName(item.model || ""));
+      if (label) bits.push('<span class="cap-model">' + escapeHtml(label) + "</span>");
+      if (item && item.turbo) bits.push('<span class="cap-turbo">Turbo</span>');
+      return bits.join(" · ");
+    }
     function cardHtml(item) {
       const dl = item.url + (item.url.indexOf("?") >= 0 ? "&" : "?") + "download=1";
-      const cap = (item.seed != null ? "seed " + item.seed : "");
+      const cap = cardCaption(item);
       const safeUrl = item.url.replace(/"/g, "");
       const promptAttr = escapeHtml(item.prompt || "");
       const media = isVideoItem(item)
@@ -1465,7 +1558,11 @@
     }
     function renderResults(images, meta) {
       if (!images.length) { resultsEl.innerHTML = '<div class="empty">Čekam slike…</div>'; return; }
-      resultsEl.innerHTML = '<div class="gallery results">' + images.map((img) => cardHtml({ url: img.url, filename: img.filename, seed: meta.seed, prompt: meta.prompt })).join("") + "</div>";
+      const card = (img) => cardHtml({
+        url: img.url, filename: img.filename, seed: meta && meta.seed, prompt: meta && meta.prompt,
+        model: meta && meta.model, turbo: !!(meta && meta.turbo), kind: img.kind
+      });
+      resultsEl.innerHTML = '<div class="gallery results">' + images.map(card).join("") + "</div>";
     }
     function openLb(src, dl) {
       $("lbImg").src = src; $("lbDl").href = dl; $("lb").classList.add("show");
@@ -1524,11 +1621,11 @@
         setProgress(1, elapsedDone ? ("Gotovo · " + elapsedDone) : "Gotovo", false);
         const images = d.images || [];
         if (!images.length) { showErr(errEl, "Zadatak je završio, ali nema izlaznih datoteka."); return; }
-        lastMeta = Object.assign({}, meta, { width: width, height: height, model: modelEl.value, steps: steps });
+        lastMeta = Object.assign({}, meta, { width: width, height: height, model: (meta && meta.model) || modelEl.value, steps: steps, turbo: !!(meta && "turbo" in meta ? meta.turbo : turboMode) });
         const stills = images.filter((im) => !isVideoItem(im));
         if (stills[0]) lastImage = stills[0];
         if (meta && meta.kind === "video" && $("videoResults")) {
-          $("videoResults").innerHTML = '<div class="gallery results">' + images.map((img) => cardHtml({ url: img.url, filename: img.filename, seed: meta.seed, prompt: meta.prompt, kind: img.kind })).join("") + "</div>";
+          $("videoResults").innerHTML = '<div class="gallery results">' + images.map((img) => cardHtml({ url: img.url, filename: img.filename, seed: meta.seed, prompt: meta.prompt, model: meta.model, turbo: !!meta.turbo, kind: img.kind })).join("") + "</div>";
         } else {
           renderResults(images, lastMeta);
           addToHistory(stills, lastMeta);
@@ -1581,6 +1678,7 @@
     if (personaEl) personaEl.addEventListener("input", updateTokenCount);
     if ($("qualityPrefix")) $("qualityPrefix").addEventListener("input", updateTokenCount);
     updateTokenCount();
+    updateActiveModelLine();
 
     async function generate(ev) {
       if (ev) ev.preventDefault();
@@ -1598,7 +1696,7 @@
         const r = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payloadBase()) });
         const d = await r.json();
         if (!r.ok || !d.ok) { goBtn.disabled = false; progWrap.hidden = true; showErr(errEl, d.error || "ComfyUI nije prihvatio zadatak."); return; }
-        const meta = { prompt: d.prompt, seed: d.seed, width: d.width, height: d.height, model: d.model, steps: d.steps };
+        const meta = { prompt: d.prompt, seed: d.seed, width: d.width, height: d.height, model: d.model, steps: d.steps, turbo: !!(d.turbo || turboMode) };
         lastMeta = meta;
         setProgress(0.08, "U redu. Seed " + d.seed + " — čekam slike… Prvo pokretanje može trajati dulje.", true);
         stopPoll();

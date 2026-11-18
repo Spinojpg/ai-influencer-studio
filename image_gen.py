@@ -83,6 +83,60 @@ def detect_model_arch(name: str, override: str = "") -> str:
     return "sd15"
 
 
+
+_MODEL_JUNK = {
+    "fp16", "fp32", "bf16", "fp8", "ema", "noema", "pruned", "bakedvae",
+    "safetensors", "checkpoint", "byrundiffusion", "rundiffusion", "by",
+    "nv", "b1",
+}
+
+
+def short_model_name(filename: str) -> str:
+    """Kratko ime za prikaz (npr. RealVisXL V5, Juggernaut XL)."""
+    raw = (filename or "").replace("\\", "/").split("/")[-1]
+    stem = re.sub(r"\.(safetensors|ckpt|pt|pth|bin)$", "", raw, flags=re.I).strip()
+    if not stem:
+        return ""
+    s = re.sub(r"(?i)realvisxl", "realvisxl", stem)
+    s = re.sub(r"(?i)juggernaut[\s_\-]*xl", "juggernautxl", s)
+    s = re.sub(r"(?i)realistic[\s_\-]*vision", "realisticvision", s)
+    s = re.sub(r"[\s_\-]+", " ", s)
+    lower = re.sub(r"\s+", " ", s).strip().lower()
+
+    m = re.search(r"realvisxl\s*v?\s*(\d+(?:\.\d+)?)?", lower)
+    if m:
+        ver = (m.group(1) or "").removesuffix(".0")
+        return "RealVisXL" + (f" V{ver}" if ver else "")
+
+    if "juggernaut" in lower:
+        if "ragnarok" in lower or "xl" in lower.split() or "juggernautxl" in lower.replace(" ", ""):
+            return "Juggernaut XL"
+        if re.search(r"\bxiii\b", lower):
+            return "Juggernaut XIII"
+        if re.search(r"\bxi\b", lower):
+            return "Juggernaut XI"
+        if re.search(r"\bx\b", lower) or re.search(r"\bv\s*10\b", lower):
+            return "Juggernaut X"
+        return "Juggernaut XL"
+
+    m = re.search(r"realisticvision\s*v?\s*(\d+(?:\.\d+)?)?", lower)
+    if m:
+        ver = (m.group(1) or "").removesuffix(".0")
+        return "Realistic Vision" + (f" V{ver}" if ver else "")
+
+    tokens = [tok for tok in lower.split() if tok not in _MODEL_JUNK]
+    out = []
+    for tok in tokens:
+        if tok in {"sdxl", "sd", "xl", "vae"}:
+            out.append(tok.upper())
+        elif re.fullmatch(r"v\d+(?:\.\d+)?", tok):
+            ver = tok[1:].removesuffix(".0")
+            out.append("V" + ver)
+        else:
+            out.append(tok[:1].upper() + tok[1:])
+    return " ".join(out) or stem
+
+
 def presets_for(arch: str) -> list[dict]:
     return list(SDXL_PRESETS if arch == "sdxl" else SD15_PRESETS)
 
