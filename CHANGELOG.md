@@ -1,5 +1,8 @@
 # Promjene
 
+## 1.0.4 — 2026-11-18
+- Popravljeno preuzimanje modela (gumb Preuzmi / Preuzmi URL) i prikaz predlozenog modela kad ComfyUI nije upaljen.
+
 ## 1.0.3 — 2026-11-18
 - Ispravak updatera: datoteke se zamjenjuju pojedinačno (os.replace s ponovnim pokušajima). Mapa app se više ne preimenuje — na Windowsu preimenovanje često padne ako je mapa radni dir ili ima otvorene datoteke, pa se stara verzija vratila nakon restarta.
 - Primjena ide iz zasebnog helper procesa u mapi data, tek nakon što Studio i launcher izađu. Uspjeh se javlja samo ako version.json na disku odgovara novoj verziji. Koraci su u data/logs/updater.log.

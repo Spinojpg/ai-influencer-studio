@@ -1836,7 +1836,11 @@
       try {
         const r = await fetch("/api/models", { cache: "no-store" });
         const d = await r.json();
-        renderCurated(d.curated || []);
+        let cur = d.curated;
+        if (!cur || !cur.length) {
+          try { const r2 = await fetch("/api/models/download", { cache: "no-store" }); const d2 = await r2.json(); cur = d2.curated || []; } catch (e2) { cur = []; }
+        }
+        renderCurated(cur);
         renderInstalledModels(d.models || []);
         if (d.download) showDl(d.download);
         if (d.download && d.download.status === "running") pollDownload(d.download.filename);

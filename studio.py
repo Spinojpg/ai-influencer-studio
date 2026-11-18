@@ -766,6 +766,10 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._json(200, {"ok": True})
             return
 
+        if path == "/api/models/download":
+            self._start_model_download(body)
+            return
+
         self._json(404, {"ok": False, "error": "Nepoznat endpoint."})
 
     def _update_check(self) -> None:
