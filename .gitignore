@@ -1,0 +1,14 @@
+.env
+data/
+__pycache__/
+*.pyc
+update-result.json
+studio.pid
+pending-update/
+dist/
+*.ico.bak
+outputs/
+uploads/
+venv/
+.venv/
+*.db

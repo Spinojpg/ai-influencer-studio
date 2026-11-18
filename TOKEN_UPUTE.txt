@@ -1,0 +1,62 @@
+GitHub token za automatsko ažuriranje
+======================================
+
+Ažuriranja dolaze s privatnog GitHub repozitorija:
+
+  https://github.com/Spinojpg/ai-influencer-studio
+
+GitHub ne daje datoteke iz privatnog repozitorija bez tokena.
+Token spremi u:
+
+  %LOCALAPPDATA%\AIInfluencerStudio\data\.env
+
+kao:
+
+  GITHUB_TOKEN=github_pat_...
+
+Token se nikad ne ispisuje u logove niti u sučelje. Koristi se samo
+za provjeru i preuzimanje novog izdanja.
+
+
+Kako napraviti token (fine-grained, samo čitanje)
+-------------------------------------------------
+
+1. Otvori https://github.com i prijavi se (račun koji vidi ovaj repo,
+   npr. Spinojpg).
+2. Klikni svoj avatar gore desno → Settings
+   (ne Settings unutar repozitorija, nego postavke računa).
+3. Lijevo, skroz dolje: Developer settings.
+4. Personal access tokens → Fine-grained tokens.
+5. Generate new token.
+6. Token name: npr.  AI Influencer Studio update
+7. Expiration: odaberi rok (npr. 90 dana ili duže). Kad istekne,
+   napravi novi i zamijeni ga u data\.env.
+8. Resource owner: tvoj račun (Spinojpg).
+9. Repository access → Only select repositories →
+   odaberi  ai-influencer-studio  (samo taj repo).
+10. U Permissions → Repository permissions:
+    Contents → Read-only
+    Ništa drugo nije potrebno (ne daj write, issues, admin…).
+11. Generate token. Kopiraj token ODMAH (GitHub ga više neće pokazati).
+    Izgleda kao github_pat_... ili slično.
+12. Otvori data\.env u Notepadu i dodaj ili dopuni red:
+
+      GITHUB_TOKEN=zalijepi_token_ovdje
+
+    Bez razmaka oko znaka =, bez navodnika, sve u jednom retku.
+13. Spremi fajl i pokreni Studio. Gumb "Provjeri update" treba javiti
+    je li dostupna novija verzija, a ne grešku o tokenu.
+
+
+Ako nešto ne radi
+-----------------
+
+- 401 / 403: token je krivi, istekao, ili nema Contents: Read-only
+  na tom repou. Napravi novi token po koracima iznad.
+- 404: repo je privatni, a token nije prepoznat, ili još nema nijednog
+  GitHub Release s datotekom studio.zip.
+- Ključ piši samo u data\.env, nikad u mapu app (update je ne bi smio
+  dirati, ali data je pravo mjesto).
+
+Instalacijski program (instaliraj.bat) može upisati token umjesto tebe
+ako ga zalijepiš kad te to pita.

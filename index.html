@@ -1,0 +1,1522 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Influencer Studio — Jednostavno</title>
+  <style>
+    :root {
+      --bg0: #0e1014;
+      --bg1: #161920;
+      --bg2: #1e232d;
+      --line: rgba(255, 255, 255, 0.08);
+      --text: #f3efe6;
+      --muted: #9aa3b2;
+      --gold: #e4b56a;
+      --gold-dim: #b8893a;
+      --rose: #d9897a;
+      --ok: #7dcea0;
+      --bad: #e07a7a;
+      --shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+      --radius: 18px;
+      --sans: "Segoe UI", "Candara", "Calibri", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      font-family: var(--sans);
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(228, 181, 106, 0.14), transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, rgba(217, 137, 122, 0.12), transparent 50%),
+        radial-gradient(800px 400px at 80% 100%, rgba(90, 120, 180, 0.10), transparent 50%),
+        var(--bg0);
+      letter-spacing: 0.01em;
+    }
+    button, input, textarea, select { font-family: inherit; }
+
+    .wrap {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 28px 22px 64px;
+    }
+    header.top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .mark {
+      width: 46px; height: 46px; border-radius: 14px;
+      background: linear-gradient(145deg, #f0cf93, #c4844a 55%, #9a4e3e);
+      box-shadow: 0 8px 20px rgba(200, 130, 60, 0.28);
+      position: relative;
+    }
+    .mark::after {
+      content: "";
+      position: absolute; inset: 11px 14px 18px 14px;
+      border: 2px solid rgba(20, 14, 10, 0.55);
+      border-radius: 40% 40% 46% 46%;
+      border-top-width: 3px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.45rem;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+    h1 span {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--bg1);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.85rem;
+      max-width: min(420px, 100%);
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted);
+      flex: 0 0 auto;
+    }
+    .status.ok { color: var(--ok); border-color: rgba(125, 206, 160, 0.25); }
+    .status.ok .dot { background: var(--ok); box-shadow: 0 0 0 4px rgba(125, 206, 160, 0.15); }
+    .status.bad { color: var(--bad); border-color: rgba(224, 122, 122, 0.3); }
+    .status.bad .dot { background: var(--bad); box-shadow: 0 0 0 4px rgba(224, 122, 122, 0.15); }
+    .status .msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(320px, 420px) 1fr;
+      gap: 22px;
+      align-items: start;
+    }
+    @media (max-width: 880px) {
+      .grid { grid-template-columns: 1fr; }
+      header.top { flex-direction: column; }
+    }
+
+    .card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(8px);
+    }
+    .form { padding: 22px; }
+    label.lbl {
+      display: block;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin: 0 0 8px;
+    }
+    .field { margin-bottom: 16px; }
+    textarea, input[type="text"], input[type="number"], select {
+      width: 100%;
+      background: var(--bg0);
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    textarea { min-height: 128px; resize: vertical; line-height: 1.45; }
+    textarea:focus, input:focus, select:focus {
+      border-color: rgba(228, 181, 106, 0.55);
+      box-shadow: 0 0 0 3px rgba(228, 181, 106, 0.15);
+    }
+    .hint { color: var(--muted); font-size: 0.8rem; margin-top: 6px; }
+
+    .seg {
+      display: flex;
+      gap: 6px;
+      background: var(--bg0);
+      padding: 5px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+    }
+    .seg button {
+      flex: 1;
+      background: transparent;
+      color: var(--muted);
+      border: 0;
+      border-radius: 9px;
+      padding: 9px 8px;
+      cursor: pointer;
+      font-size: 0.86rem;
+    }
+    .seg button:hover { color: var(--text); }
+    .seg button.on {
+      background: linear-gradient(180deg, rgba(228,181,106,0.22), rgba(228,181,106,0.10));
+      color: var(--gold);
+      font-weight: 600;
+    }
+
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .seed-row { display: flex; gap: 8px; }
+    .seed-row input { flex: 1; }
+    .ghost {
+      background: var(--bg2);
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 0 12px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .ghost:hover { border-color: rgba(228, 181, 106, 0.4); }
+
+    details.adv {
+      border-top: 1px solid var(--line);
+      margin: 6px 0 16px;
+      padding-top: 10px;
+    }
+    details.adv summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 0.9rem;
+      list-style: none;
+      user-select: none;
+    }
+    details.adv summary::-webkit-details-marker { display: none; }
+    details.adv summary::before { content: "▸ "; color: var(--gold); }
+    details.adv[open] summary::before { content: "▾ "; }
+    details.adv .inner { padding-top: 12px; }
+
+    .go {
+      width: 100%;
+      border: 0;
+      border-radius: 14px;
+      padding: 14px 16px;
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      color: #1a140c;
+      background: linear-gradient(180deg, #f3d190, #d7a15a);
+      box-shadow: 0 10px 24px rgba(215, 161, 90, 0.28);
+    }
+    .go:hover { filter: brightness(1.05); }
+    .go:disabled {
+      cursor: not-allowed;
+      filter: grayscale(0.4) brightness(0.8);
+    }
+    .err {
+      display: none;
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(224, 122, 122, 0.1);
+      border: 1px solid rgba(224, 122, 122, 0.3);
+      color: #f0b4b4;
+      font-size: 0.9rem;
+      white-space: pre-wrap;
+    }
+    .err.show { display: block; }
+
+    .stage { padding: 22px; min-height: 420px; }
+    .progress-block { margin-bottom: 18px; }
+    .progress-label {
+      display: flex; justify-content: space-between;
+      color: var(--muted); font-size: 0.82rem; margin-bottom: 8px;
+    }
+    .bar {
+      height: 8px; border-radius: 99px;
+      background: var(--bg0); border: 1px solid var(--line);
+      overflow: hidden;
+    }
+    .bar > i {
+      display: block; height: 100%; width: 0%;
+      background: linear-gradient(90deg, var(--gold-dim), var(--gold));
+      transition: width 0.3s ease;
+    }
+    .bar.indeterminate > i {
+      width: 35% !important;
+      animation: slide 1.1s ease-in-out infinite;
+    }
+    @keyframes slide {
+      0% { transform: translateX(-120%); }
+      100% { transform: translateX(320%); }
+    }
+
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 12px;
+    }
+    .empty {
+      color: var(--muted);
+      text-align: center;
+      padding: 48px 16px;
+      border: 1px dashed var(--line);
+      border-radius: 14px;
+    }
+    figure.shot {
+      margin: 0;
+      background: var(--bg0);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    figure.shot img {
+      width: 100%;
+      aspect-ratio: 1 / 1.15;
+      object-fit: cover;
+      cursor: zoom-in;
+      background: #111;
+      display: block;
+    }
+    figure.shot figcaption {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 10px;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    figure.shot a, .dl {
+      color: var(--gold);
+      text-decoration: none;
+      background: none;
+      border: 0;
+      cursor: pointer;
+      font-size: 0.75rem;
+      padding: 0;
+    }
+
+    h2.sec {
+      margin: 22px 0 12px;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .lightbox {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(6, 7, 10, 0.86);
+      z-index: 50;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .lightbox.show { display: flex; }
+    .lightbox img {
+      max-width: min(92vw, 1100px);
+      max-height: 82vh;
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+    }
+    .lightbox .tools {
+      position: absolute;
+      bottom: 22px;
+      display: flex;
+      gap: 10px;
+    }
+    .lightbox .tools a, .lightbox .tools button {
+      background: var(--bg1);
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 14px;
+      cursor: pointer;
+      text-decoration: none;
+    }
+  
+    .header-mid { display: flex; flex-direction: column; gap: 10px; flex: 1; min-width: 0; }
+    .tabs { display: flex; gap: 6px; }
+    .tabs button {
+      background: var(--bg1);
+      color: var(--muted);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 14px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    .tabs button.on { color: var(--gold); border-color: rgba(228,181,106,0.45); background: rgba(228,181,106,0.12); font-weight: 600; }
+    .pick {
+      display: flex; align-items: center; gap: 8px;
+      max-width: 360px;
+    }
+    .pick label { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap; }
+    .pick select { flex: 1; padding: 8px 10px; }
+    .statuses { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+    .tab-panel { display: none; }
+    .tab-panel.on { display: block; }
+    .tab-panel.on.grid { display: grid; }
+    .warn {
+      margin: 0 0 14px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(228,181,106,0.08);
+      border: 1px solid rgba(228,181,106,0.25);
+      color: #ead7ae;
+      font-size: 0.86rem;
+    }
+    .warn.danger {
+      background: rgba(224,122,122,0.1);
+      border-color: rgba(224,122,122,0.3);
+      color: #f0b4b4;
+    }
+    .poruke {
+      display: grid;
+      grid-template-columns: minmax(240px, 320px) 1fr minmax(240px, 300px);
+      gap: 18px;
+      align-items: start;
+    }
+    @media (max-width: 1100px) {
+      .poruke { grid-template-columns: 1fr; }
+      .header-mid { width: 100%; }
+    }
+    .thread-item {
+      width: 100%;
+      text-align: left;
+      background: var(--bg0);
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      cursor: pointer;
+      margin-bottom: 8px;
+    }
+    .thread-item.on { border-color: rgba(228,181,106,0.5); }
+    .thread-item .meta { color: var(--muted); font-size: 0.75rem; display: flex; justify-content: space-between; }
+    .badge {
+      display: inline-block;
+      background: rgba(228,181,106,0.2);
+      color: var(--gold);
+      border-radius: 99px;
+      padding: 1px 7px;
+      font-size: 0.7rem;
+    }
+    .chatlog { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow: auto; padding-right: 4px; }
+    .bubble {
+      max-width: 86%;
+      padding: 10px 12px;
+      border-radius: 14px;
+      font-size: 0.95rem;
+      line-height: 1.4;
+      white-space: pre-wrap;
+    }
+    .bubble.in { background: var(--bg2); align-self: flex-start; }
+    .bubble.out { background: rgba(228,181,106,0.16); align-self: flex-end; }
+    .bubble.draft { border: 1px dashed rgba(228,181,106,0.5); }
+    .bubble .tag { display: block; font-size: 0.7rem; color: var(--muted); margin-bottom: 4px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .btn {
+      background: var(--bg2);
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 0.88rem;
+    }
+    .btn:hover { border-color: rgba(228,181,106,0.4); }
+    .btn.primary {
+      background: linear-gradient(180deg, #f3d190, #d7a15a);
+      color: #1a140c;
+      border: 0;
+      font-weight: 700;
+    }
+    .btn.danger { color: var(--bad); }
+    .pad { padding: 18px; }
+    .profile-list { display: flex; flex-direction: column; gap: 8px; }
+    .profile-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px; border: 1px solid var(--line); border-radius: 12px;
+      cursor: pointer; background: var(--bg0);
+    }
+    .profile-row.on { border-color: rgba(228,181,106,0.5); }
+    .thumb {
+      width: 48px; height: 48px; border-radius: 10px;
+      object-fit: cover; background: var(--bg2); flex: 0 0 auto;
+    }
+    .ex-pair { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-bottom: 8px; align-items: start; }
+    .ex-pair textarea { min-height: 70px; }
+    .okline { color: var(--ok); font-size: 0.85rem; }
+    .update-box {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+      justify-content: flex-end; margin-top: 8px;
+    }
+    .ver {
+      font-size: 0.78rem; color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+    .toast {
+      position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
+      background: #1c2118; color: var(--ok);
+      border: 1px solid rgba(125, 206, 160, 0.35);
+      border-radius: 14px; padding: 14px 18px; max-width: min(560px, 92vw);
+      box-shadow: var(--shadow); z-index: 40; font-size: 0.95rem;
+      white-space: pre-wrap;
+    }
+    .toast.bad { color: var(--bad); border-color: rgba(224,122,122,0.4); background: #241616; }
+    .update-hint { font-size: 0.8rem; color: var(--muted); width: 100%; text-align: right; }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <header class="top">
+      <div class="brand">
+        <div class="mark" aria-hidden="true"></div>
+        <h1>AI Influencer Studio<span>Jednostavno · <span id="appVersionLabel">v…</span></span></h1>
+      </div>
+      <div class="header-mid">
+        <div class="tabs" role="tablist">
+          <button type="button" class="on" data-tab="slike">Slike</button>
+          <button type="button" data-tab="poruke">Poruke</button>
+          <button type="button" data-tab="influenceri">Influenceri</button>
+        </div>
+        <div class="pick">
+          <label for="activeProfile">Influencer</label>
+          <select id="activeProfile"></select>
+        </div>
+      </div>
+      <div class="statuses">
+        <div id="status" class="status" title=""><span class="dot"></span><span class="msg">Provjeravam ComfyUI…</span></div>
+        <div id="grokStatus" class="status" title=""><span class="dot"></span><span class="msg">Provjeravam xAI…</span></div>
+        <div class="update-box">
+          <button type="button" class="btn" id="checkUpdate">Provjeri update</button>
+          <div class="update-hint" id="updateHint"></div>
+        </div>
+      </div>
+    </header>
+
+    <div id="tab-slike" class="tab-panel on grid">
+      <form class="card form" id="form" autocomplete="off">
+        <div class="field">
+          <label class="lbl" for="prompt">Opis</label>
+          <textarea id="prompt" placeholder="Npr. portret žene u zlatnom večernjem svjetlu, fotografija, oštar fokus, prirodna koža" required></textarea>
+          <div class="hint">Opiši scenu jednostavnim jezikom. Prefix izgleda dolazi s odabranog profila. Ctrl+Enter pokreće generiranje.</div>
+        </div>
+
+        <div class="field">
+          <label class="lbl" for="persona">Izgled (s profila, možeš privremeno dopuniti)</label>
+          <input type="text" id="persona" placeholder="Npr. smeđa kosa, zelene oči…" />
+          <div class="hint">Trajni izgled i osobnost uređuješ u kartici Influenceri.</div>
+        </div>
+
+        <div class="field">
+          <label class="lbl" for="model">Model</label>
+          <select id="model">
+            <option value="Realistic_Vision_V6.0_NV_B1_fp16.safetensors">Realistic_Vision_V6.0_NV_B1_fp16.safetensors</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="lbl">Format</label>
+          <div class="seg" id="sizes">
+            <button type="button" data-w="512" data-h="768" class="on">Portret<br>512×768</button>
+            <button type="button" data-w="512" data-h="512">Kvadrat<br>512×512</button>
+            <button type="button" data-w="768" data-h="512">Pejzaž<br>768×512</button>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label class="lbl">Broj slika</label>
+            <div class="seg" id="batch">
+              <button type="button" data-n="1" class="on">1</button>
+              <button type="button" data-n="2">2</button>
+              <button type="button" data-n="3">3</button>
+              <button type="button" data-n="4">4</button>
+            </div>
+          </div>
+          <div class="field">
+            <label class="lbl">Brzina</label>
+            <div class="seg" id="quality">
+              <button type="button" data-steps="20" class="on">Brzo<br>20 koraka</button>
+              <button type="button" data-steps="30">Kvaliteta<br>30 koraka</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="lbl" for="seed">Seed</label>
+          <div class="seed-row">
+            <input type="number" id="seed" value="-1" min="-1" max="2147483647" />
+            <button type="button" class="ghost" id="randSeed">Nasumično</button>
+          </div>
+          <div class="hint">−1 znači nasumični seed pri svakom pokretanju.</div>
+        </div>
+
+        <details class="adv">
+          <summary>Napredno</summary>
+          <div class="inner">
+            <div class="field">
+              <label class="lbl" for="negative">Negativni prompt</label>
+              <textarea id="negative" style="min-height:90px"></textarea>
+            </div>
+          </div>
+        </details>
+
+        <button class="go" id="go" type="submit">Generiraj</button>
+        <div class="err" id="err"></div>
+
+        <details class="adv" id="videoBox">
+          <summary>Video (kratki klip, pokus)</summary>
+          <div class="inner">
+            <div class="warn" id="videoNote">Na 8 GB VRAM-a (RX 6600) realni su samo kratki klipovi niske rezolucije, npr. 512×512 i 8 sličica. Trebaš dodatne ComfyUI custom nodeove (AnimateDiff i/ili VideoHelperSuite) i odgovarajuće modele.</div>
+            <div class="field">
+              <label class="lbl">Sličice</label>
+              <div class="seg" id="frames">
+                <button type="button" data-f="8" class="on">8</button>
+                <button type="button" data-f="12">12</button>
+                <button type="button" data-f="16">16</button>
+              </div>
+            </div>
+            <button class="btn" type="button" id="goVideo">Generiraj kratki video</button>
+            <div class="hint" id="videoCaps">Provjeravam video čvorove…</div>
+          </div>
+        </details>
+      </form>
+
+      <section class="card stage">
+        <div class="progress-block" id="progWrap" hidden>
+          <div class="progress-label">
+            <span id="progText">Generiranje…</span>
+            <span id="progPct">0%</span>
+          </div>
+          <div class="bar" id="bar"><i id="barFill"></i></div>
+        </div>
+        <div id="results"></div>
+        <h2 class="sec">Povijest</h2>
+        <div class="gallery" id="history"></div>
+      </section>
+    </div>
+
+    <div id="tab-poruke" class="tab-panel">
+      <div class="poruke">
+        <div class="card pad">
+          <label class="lbl">Simuliraj poruku fana</label>
+          <input type="text" id="simName" placeholder="Ime fana" value="Fan" />
+          <textarea id="simText" style="min-height:90px;margin-top:8px" placeholder="Npr. Hej, odkud si?"></textarea>
+          <div class="actions">
+            <button class="btn primary" type="button" id="simSend">Generiraj nacrt</button>
+          </div>
+          <div class="hint">Radi bez Instagrama ili Telegrama — samo za učenje stila. Treba XAI_API_KEY u .env.</div>
+          <div class="err" id="simErr"></div>
+          <h2 class="sec">Razgovori</h2>
+          <div id="threadList"></div>
+        </div>
+
+        <div class="card pad">
+          <div id="chatEmpty" class="empty">Odaberi razgovor ili simuliraj poruku fana.</div>
+          <div id="chatBox" hidden>
+            <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:10px">
+              <strong id="chatTitle">Razgovor</strong>
+              <button class="btn" type="button" id="pauseThread">Pauziraj automatsko slanje</button>
+            </div>
+            <div class="chatlog" id="chatLog"></div>
+            <div id="draftBox" hidden style="margin-top:14px">
+              <label class="lbl" for="draftText">Nacrt odgovora</label>
+              <textarea id="draftText" style="min-height:110px"></textarea>
+              <div class="actions">
+                <button class="btn primary" type="button" id="draftSend">Pošalji</button>
+                <button class="btn" type="button" id="draftSave">Spremi izmjenu</button>
+                <button class="btn" type="button" id="draftRegen">Ponovno generiraj</button>
+                <button class="btn danger" type="button" id="draftDiscard">Odbaci</button>
+              </div>
+              <div class="err" id="draftErr"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card pad">
+          <label class="lbl">Način slanja</label>
+          <div class="seg" id="sendMode">
+            <button type="button" data-mode="approve" class="on">Odobravam svaku poruku</button>
+            <button type="button" data-mode="auto">Automatski</button>
+          </div>
+          <div class="warn danger" id="autoWarn" hidden>Automatski način šalje odgovore bez tvog pregleda. Koristi ga tek kad si zadovoljan personom. Možeš pauzirati pojedini razgovor, postaviti limit na sat i tihe sate.</div>
+          <div class="field" style="margin-top:14px">
+            <label class="lbl" for="rateLimit">Maks. odgovora na sat</label>
+            <input type="number" id="rateLimit" min="0" max="500" value="20" />
+          </div>
+          <div class="row">
+            <div class="field">
+              <label class="lbl" for="quietStart">Tihi sati od</label>
+              <input type="text" id="quietStart" placeholder="22:00" />
+            </div>
+            <div class="field">
+              <label class="lbl" for="quietEnd">do</label>
+              <input type="text" id="quietEnd" placeholder="08:00" />
+            </div>
+          </div>
+          <div class="field">
+            <label class="lbl" for="grokModel">Grok model</label>
+            <input type="text" id="grokModel" placeholder="grok-4" />
+            <div class="hint">Zadano grok-4. Noviji npr. grok-4.7 možeš upisati ručno.</div>
+          </div>
+          <div class="field">
+            <label class="lbl" for="igProfile">Instagram ide na profil</label>
+            <select id="igProfile"></select>
+          </div>
+          <div class="field">
+            <label class="lbl" for="tgProfile">Telegram ide na profil</label>
+            <select id="tgProfile"></select>
+          </div>
+          <div class="field">
+            <label class="lbl"><input type="checkbox" id="tgEnabled" /> Uključi Telegram long polling</label>
+          </div>
+          <div class="field" style="margin-top:18px">
+            <label class="lbl">Ažuriranje aplikacije</label>
+            <div class="hint">Izvor se podešava u data/update.json (GitHub owner/repo). Neobavezni GITHUB_TOKEN za privatni repo ide u data/.env — nikad se ne zapisuje u logove.</div>
+            <button class="btn" type="button" id="checkUpdateSettings">Provjeri update</button>
+            <div class="hint" id="updateHintSettings" style="margin-top:8px"></div>
+          </div>
+          <button class="btn primary" type="button" id="saveSettings">Spremi postavke</button>
+          <div class="hint" id="platHint" style="margin-top:10px"></div>
+          <div class="okline" id="setOk" hidden>Spremljeno.</div>
+          <div class="err" id="setErr"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-influenceri" class="tab-panel">
+      <div class="grid">
+        <div class="card pad">
+          <h2 class="sec" style="margin-top:0">Profili</h2>
+          <div class="profile-list" id="profileList"></div>
+          <div class="actions">
+            <button class="btn primary" type="button" id="newProfile">Novi profil</button>
+          </div>
+        </div>
+        <form class="card form" id="profileForm">
+          <input type="hidden" id="pId" />
+          <div class="field">
+            <label class="lbl" for="pName">Ime</label>
+            <input type="text" id="pName" required maxlength="80" />
+          </div>
+          <div class="field">
+            <label class="lbl" for="pAppear">Izgled (prefix za slike)</label>
+            <textarea id="pAppear" style="min-height:80px" placeholder="boja kose, oči, stil odjeće, rasvjeta…"></textarea>
+          </div>
+          <div class="field">
+            <label class="lbl" for="pNeg">Negativni prompt za slike</label>
+            <textarea id="pNeg" style="min-height:70px"></textarea>
+          </div>
+          <div class="field">
+            <label class="lbl" for="pModel">Preferirani model</label>
+            <input type="text" id="pModel" />
+          </div>
+          <div class="field">
+            <label class="lbl" for="pStyle">Osobnost / stil</label>
+            <textarea id="pStyle" style="min-height:70px" placeholder="kako se ponaša, humor, energija…"></textarea>
+          </div>
+          <div class="field">
+            <label class="lbl" for="pVibe">Dob / vibe</label>
+            <input type="text" id="pVibe" />
+          </div>
+          <div class="row">
+            <div class="field">
+              <label class="lbl" for="pWrite">Duljina poruka</label>
+              <select id="pWrite">
+                <option value="short">Kratko</option>
+                <option value="medium">Srednje</option>
+                <option value="long">Dugačko</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="lbl" for="pSlang">Slang</label>
+              <select id="pSlang">
+                <option value="none">Bez</option>
+                <option value="light">Malo</option>
+                <option value="heavy">Više</option>
+              </select>
+            </div>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label class="lbl" for="pEmoji">Emoji</label>
+              <select id="pEmoji">
+                <option value="none">Bez</option>
+                <option value="light">Malo</option>
+                <option value="lots">Više</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="lbl" for="pLang">Jezik</label>
+              <select id="pLang">
+                <option value="HR">Hrvatski</option>
+                <option value="EN">Engleski</option>
+                <option value="MIX">Kao fan</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label class="lbl" for="pAvoid">Teme koje izbjegava</label>
+            <textarea id="pAvoid" style="min-height:70px"></textarea>
+          </div>
+          <div class="field">
+            <label class="lbl">Primjeri: poruka fana → idealan odgovor</label>
+            <div id="pExamples"></div>
+            <button class="btn" type="button" id="addExample">Dodaj primjer</button>
+          </div>
+          <div class="field">
+            <label class="lbl" for="pRef">Referentna slika (opcionalno, sprema se lokalno)</label>
+            <input type="file" id="pRef" accept="image/png,image/jpeg,image/webp" />
+            <div id="pRefPreview" style="margin-top:8px"></div>
+          </div>
+          <div class="actions">
+            <button class="btn primary" type="submit">Spremi profil</button>
+            <button class="btn danger" type="button" id="delProfile">Obriši</button>
+          </div>
+          <div class="okline" id="pOk" hidden>Profil je spremljen.</div>
+          <div class="err" id="pErr"></div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="lightbox" id="lb" role="dialog" aria-modal="true">
+    <img id="lbImg" alt="Uvećana slika" />
+    <div class="tools">
+      <a id="lbDl" href="#" download>Preuzmi</a>
+      <button type="button" id="lbClose">Zatvori</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden role="status"></div>
+
+  <script>
+  (function () {
+    const DEFAULT_NEGATIVE = "low quality, worst quality, blurry, deformed, ugly, bad anatomy, extra fingers, extra limbs, mutated hands, watermark, text, logo, jpeg artifacts, oversaturated, cartoon, 3d render, plastic skin, cropped, out of frame";
+    const DEFAULT_MODEL = "Realistic_Vision_V6.0_NV_B1_fp16.safetensors";
+    const LS_HISTORY = "ais-studio-history";
+
+    const $ = (id) => document.getElementById(id);
+    const statusEl = $("status");
+    const grokEl = $("grokStatus");
+    const modelEl = $("model");
+    const promptEl = $("prompt");
+    const personaEl = $("persona");
+    const negEl = $("negative");
+    const seedEl = $("seed");
+    const errEl = $("err");
+    const goBtn = $("go");
+    const resultsEl = $("results");
+    const historyEl = $("history");
+    const progWrap = $("progWrap");
+    const progText = $("progText");
+    const progPct = $("progPct");
+    const bar = $("bar");
+    const barFill = $("barFill");
+
+    let width = 512, height = 768, batch = 1, steps = 20, frames = 8;
+    let pollTimer = null;
+    let comfyOk = false;
+    let state = { profiles: [], active_profile_id: null, settings: {}, active_profile: null };
+    let currentTab = "slike";
+    let currentThread = null;
+    let currentDraftId = null;
+    let editingId = null;
+
+    function showErr(el, msg) {
+      el.textContent = msg || "";
+      el.classList.toggle("show", !!msg);
+    }
+
+    function setPill(el, ok, good, bad) {
+      el.classList.toggle("ok", !!ok);
+      el.classList.toggle("bad", !ok);
+      el.title = ok ? good : bad;
+      el.querySelector(".msg").textContent = ok ? good : bad;
+    }
+
+    function setStatus(ok, message) {
+      comfyOk = !!ok;
+      setPill(statusEl, ok, message || "ComfyUI je spojen", "ComfyUI nije pokrenut. Pokreni comfyui-n.bat");
+    }
+
+    function setGrok(ok, message) {
+      setPill(grokEl, ok, message || "xAI ključ je spreman", "Nema XAI_API_KEY. Uredi .env — vidi PORUKE_UPUTE.txt");
+    }
+
+    function showTab(name) {
+      currentTab = name;
+      document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
+      document.querySelectorAll(".tab-panel").forEach((p) => p.classList.toggle("on", p.id === "tab-" + name));
+      if (location.hash !== "#" + name) {
+        try { history.replaceState(null, "", "#" + name); } catch (e) {}
+      }
+      if (name === "poruke") refreshInbox();
+      if (name === "influenceri") renderProfileList();
+    }
+    document.querySelector(".tabs").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (b) showTab(b.dataset.tab);
+    });
+    if (location.hash === "#poruke" || location.hash === "#influenceri" || location.hash === "#slike") {
+      showTab(location.hash.slice(1));
+    }
+
+    function fillProfileSelects() {
+      const opts = (state.profiles || []).map((p) => {
+        const sel = p.id === state.active_profile_id ? " selected" : "";
+        return '<option value="' + p.id + '"' + sel + ">" + escapeHtml(p.name) + "</option>";
+      }).join("");
+      $("activeProfile").innerHTML = opts;
+      $("igProfile").innerHTML = '<option value="">Aktivni profil</option>' + opts;
+      $("tgProfile").innerHTML = '<option value="">Aktivni profil</option>' + opts;
+      const s = state.settings || {};
+      if (s.instagram_profile_id) $("igProfile").value = s.instagram_profile_id;
+      if (s.telegram_profile_id) $("tgProfile").value = s.telegram_profile_id;
+    }
+
+    function applyProfileToImageForm(prof) {
+      if (!prof) return;
+      personaEl.value = prof.appearance_prompt || "";
+      if (prof.negative_prompt) negEl.value = prof.negative_prompt;
+      if (prof.preferred_model) {
+        const exists = Array.from(modelEl.options).some((o) => o.value === prof.preferred_model);
+        if (exists) modelEl.value = prof.preferred_model;
+      }
+    }
+
+    async function loadState() {
+      const r = await fetch("/api/state", { cache: "no-store" });
+      state = await r.json();
+      setStatus(!!(state.comfy && state.comfy.ok), state.comfy && state.comfy.message);
+      setGrok(!!(state.settings && state.settings.xai_configured), state.settings && state.settings.xai_configured ? "xAI ključ je spreman" : "Nema XAI_API_KEY. Uredi .env");
+      fillProfileSelects();
+      applySettingsForm();
+      applyProfileToImageForm(state.active_profile);
+      renderProfileList();
+      if (state.version) {
+        const lab = $("appVersionLabel");
+        if (lab) lab.textContent = "v" + state.version;
+      }
+      maybeShowUpdateToast(state.update);
+      return state;
+    }
+
+    function showToast(msg, bad) {
+      const el = $("toast");
+      if (!el) return;
+      el.textContent = msg || "";
+      el.classList.toggle("bad", !!bad);
+      el.hidden = !msg;
+      if (msg && !bad) {
+        setTimeout(() => { if (el.textContent === msg) el.hidden = true; }, 10000);
+      }
+    }
+
+    function maybeShowUpdateToast(upd) {
+      if (!upd || upd.acked) return;
+      if (upd.applied && upd.updated_to) {
+        let msg = "Ažurirano na verziju " + upd.updated_to;
+        if (upd.changelog) msg += "\n" + upd.changelog;
+        showToast(msg, false);
+        fetch("/api/update/ack", { method: "POST" }).catch(() => {});
+      } else if (upd.ok === false && (upd.error || upd.message)) {
+        showToast(upd.message || upd.error, true);
+        fetch("/api/update/ack", { method: "POST" }).catch(() => {});
+      }
+    }
+
+    async function checkForUpdate(hintEl, applyIfNewer) {
+      const hint = hintEl || $("updateHint");
+      if (hint) hint.textContent = "Provjeravam…";
+      try {
+        const r = await fetch("/api/update/check", { method: "POST", cache: "no-store" });
+        const d = await r.json();
+        if (!d.ok && d.error) {
+          if (hint) hint.textContent = d.error;
+          showToast(d.error, true);
+          return;
+        }
+        if (hint) hint.textContent = d.message || "";
+        if (d.newer && applyIfNewer !== false) {
+          const ok = confirm("Dostupna je verzija " + d.latest + ". Instalirati sada? Aplikacija će se restartati. Tvoji podaci ostaju netaknuti.");
+          if (ok) {
+            if (hint) hint.textContent = "Preuzimam ažuriranje…";
+            const a = await fetch("/api/update/apply", { method: "POST" });
+            const ad = await a.json();
+            if (hint) hint.textContent = ad.message || ad.error || "";
+            if (ad.restarting) showToast("Preuzeto. Aplikacija se restarta i instalira ažuriranje…");
+            else if (ad.error) showToast(ad.error, true);
+          }
+        } else if (!d.configured) {
+          showToast(d.message || "Update izvor nije podešen. Uredi data/update.json.", true);
+        } else if (!d.newer) {
+          showToast(d.message || "Imaš najnoviju verziju.");
+        }
+      } catch (e) {
+        if (hint) hint.textContent = "Provjera nije uspjela.";
+        showToast("Provjera ažuriranja nije uspjela.", true);
+      }
+    }
+
+    $("checkUpdate").addEventListener("click", () => checkForUpdate($("updateHint")));
+    const setBtn = $("checkUpdateSettings");
+    if (setBtn) setBtn.addEventListener("click", () => checkForUpdate($("updateHintSettings")));
+
+    $("activeProfile").addEventListener("change", async () => {
+      const id = Number($("activeProfile").value);
+      await fetch("/api/profiles/select", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+      await loadState();
+      if (currentTab === "poruke") refreshInbox();
+    });
+
+    function applySettingsForm() {
+      const s = state.settings || {};
+      document.querySelectorAll("#sendMode button").forEach((b) => b.classList.toggle("on", b.dataset.mode === (s.send_mode || "approve")));
+      $("autoWarn").hidden = (s.send_mode || "approve") !== "auto";
+      $("rateLimit").value = s.rate_limit_per_hour || 20;
+      $("quietStart").value = s.quiet_hours_start || "";
+      $("quietEnd").value = s.quiet_hours_end || "";
+      $("grokModel").value = s.grok_model || "grok-4";
+      $("tgEnabled").checked = !!s.telegram_enabled;
+      const p = s.platforms || {};
+      const bits = [];
+      bits.push("Instagram: " + (p.instagram && p.instagram.configured ? "token je upisan" : "nije podešen"));
+      bits.push("Telegram: " + (p.telegram && p.telegram.configured ? "token je upisan" : "nije podešen"));
+      if (s.in_quiet_hours) bits.push("sada su tihi sati");
+      $("platHint").textContent = bits.join(" · ");
+    }
+
+    $("sendMode").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      document.querySelectorAll("#sendMode button").forEach((x) => x.classList.toggle("on", x === b));
+      $("autoWarn").hidden = b.dataset.mode !== "auto";
+    });
+
+    $("saveSettings").addEventListener("click", async () => {
+      showErr($("setErr"), "");
+      $("setOk").hidden = true;
+      const mode = document.querySelector("#sendMode button.on").dataset.mode;
+      const payload = {
+        send_mode: mode,
+        rate_limit_per_hour: Number($("rateLimit").value),
+        quiet_hours_start: $("quietStart").value.trim(),
+        quiet_hours_end: $("quietEnd").value.trim(),
+        grok_model: $("grokModel").value.trim() || "grok-4",
+        instagram_profile_id: $("igProfile").value,
+        telegram_profile_id: $("tgProfile").value,
+        telegram_enabled: $("tgEnabled").checked
+      };
+      try {
+        const r = await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const d = await r.json();
+        if (!r.ok || !d.ok) { showErr($("setErr"), d.error || "Spremanje nije uspjelo."); return; }
+        state.settings = d.settings;
+        applySettingsForm();
+        $("setOk").hidden = false;
+      } catch (e) { showErr($("setErr"), String(e)); }
+    });
+
+    /* ---- slike (postojeća logika) ---- */
+    function setSeg(rootId, attr, value) {
+      document.querySelectorAll("#" + rootId + " button").forEach((b) => {
+        b.classList.toggle("on", b.getAttribute(attr) === String(value));
+      });
+    }
+    $("sizes").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      width = Number(b.dataset.w); height = Number(b.dataset.h);
+      document.querySelectorAll("#sizes button").forEach((x) => x.classList.toggle("on", x === b));
+    });
+    $("batch").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      batch = Number(b.dataset.n);
+      setSeg("batch", "data-n", batch);
+    });
+    $("quality").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      steps = Number(b.dataset.steps);
+      setSeg("quality", "data-steps", steps);
+    });
+    $("frames").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      frames = Number(b.dataset.f);
+      setSeg("frames", "data-f", frames);
+    });
+    $("randSeed").addEventListener("click", () => { seedEl.value = "-1"; });
+
+    async function refreshStatus() {
+      try {
+        const r = await fetch("/api/status", { cache: "no-store" });
+        const d = await r.json();
+        setStatus(d.ok, d.message);
+        return d.ok;
+      } catch (e) {
+        setStatus(false, "Studio poslužitelj ne odgovara.");
+        return false;
+      }
+    }
+
+    async function loadModels() {
+      try {
+        const r = await fetch("/api/models", { cache: "no-store" });
+        const d = await r.json();
+        if (!d.ok) { setStatus(false, d.error || ""); return; }
+        setStatus(true, "ComfyUI je spojen");
+        const models = d.models || [];
+        const preferred = d.default || DEFAULT_MODEL;
+        modelEl.innerHTML = "";
+        if (!models.length) {
+          const o = document.createElement("option");
+          o.value = preferred;
+          o.textContent = preferred + " (nije potvrđen popis)";
+          modelEl.appendChild(o);
+          return;
+        }
+        models.forEach((name) => {
+          const o = document.createElement("option");
+          o.value = name; o.textContent = name;
+          if (name === preferred) o.selected = true;
+          modelEl.appendChild(o);
+        });
+        applyProfileToImageForm(state.active_profile);
+      } catch (e) { setStatus(false, String(e)); }
+    }
+
+    async function loadVideoCaps() {
+      try {
+        const r = await fetch("/api/video/capabilities", { cache: "no-store" });
+        const d = await r.json();
+        const el = $("videoCaps");
+        if (!d.comfy_ok) { el.textContent = d.comfy_message || d.message || "ComfyUI nije spojen."; return; }
+        if (d.ready) {
+          el.textContent = "Video čvorovi su pronađeni: " + [].concat(d.animatediff||[], d.svd||[], d.native||[]).slice(0,6).join(", ");
+        } else {
+          el.textContent = d.message || "Video čvorovi nisu instalirani. Vidi KRATKO_UPUTE.txt.";
+        }
+        if (d.notes_hr) $("videoNote").textContent = d.notes_hr;
+      } catch (e) { $("videoCaps").textContent = String(e); }
+    }
+
+    function loadHistory() {
+      let items = [];
+      try { items = JSON.parse(localStorage.getItem(LS_HISTORY) || "[]"); } catch (e) { items = []; }
+      renderHistory(items);
+      return items;
+    }
+    function saveHistory(items) {
+      items = items.slice(0, 24);
+      localStorage.setItem(LS_HISTORY, JSON.stringify(items));
+      renderHistory(items);
+    }
+    function addToHistory(images, meta) {
+      const items = loadHistory();
+      const stamp = Date.now();
+      images.slice().reverse().forEach((img) => {
+        items.unshift({ url: img.url, filename: img.filename, prompt: meta.prompt, seed: meta.seed, ts: stamp });
+      });
+      saveHistory(items);
+    }
+    function renderHistory(items) {
+      if (!items.length) {
+        historyEl.innerHTML = '<div class="empty" style="grid-column:1/-1">Još nema spremljene povijesti na ovom pregledniku.</div>';
+        return;
+      }
+      historyEl.innerHTML = items.map(cardHtml).join("");
+    }
+    function cardHtml(item) {
+      const dl = item.url + (item.url.indexOf("?") >= 0 ? "&" : "?") + "download=1";
+      const cap = (item.seed != null ? "seed " + item.seed : "");
+      const safeUrl = item.url.replace(/"/g, "");
+      return '<figure class="shot"><img src="' + safeUrl + '" alt="" data-full="' + safeUrl + '" data-dl="' + dl + '" /><figcaption><span>' + cap + '</span><a class="dl" href="' + dl + '" download>Preuzmi</a></figcaption></figure>';
+    }
+    function renderResults(images, meta) {
+      if (!images.length) { resultsEl.innerHTML = '<div class="empty">Čekam slike…</div>'; return; }
+      resultsEl.innerHTML = '<div class="gallery">' + images.map((img) => cardHtml({ url: img.url, filename: img.filename, seed: meta.seed })).join("") + "</div>";
+    }
+    function openLb(src, dl) {
+      $("lbImg").src = src; $("lbDl").href = dl; $("lb").classList.add("show");
+    }
+    $("lbClose").addEventListener("click", () => $("lb").classList.remove("show"));
+    $("lb").addEventListener("click", (e) => { if (e.target.id === "lb") $("lb").classList.remove("show"); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("lb").classList.remove("show"); });
+    document.body.addEventListener("click", (e) => {
+      const img = e.target.closest("figure.shot img");
+      if (!img) return;
+      openLb(img.dataset.full || img.src, img.dataset.dl || img.src);
+    });
+    function setProgress(frac, text, indeterminate) {
+      progWrap.hidden = false;
+      progText.textContent = text || "Generiranje…";
+      bar.classList.toggle("indeterminate", !!indeterminate);
+      const pct = Math.max(0, Math.min(100, Math.round(frac * 100)));
+      barFill.style.width = pct + "%";
+      progPct.textContent = indeterminate ? "…" : (pct + "%");
+    }
+    function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+    async function pollJob(id, meta) {
+      try {
+        const r = await fetch("/api/job/" + encodeURIComponent(id), { cache: "no-store" });
+        const d = await r.json();
+        if (d.status === "running") {
+          const max = (d.progress && d.progress.max) || 1;
+          const val = (d.progress && d.progress.value) || 0;
+          const frac = max ? val / max : 0;
+          setProgress(frac || 0.08, "Generiranje u tijeku…", !val);
+          if (d.images && d.images.length) renderResults(d.images, meta);
+          return;
+        }
+        stopPoll();
+        goBtn.disabled = false;
+        $("goVideo").disabled = false;
+        if (d.status === "error") {
+          setProgress(1, "Neuspjelo", false);
+          showErr(errEl, d.error || "Generiranje nije uspjelo. Pogledaj prozor ComfyUI.");
+          return;
+        }
+        setProgress(1, "Gotovo", false);
+        const images = d.images || [];
+        if (!images.length) { showErr(errEl, "Zadatak je završio, ali nema izlaznih datoteka."); return; }
+        renderResults(images, meta);
+        addToHistory(images, meta);
+      } catch (e) {
+        stopPoll(); goBtn.disabled = false; $("goVideo").disabled = false;
+        showErr(errEl, "Izgubljena veza dok se čekao rezultat: " + e);
+      }
+    }
+
+    function payloadBase() {
+      return {
+        prompt: promptEl.value.trim(),
+        persona: personaEl.value,
+        negative: negEl.value,
+        model: modelEl.value,
+        width: width, height: height, batch: batch, steps: steps,
+        seed: Number(seedEl.value)
+      };
+    }
+
+    async function generate(ev) {
+      if (ev) ev.preventDefault();
+      if (currentTab !== "slike") return;
+      showErr(errEl, "");
+      if (!promptEl.value.trim()) { showErr(errEl, "Upiši opis slike."); promptEl.focus(); return; }
+      if (!(await refreshStatus())) {
+        showErr(errEl, "ComfyUI nije pokrenut. Pokreni comfyui-n.bat u mapi C:\\ComfyUI-Zluda, zatim pokušaj ponovo.");
+        return;
+      }
+      goBtn.disabled = true;
+      resultsEl.innerHTML = "";
+      setProgress(0.05, "Šaljem zadatak u ComfyUI…", true);
+      try {
+        const r = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payloadBase()) });
+        const d = await r.json();
+        if (!r.ok || !d.ok) { goBtn.disabled = false; progWrap.hidden = true; showErr(errEl, d.error || "ComfyUI nije prihvatio zadatak."); return; }
+        const meta = { prompt: d.prompt, seed: d.seed };
+        setProgress(0.08, "U redu. Seed " + d.seed + " — čekam slike…", true);
+        stopPoll();
+        pollTimer = setInterval(() => pollJob(d.prompt_id, meta), 700);
+        pollJob(d.prompt_id, meta);
+      } catch (e) { goBtn.disabled = false; progWrap.hidden = true; showErr(errEl, "Ne mogu poslati zadatak: " + e); }
+    }
+
+    $("goVideo").addEventListener("click", async () => {
+      showErr(errEl, "");
+      if (!promptEl.value.trim()) { showErr(errEl, "Upiši opis klipa."); return; }
+      $("goVideo").disabled = true;
+      setProgress(0.05, "Šaljem video zadatak…", true);
+      const body = Object.assign(payloadBase(), { frames: frames, width: Math.min(width, 512), height: Math.min(height, 512) });
+      try {
+        const r = await fetch("/api/video/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const d = await r.json();
+        if (!r.ok || !d.ok) {
+          $("goVideo").disabled = false; progWrap.hidden = true;
+          showErr(errEl, d.error || "Video nije pokrenut.");
+          return;
+        }
+        if (d.warning) showErr(errEl, d.warning);
+        const meta = { prompt: d.prompt, seed: d.seed };
+        stopPoll();
+        pollTimer = setInterval(() => pollJob(d.prompt_id, meta), 700);
+        pollJob(d.prompt_id, meta);
+      } catch (e) { $("goVideo").disabled = false; showErr(errEl, String(e)); }
+    });
+
+    $("form").addEventListener("submit", generate);
+    document.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && currentTab === "slike") generate(e);
+    });
+
+    /* ---- poruke ---- */
+    function escapeHtml(s) {
+      return String(s || "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c]));
+    }
+    function platLabel(p) {
+      return { simulate: "simulacija", instagram: "Instagram", telegram: "Telegram" }[p] || p;
+    }
+
+    async function refreshInbox() {
+      const pid = state.active_profile_id;
+      if (!pid) { $("threadList").innerHTML = '<div class="empty">Nema profila.</div>'; return; }
+      const r = await fetch("/api/inbox/threads?profile_id=" + encodeURIComponent(pid), { cache: "no-store" });
+      const d = await r.json();
+      const threads = d.threads || [];
+      if (!threads.length) {
+        $("threadList").innerHTML = '<div class="empty">Još nema razgovora za ovaj profil.</div>';
+      } else {
+        $("threadList").innerHTML = threads.map((t) => {
+          const on = currentThread && currentThread.id === t.id ? " on" : "";
+          const badge = t.pending_drafts ? '<span class="badge">' + t.pending_drafts + "</span>" : "";
+          return '<button type="button" class="thread-item' + on + '" data-id="' + t.id + '"><div><strong>' + escapeHtml(t.display_name) + "</strong> " + badge + '</div><div class="meta"><span>' + escapeHtml(platLabel(t.platform)) + "</span><span>" + (t.paused ? "pauzirano" : "") + "</span></div></button>";
+        }).join("");
+      }
+      if (currentThread) openThread(currentThread.id);
+      else {
+        const pending = threads.find((t) => t.pending_drafts);
+        if (pending) openThread(pending.id);
+      }
+    }
+
+    $("threadList").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-id]");
+      if (b) openThread(Number(b.dataset.id));
+    });
+
+    async function openThread(id) {
+      const r = await fetch("/api/inbox/threads/" + id, { cache: "no-store" });
+      const d = await r.json();
+      if (!d.ok) return;
+      currentThread = d.thread;
+      $("chatEmpty").hidden = true;
+      $("chatBox").hidden = false;
+      $("chatTitle").textContent = (currentThread.display_name || "Fan") + " · " + platLabel(currentThread.platform);
+      $("pauseThread").textContent = currentThread.paused ? "Uključi automatsko slanje" : "Pauziraj automatsko slanje";
+      const log = $("chatLog");
+      log.innerHTML = "";
+      let draft = null;
+      (currentThread.messages || []).forEach((m) => {
+        if (m.direction === "out" && (m.status === "draft" || m.status === "failed")) { draft = m; return; }
+        if (m.status === "discarded") return;
+        const div = document.createElement("div");
+        div.className = "bubble " + (m.direction === "in" ? "in" : "out");
+        const tag = m.direction === "in" ? "Fan" : (m.status === "sent" ? "Poslano" : m.status);
+        div.innerHTML = '<span class="tag">' + escapeHtml(tag) + "</span>" + escapeHtml(m.body || "");
+        log.appendChild(div);
+      });
+      log.scrollTop = log.scrollHeight;
+      if (draft) {
+        currentDraftId = draft.id;
+        $("draftBox").hidden = false;
+        $("draftText").value = draft.body || "";
+        showErr($("draftErr"), draft.error || "");
+      } else {
+        currentDraftId = null;
+        $("draftBox").hidden = true;
+        $("draftText").value = "";
+        showErr($("draftErr"), "");
+      }
+      document.querySelectorAll("#threadList .thread-item").forEach((b) => b.classList.toggle("on", Number(b.dataset.id) === id));
+    }
+
+    $("pauseThread").addEventListener("click", async () => {
+      if (!currentThread) return;
+      await fetch("/api/inbox/threads/" + currentThread.id + "/pause", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ paused: !currentThread.paused }) });
+      openThread(currentThread.id);
+      refreshInbox();
+    });
+
+    $("simSend").addEventListener("click", async () => {
+      showErr($("simErr"), "");
+      const text = $("simText").value.trim();
+      if (!text) { showErr($("simErr"), "Upiši poruku fana."); return; }
+      try {
+        const r = await fetch("/api/inbox/simulate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: text, fan_name: $("simName").value || "Fan", profile_id: state.active_profile_id }) });
+        const d = await r.json();
+        if (!r.ok || !d.ok) { showErr($("simErr"), d.error || "Simulacija nije uspjela."); return; }
+        $("simText").value = "";
+        currentThread = { id: d.thread_id };
+        await refreshInbox();
+        if (d.error) showErr($("draftErr"), d.error);
+      } catch (e) { showErr($("simErr"), String(e)); }
+    });
+
+    async function draftAction(action, extra) {
+      if (!currentDraftId) return;
+      showErr($("draftErr"), "");
+      try {
+        const r = await fetch("/api/inbox/drafts/" + currentDraftId + "/" + action, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(extra || {}) });
+        const d = await r.json();
+        if (!r.ok || !d.ok) { showErr($("draftErr"), d.error || "Akcija nije uspjela."); return; }
+        if (currentThread) await openThread(currentThread.id);
+        refreshInbox();
+      } catch (e) { showErr($("draftErr"), String(e)); }
+    }
+    $("draftSend").addEventListener("click", async () => {
+      if ($("draftText").value.trim() && currentDraftId) {
+        await fetch("/api/inbox/drafts/" + currentDraftId + "/edit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: $("draftText").value }) });
+      }
+      draftAction("send");
+    });
+    $("draftSave").addEventListener("click", () => draftAction("edit", { body: $("draftText").value }));
+    $("draftRegen").addEventListener("click", () => draftAction("regenerate"));
+    $("draftDiscard").addEventListener("click", () => draftAction("discard"));
+
+    /* ---- influenceri ---- */
+    function renderProfileList() {
+      const box = $("profileList");
+      const rows = (state.profiles || []).map((p) => {
+        const on = (editingId || state.active_profile_id) === p.id ? " on" : "";
+        const img = p.has_reference ? '<img class="thumb" src="/api/profiles/' + p.id + '/image" alt="" />' : '<div class="thumb"></div>';
+        return '<div class="profile-row' + on + '" data-id="' + p.id + '">' + img + "<div><strong>" + escapeHtml(p.name) + "</strong><div class=\"hint\">" + escapeHtml((p.style || "").slice(0, 80)) + "</div></div></div>";
+      }).join("");
+      box.innerHTML = rows || '<div class="empty">Nema profila.</div>';
+    }
+    $("profileList").addEventListener("click", (e) => {
+      const row = e.target.closest("[data-id]");
+      if (row) fillProfileForm(Number(row.dataset.id));
+    });
+
+    function fillProfileForm(id) {
+      const p = (state.profiles || []).find((x) => x.id === id);
+      if (!p) return;
+      editingId = id;
+      $("pId").value = id;
+      $("pName").value = p.name || "";
+      $("pAppear").value = p.appearance_prompt || "";
+      $("pNeg").value = p.negative_prompt || "";
+      $("pModel").value = p.preferred_model || "";
+      $("pStyle").value = p.style || "";
+      $("pVibe").value = p.age_vibe || "";
+      $("pWrite").value = p.writing_style || "short";
+      $("pSlang").value = p.slang || "light";
+      $("pEmoji").value = p.emoji_use || "light";
+      $("pLang").value = p.language || "HR";
+      $("pAvoid").value = p.topics_avoid || "";
+      $("pRef").value = "";
+      renderExamples(p.examples || []);
+      $("pRefPreview").innerHTML = p.has_reference ? '<img class="thumb" style="width:96px;height:96px" src="/api/profiles/' + p.id + '/image?t=' + Date.now() + '" alt="Referenca" />' : "";
+      $("pOk").hidden = true;
+      showErr($("pErr"), "");
+      renderProfileList();
+    }
+    function renderExamples(list) {
+      $("pExamples").innerHTML = (list || []).map((ex, i) => {
+        return '<div class="ex-pair" data-i="' + i + '"><textarea placeholder="Fan" data-k="fan">' + escapeHtml(ex.fan || "") + '</textarea><textarea placeholder="Odgovor" data-k="reply">' + escapeHtml(ex.reply || "") + '</textarea><button type="button" class="btn danger" data-del="' + i + '">×</button></div>';
+      }).join("");
+    }
+    function collectExamples() {
+      return Array.from($("pExamples").querySelectorAll(".ex-pair")).map((row) => ({
+        fan: row.querySelector('[data-k="fan"]').value,
+        reply: row.querySelector('[data-k="reply"]').value
+      }));
+    }
+    $("addExample").addEventListener("click", () => {
+      const list = collectExamples();
+      list.push({ fan: "", reply: "" });
+      renderExamples(list);
+    });
+    $("pExamples").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-del]");
+      if (!b) return;
+      const list = collectExamples();
+      list.splice(Number(b.dataset.del), 1);
+      renderExamples(list);
+    });
+    $("newProfile").addEventListener("click", () => {
+      editingId = null;
+      $("pId").value = "";
+      $("profileForm").reset();
+      $("pWrite").value = "short";
+      $("pSlang").value = "light";
+      $("pEmoji").value = "light";
+      $("pLang").value = "HR";
+      renderExamples([]);
+      $("pRefPreview").innerHTML = "";
+      $("pOk").hidden = true;
+      showErr($("pErr"), "");
+    });
+    $("profileForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      showErr($("pErr"), "");
+      $("pOk").hidden = true;
+      const payload = {
+        name: $("pName").value, appearance_prompt: $("pAppear").value,
+        negative_prompt: $("pNeg").value, preferred_model: $("pModel").value,
+        style: $("pStyle").value, age_vibe: $("pVibe").value,
+        writing_style: $("pWrite").value, slang: $("pSlang").value,
+        emoji_use: $("pEmoji").value, language: $("pLang").value,
+        topics_avoid: $("pAvoid").value, examples: collectExamples()
+      };
+      const id = $("pId").value;
+      try {
+        const r = await fetch(id ? "/api/profiles/" + id : "/api/profiles", {
+          method: id ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) { showErr($("pErr"), d.error || "Spremanje nije uspjelo."); return; }
+        const file = $("pRef").files[0];
+        if (file) {
+          const b64 = await new Promise((resolve, reject) => {
+            const fr = new FileReader();
+            fr.onload = () => resolve(fr.result);
+            fr.onerror = reject;
+            fr.readAsDataURL(file);
+          });
+          const up = await fetch("/api/profiles/" + d.profile.id + "/image", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image: b64 })
+          });
+          const ud = await up.json();
+          if (!up.ok || !ud.ok) { showErr($("pErr"), ud.error || "Slika nije spremljena, profil jest."); }
+        }
+        await loadState();
+        fillProfileForm(d.profile.id);
+        $("pOk").hidden = false;
+      } catch (err) { showErr($("pErr"), String(err)); }
+    });
+    $("delProfile").addEventListener("click", async () => {
+      const id = $("pId").value;
+      if (!id) return;
+      if (!confirm("Obrisati ovaj profil i njegove razgovore?")) return;
+      try {
+        const r = await fetch("/api/profiles/" + id, { method: "DELETE" });
+        const d = await r.json();
+        if (!r.ok || !d.ok) { showErr($("pErr"), d.error || "Brisanje nije uspjelo."); return; }
+        $("newProfile").click();
+        await loadState();
+      } catch (err) { showErr($("pErr"), String(err)); }
+    });
+
+    loadHistory();
+    if (!negEl.value) negEl.value = DEFAULT_NEGATIVE;
+    loadState().then(loadModels).then(loadVideoCaps).then(() => { if (currentTab === "poruke") refreshInbox(); });
+    setInterval(() => { if (!comfyOk) { refreshStatus().then((ok) => { if (ok) loadModels(); }); } }, 4000);
+    setInterval(() => { if (currentTab === "poruke") refreshInbox(); }, 8000);
+  })();
+  </script>
+</body>
+</html>

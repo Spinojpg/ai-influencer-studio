@@ -1,0 +1,122 @@
+Poruke — Grok bot za fanove
+===========================
+
+Kartica "Poruke" predlaže odgovore u stilu odabranog influencera
+(Grok preko xAI API-ja). Na početku ti svaki odgovor ide na odobrenje
+(Pošalji / Uredi / Odbaci / Ponovno generiraj). Kasnije možeš uključiti
+automatsko slanje, uz upozorenje, limit na sat, tihe sate i pauzu po
+razgovoru.
+
+Poruke i nacrti vezani su uz AKTIVNI profil (izbornik "Influencer" gore).
+
+
+1. xAI ključ
+------------
+
+1. Otvori https://console.x.ai i prijavi se.
+2. Napravi API ključ. Naplata je prema potrošnji (tokeni), prati stanje
+   na konzoli.
+3. Ključeve pišeš u data/.env (običan tekstualni fajl).
+   Nakon instalacije to je:
+     %LOCALAPPDATA%\AIInfluencerStudio\data\.env
+   Predložak je datoteka .env.example (kopiraj je u data/.env ako još
+   ne postoji). Instalacija to često napravi sama.
+4. Upiši:
+     XAI_API_KEY=tvoj_kljuc
+     XAI_MODEL=grok-4
+5. Spremi fajl. Ponovo pokreni Studio (prečac ili start_studio.bat).
+6. U zaglavlju mora pisati "xAI ključ je spreman".
+   Ključ se nikad ne ispisuje u logovima niti u sučelju.
+
+Model možeš kasnije promijeniti u kartici Poruke (npr. grok-4.7).
+
+
+2. Persona
+----------
+
+U kartici Influenceri uredi profil (ime, osobnost, kako piše, jezik,
+teme koje izbjegava, primjere "fan -> odgovor"). Što je više dobrih
+primjera, to je stil bliži onome što želiš.
+
+Pravila su ugrađena u system prompt i vrijede uvijek:
+  - ako te fan iskreno pita jesi li AI / bot / stvarna osoba, odgovori
+    iskreno (u stilu persode) da si AI persona, ne stvarna osoba
+  - nema seksualnog sadržaja s bilo kim tko izgleda ili bi mogao biti
+    maloljetan
+  - nikad ne traži novac ni podatke za plaćanje
+  - nema preusmjeravanja na prijevare izvan platforme
+
+
+3. Test bez mreža
+-----------------
+
+U kartici Poruke, lijevo: "Simuliraj poruku fana".
+Upiši ime i poruku, pritisni Generiraj nacrt. Pregledaj tekst, uredi
+po potrebi, pa Pošalji (u simulaciji se samo sprema u povijest, ništa
+ne ide na Instagram).
+
+
+4. Instagram (službeni Graph API)
+---------------------------------
+
+Studio ima prijemnik:
+
+  GET/POST  http://127.0.0.1:7860/webhook/instagram
+
+Meta zahtijeva JAVNI HTTPS URL. Lokalni HTTP nije dovoljan. Rješenje:
+
+  - cloudflared tunnel  ILI  ngrok
+  - tunel usmjeri na http://127.0.0.1:7860
+  - u Meta app Webhooks stavi npr.
+    https://tvoje-ime.trycloudflare.com/webhook/instagram
+  - Verify token mora biti isti kao IG_VERIFY_TOKEN u .env
+  - App Secret ide u IG_APP_SECRET (Studio provjerava X-Hub-Signature-256)
+  - IG_ACCESS_TOKEN je dugotrajni token stranice / Instagram računa
+
+Što treba na Meta strani (sažeto):
+  1. Instagram račun tipa Business ili Creator, povezan s Facebook Page.
+  2. Developer app na https://developers.facebook.com
+  3. Dodaj Instagram Messaging / webhooks (poruke).
+  4. Tijekom razvoja app je obično u Development mode — poruke rade
+     samo za testne korisnike koje dodaš u app.
+  5. Za javni rad treba App Review i odgovarajuće dozvole.
+
+U Studiju odaberi koji influencer-profil prima Instagram poruke.
+
+Preporuka: u bio profila jasno označi da je riječ o AI creatoru /
+digitalnoj personi, u skladu s pravilima Mete.
+
+
+5. Telegram (opcionalno)
+------------------------
+
+1. Kod @BotFather napravi bota i kopiraj token u TELEGRAM_BOT_TOKEN.
+2. U kartici Poruke uključi "Telegram long polling" i spremi postavke.
+3. Tunel nije potreban — Studio sam pita Telegram za nove poruke.
+4. Odaberi profil na koji idu Telegram poruke.
+
+
+6. Automatski način
+-------------------
+
+Zadano je "Odobravam svaku poruku". "Automatski" šalje odmah, osim ako:
+  - je razgovor pauziran
+  - su tihi sati (npr. 22:00–08:00, lokalno vrijeme računala)
+  - je dosegnut limit odgovora na sat
+Tada nacrt i dalje čeka tvoje odobrenje.
+
+
+Ako nešto ne radi
+-----------------
+
+"Nema XAI_API_KEY"
+  .env mora biti u istoj mapi kao studio.py, pa restartaj Studio.
+
+Webhook vraća 403
+  Krivi verify token ili neispravan potpis (IG_APP_SECRET).
+
+Odgovor je prazan / greška modela
+  Provjeri stanje na console.x.ai, ime modela i internet.
+
+Poruke "nestaju" nakon prebacivanja influencera
+  Nisu nestale — vezane su uz profil. Vrati se na taj profil.

@@ -1,0 +1,9 @@
+{
+  "source": "github",
+  "owner": "Spinojpg",
+  "repo": "ai-influencer-studio",
+  "private": true,
+  "asset": "studio.zip",
+  "checksum_asset": "studio.zip.sha256",
+  "api_base": "https://api.github.com"
+}

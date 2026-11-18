@@ -1,0 +1,177 @@
+AI Influencer Studio — Jednostavno
+==================================
+
+Lokalno web sučelje za tvoj već pokrenuti ComfyUI-Zluda.
+Ne treba pip install. Radi na http://127.0.0.1:7860 i šalje
+zadatke na ComfyUI API na http://127.0.0.1:8188.
+
+Tvoj setup (RX 6600, 8 GB):
+  ComfyUI:  C:\ComfyUI-Zluda
+  Pokretanje ComfyUI-ja:  comfyui-n.bat  (iz te mape)
+  Model:  models\checkpoints\Realistic_Vision_V6.0_NV_B1_fp16.safetensors
+  Preporučene veličine:  512×768, 512×512, 768×512
+  Ako nestane VRAM-a pri 2–4 slike, stavi broj slika na 1.
+
+
+Instalacija kao Windows aplikacija
+----------------------------------
+
+1. Raspakiraj ovaj ZIP gdje želiš (privremeno je u redu).
+2. Dvoklik na  instaliraj.bat
+   - Kopira aplikaciju u:
+     %LOCALAPPDATA%\AIInfluencerStudio\app
+   - Korisnički podaci idu u zasebnu mapu (ne diraju se pri updateu):
+     %LOCALAPPDATA%\AIInfluencerStudio\data
+     tu spadaju: studio.db, profili, .env, uploadovi, izlazi, update.json
+   - Ako već imaš stari .env ili mapu data pored ovih datoteka,
+     instalacija ih preseli u novu data mapu, bez prepisivanja.
+   - Napravi prečace "AI Influencer Studio" na radnoj površini
+     i u izborniku Start (ikona se generira uz aplikaciju).
+3. Pokreni prečac. Pokretač:
+   - prvo provjeri ažuriranje (ako je update.json podešen),
+   - upali ComfyUI ako već ne radi (cd /d C:\ComfyUI-Zluda, comfyui-n.bat,
+     minimizirani prozor),
+   - pokrene Studio poslužitelj u pozadini,
+   - otvori Edge u app načinu (msedge --app=http://127.0.0.1:7860).
+     Ako nema Edgea, pokuša Chrome --app, zatim zadani preglednik.
+   Python: C:\ComfyUI-Zluda\venv\Scripts\pythonw.exe, ili py -3.11.
+
+Ključevi (xAI, Instagram, Telegram, opcionalni GITHUB_TOKEN) pišu se u:
+  %LOCALAPPDATA%\AIInfluencerStudio\data\.env
+  (predložak je .env.example)
+
+Automatsko ažuriranje
+---------------------
+
+U sučelju je gumb "Provjeri update" (trenutna verzija stoji uz naslov).
+
+Izvor je već podešen na privatni repo:
+
+  https://github.com/Spinojpg/ai-influencer-studio
+  data\update.json  →  owner Spinojpg, repo ai-influencer-studio
+
+Updater gleda najnoviji GitHub Release, preuzme studio.zip preko API-ja
+(s tokenom, Accept: application/octet-stream), provjeri ZIP i sha256
+ako postoji studio.zip.sha256, spremi staru app mapu u backup, zamijeni
+samo datoteke aplikacije i restarta se. Mapa data se ne dira. Ako
+nešto pođe po zlu, vraća prethodnu verziju. Nakon uspjeha vidiš
+obavijest "Ažurirano na verziju X" i kratki popis promjena.
+
+Ovaj repo je PRIVATAN, zato treba GITHUB_TOKEN u data\.env.
+Instalacija te pita za token i ima korake; detalji su u TOKEN_UPUTE.txt.
+
+Ukratko: github.com → avatar → Settings → Developer settings →
+Personal access tokens → Fine-grained tokens → Generate new token →
+samo repo ai-influencer-studio → Permissions: Contents Read-only →
+zalijepi token kao  GITHUB_TOKEN=...  u data\.env.
+Token se nikad ne ispisuje u logove.
+
+Uklanjanje: dvoklik na deinstaliraj.bat
+  (podaci ostaju, osim ako pokreneš  deinstaliraj.bat /podaci
+   ili na pitanje upišeš DA).
+
+
+Prijenosni način (bez instalacije)
+----------------------------------
+
+Najjednostavnije:  dvoklik na  pokreni_sve.bat
+
+  1. Otvori ComfyUI u novom prozoru, iz točne mape C:\ComfyUI-Zluda.
+  2. Pričeka da http://127.0.0.1:8188 odgovori (do 5 minuta).
+  3. Pokrene Studio i otvori preglednik na http://127.0.0.1:7860
+
+Ako je ComfyUI već upaljen:
+
+  dvoklik na  start_studio.bat
+
+Samo ComfyUI (ispravak greške s krivom radnom mapom):
+
+  dvoklik na  start_comfy.bat
+  Uvijek radi "cd /d C:\ComfyUI-Zluda" pa tek onda zove comfyui-n.bat.
+
+
+Kako koristiti
+--------------
+
+- Upiši opis slike (Opis).
+- Po želji upiši "Lik / persona" — taj se tekst uvijek doda na početak
+  opisa i pamti se u pregledniku, da lik ostane prepoznatljiv.
+- Odaberi model, format (Portret / Kvadrat / Pejzaž), broj slika i
+  Brzo (20 koraka) ili Kvaliteta (30 koraka).
+- Seed -1 = nasumično. Isti seed + isti opis daje sličan rezultat.
+- "Napredno" skriva negativni prompt (već ima dobar zadani tekst).
+- Generiraj. Traka pokazuje napredak. Klik na sliku je uvećava;
+  Preuzmi sprema PNG.
+- Povijest zadnjih slika ostaje u ovom pregledniku.
+
+
+Ako nešto ne radi
+-----------------
+
+"ComfyUI nije pokrenut. Pokreni comfyui-n.bat"
+  Upali ComfyUI preko start_comfy.bat ili pokreni_sve.bat.
+  U pregledniku provjeri http://127.0.0.1:8188
+
+Port 7860 ili 8188 zauzet
+  Zatvori stari prozor Studija / ComfyUI-ja pa pokreni ponovo.
+
+Nedostaje model u izborniku
+  Datoteka mora stajati u:
+  C:\ComfyUI-Zluda\models\checkpoints\
+  Pa osvježi stranicu Studija.
+
+Out of memory / rušenje pri generiranju
+  Broj slika = 1, format Kvadrat 512×512, predlozak Brzo.
+
+Studio se ne otvara
+  start_studio.bat traži Python ovim redom:
+  C:\ComfyUI-Zluda\venv\Scripts\python.exe
+  zatim py -3.11, zatim python iz PATH-a.
+  Ako koristiš instalirani prečac, gleda se i pythonw.exe.
+
+Ažuriranje ne radi
+  Provjeri data\update.json (owner i repo). Za privatni repo treba
+  GITHUB_TOKEN u data\.env. Gumb "Provjeri update" pokaže poruku greške.
+
+
+Napomena
+--------
+
+Ova aplikacija nema ugrađene filtre sadržaja. Odgovoran si za
+zakonitu upotrebu (npr. ne koristiti likove stvarnih osoba bez
+pristanka).
+
+
+Kartice u sučelju
+-----------------
+
+- Slike: kao dosad, txt2img preko ComfyUI. Prefix izgleda, negativni
+  prompt i preferirani model dolaze s odabranog influencera (gore).
+- Poruke: Grok bot za fanove. Detalji u PORUKE_UPUTE.txt
+  (ključ s console.x.ai, simulacija, Instagram, Telegram).
+- Influenceri: više profila (ime, izgled za slike, osobnost za chat,
+  primjeri odgovora, opcionalna referentna slika). Početni profil
+  "Primjer" je izmišljen — nije stvarna osoba. Poruke i nacrti vezani
+  su uz profil.
+
+Video (pokret)
+--------------
+
+U kartici Slike, odjeljak "Video (kratki klip, pokus)".
+
+Na RX 6600 s 8 GB VRAM-a realni su samo kratki, niske rezolucije
+klipovi (npr. 512×512, 8 sličica, 8 fps). Za pravi motion trebaš
+dodatne ComfyUI pakete, npr.:
+
+  - ComfyUI-AnimateDiff-Evolved  (za SD 1.5)
+  - ComfyUI-VideoHelperSuite     (spajanje sličica u video)
+  - ili SVD / img2vid čvorove i odgovarajući model
+
+Modele stavi u mape koje ti paket nalaže (često
+models/animatediff_models). Nakon instalacije restartaj ComfyUI.
+
+Ako ti ti čvorovi nisu instalirani, Studio NEće slati krivi workflow
+nego će jasno napisati što nedostaje. Ako su AnimateDiff čvorovi tu,
+ali se ulazi razlikuju po verziji, Studio te uputi da workflow
+složiš u samom ComfyUI-ju (izvoz API formata) dok se automatika
+ne uskladi s tvojim paketom.
