@@ -13,7 +13,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from comfy_launch import checkpoints_dir
+from comfy_launch import animatediff_models_dir, checkpoints_dir, loras_dir
 
 # Provjereno curl -I (18. 11. 2026.): javni URL, 302 na CDN, HTTP 200,
 # accept-ranges: bytes, Content-Length 6938065488, bez prijave.
@@ -25,10 +25,56 @@ CURATED = [
         "filename": "RealVisXL_V5.0_fp16.safetensors",
         "url": "https://huggingface.co/SG161222/RealVisXL_V5.0/resolve/main/RealVisXL_V5.0_fp16.safetensors",
         "arch": "sdxl",
+        "kind": "checkpoint",
         "size_bytes": 6938065488,
         "note": "Fotorealistični SDXL s Hugging Facea, bez prijave. Oko 6,5 GB. Resume je podržan.",
-    }
+    },
+    {
+        "id": "hyper-sdxl-8step-cfg",
+        "name": "Hyper-SDXL Turbo (8 koraka, CFG)",
+        "filename": "Hyper-SDXL-8steps-CFG-lora.safetensors",
+        "url": "https://huggingface.co/ByteDance/Hyper-SD/resolve/main/Hyper-SDXL-8steps-CFG-lora.safetensors",
+        "arch": "sdxl",
+        "kind": "lora",
+        "turbo": True,
+        "size_bytes": 787359648,
+        "note": "LoRA za način Turbo: 8 koraka, cfg 5, euler + sgm_uniform. Na RX 6600 (~17 s/korak) slika padne s ~8–9 min na ~2–2,5 min. Radi uz RealVisXL i druge SDXL modele. Ne miješaj s hires fixom.",
+    },
+    {
+        "id": "realistic-vision-v51",
+        "name": "Realistic Vision V5.1 (fp16, SD 1.5)",
+        "filename": "Realistic_Vision_V5.1_fp16-no-ema.safetensors",
+        "url": "https://huggingface.co/SG161222/Realistic_Vision_V5.1_noVAE/resolve/main/Realistic_Vision_V5.1_fp16-no-ema.safetensors",
+        "arch": "sd15",
+        "kind": "checkpoint",
+        "size_bytes": 2132625894,
+        "note": "SD 1.5 checkpoint za video (AnimateDiff ne radi na SDXL). Oko 2 GB. Koristi se i za slike 512×768.",
+    },
+    {
+        "id": "mm-sd15-v2",
+        "name": "AnimateDiff motion modul (SD 1.5 v2)",
+        "filename": "mm_sd_v15_v2.ckpt",
+        "url": "https://huggingface.co/guoyww/animatediff/resolve/main/mm_sd_v15_v2.ckpt",
+        "arch": "sd15",
+        "kind": "animatediff",
+        "size_bytes": 1817888431,
+        "note": "Motion modul za kratke klipove (AnimateDiff-Evolved). Oko 1,7 GB, ide u models/animatediff_models.",
+    },
 ]
+
+
+def dest_dir_for(kind: str | None = None) -> Path:
+    kind = (kind or "checkpoint").strip().lower()
+    if kind in {"lora", "loras"}:
+        return loras_dir()
+    if kind in {"animatediff", "motion", "animatediff_models"}:
+        return animatediff_models_dir()
+    return checkpoints_dir()
+
+
+def curated_by_id(cid: str) -> dict | None:
+    cid = (cid or "").strip()
+    return next((c for c in CURATED if c["id"] == cid), None)
 
 _UA = "AI-Influencer-Studio/1.0.2"
 _lock = threading.RLock()

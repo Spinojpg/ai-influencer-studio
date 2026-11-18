@@ -33,6 +33,7 @@ import inbox
 import model_download
 import updater
 import video as video_mod
+import video_install
 import subprocess
 
 ROOT = Path(__file__).resolve().parent
@@ -222,6 +223,11 @@ def video_capabilities() -> dict:
     classified["comfy_ok"] = True
     classified["comfy_message"] = msg
     classified["recommend"] = video_mod.recommend_settings(8)
+    classified["install"] = video_install.snapshot()
+    classified["nodes_on_disk"] = {
+        r["id"]: (comfy_launch.custom_nodes_dir() / r["dir"]).is_dir()
+        for r in video_mod.REPOS
+    }
     return classified
 
 
@@ -395,6 +401,37 @@ def compose_prompt(persona: str, prompt: str) -> str:
             return prompt
         return f"{persona}, {prompt}"
     return persona or prompt
+
+
+
+def stage_init_image(info: dict | str) -> str:
+    """Skini sliku iz ComfyUI outputa/uploada u input mapu i vrati ime za LoadImage."""
+    if isinstance(info, str):
+        name = Path(info).name
+        src_guess = comfy_launch.comfy_dir() / "output" / name
+        if src_guess.is_file():
+            dest = comfy_launch.comfy_dir() / "input"
+            dest.mkdir(parents=True, exist_ok=True)
+            target = dest / name
+            if src_guess.resolve() != target.resolve():
+                import shutil
+                shutil.copy2(src_guess, target)
+            return name
+        return name
+    filename = (info.get("filename") or "").strip()
+    if not filename:
+        raise ValueError("Nedostaje ime referentne slike.")
+    typ = (info.get("type") or "output").strip() or "output"
+    sub = (info.get("subfolder") or "").strip()
+    qs = urllib.parse.urlencode({"filename": filename, "subfolder": sub, "type": typ})
+    raw, _, _ = comfy_request("/view?" + qs, timeout=30)
+    if not isinstance(raw, (bytes, bytearray)) or not raw:
+        raise RuntimeError("Ne mogu dohvatiti referentnu sliku iz ComfyUI-ja.")
+    dest = comfy_launch.comfy_dir() / "input"
+    dest.mkdir(parents=True, exist_ok=True)
+    safe = Path(filename).name
+    (dest / safe).write_bytes(bytes(raw))
+    return safe
 
 
 class StudioHandler(BaseHTTPRequestHandler):
@@ -630,6 +667,14 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._json(200, {"ok": True, **video_capabilities()})
             return
 
+        if path == "/api/video/install":
+            self._json(200, {"ok": True, **video_install.current_status(cached_object_info() if comfy_up()[0] else {})})
+            return
+
+        if path == "/api/prompt/preview":
+            self._json(400, {"ok": False, "error": "Koristi POST."})
+            return
+
         if path.startswith("/api/job/"):
             prompt_id = urllib.parse.unquote(path[len("/api/job/") :]).strip()
             if not prompt_id:
@@ -748,6 +793,19 @@ class StudioHandler(BaseHTTPRequestHandler):
 
         if path == "/api/video/generate":
             self._generate_video(body)
+            return
+
+        if path == "/api/video/install":
+            try:
+                info = video_install.start_install(include_sd15=body.get("include_sd15", True) is not False)
+            except RuntimeError as exc:
+                self._json(400, {"ok": False, "error": str(exc), "install": video_install.snapshot()})
+                return
+            self._json(200, {"ok": True, "install": info})
+            return
+
+        if path == "/api/prompt/preview":
+            self._json(200, {"ok": True, **self._preview_prompt(body)})
             return
 
         if path == "/api/profiles":
@@ -1022,11 +1080,11 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
 
         prof = inbox.get_profile(inbox.active_profile_id())
-        prefix = (body.get("persona") or "").strip()
-        if not prefix and prof:
-            prefix = prof.get("appearance_prompt") or ""
-        prompt = compose_prompt(prefix, body.get("prompt") or "")
-        if not prompt:
+        appearance = (body.get("persona") or "").strip()
+        if not appearance and prof:
+            appearance = prof.get("appearance_prompt") or ""
+        scene = (body.get("prompt") or "").strip()
+        if not scene:
             self._json(400, {"ok": False, "error": "Upiši opis slike."})
             return
 
@@ -1047,7 +1105,8 @@ class StudioHandler(BaseHTTPRequestHandler):
         quality_on = body.get("quality_prefix")
         if quality_on is None:
             quality_on = inbox.get_setting("quality_prefix", "1") != "0"
-        prompt = image_gen.apply_quality_prefix(prompt, bool(quality_on))
+        built = image_gen.build_positive_prompt(scene=scene, appearance=appearance, quality=bool(quality_on))
+        prompt = built["prompt"]
 
         defaults = image_gen.presets_for(arch)[0]
         width = clamp_int(body.get("width"), 256, 1536, defaults["width"])
@@ -1072,6 +1131,29 @@ class StudioHandler(BaseHTTPRequestHandler):
         else:
             seed = clamp_int(seed, 0, 2_147_483_647, random.randint(0, 2_147_483_647))
 
+        turbo = bool(body.get("turbo"))
+        lora = (body.get("lora") or "").strip()
+        sampler_name = "dpmpp_2m"
+        scheduler = "karras"
+        if turbo:
+            if arch != "sdxl":
+                self._json(400, {"ok": False, "error": "Turbo (8 koraka) radi samo sa SDXL modelima (npr. RealVisXL).", "need": "sdxl"})
+                return
+            spec = image_gen.TURBO_SDXL
+            lora = lora or spec["lora_filename"]
+            if not image_gen.lora_available(lora):
+                self._json(400, {
+                    "ok": False,
+                    "error": "Turbo LoRA još nije preuzet. Otvori karticu Modeli i preuzmi Hyper-SDXL Turbo (8 koraka).",
+                    "need_lora": spec["id"],
+                })
+                return
+            steps = spec["steps"]
+            cfg = spec["cfg"]
+            sampler_name = spec["sampler_name"]
+            scheduler = spec["scheduler"]
+            hires = False
+
         workflow = build_workflow(
             prompt=prompt,
             negative=negative,
@@ -1082,9 +1164,15 @@ class StudioHandler(BaseHTTPRequestHandler):
             seed=seed,
             steps=steps,
             cfg=cfg,
+            sampler_name=sampler_name,
+            scheduler=scheduler,
             arch=arch,
             hires=hires,
             object_info=cached_object_info(),
+            lora=lora,
+            lora_strength=float(image_gen.TURBO_SDXL["lora_strength"] if turbo else 1.0),
+            turbo=turbo,
+            prompt_chunks=built["chunks"],
         )
         self._queue_prompt(workflow, {
             "ok": True,
@@ -1097,22 +1185,52 @@ class StudioHandler(BaseHTTPRequestHandler):
             "cfg": cfg,
             "arch": arch,
             "hires": hires,
+            "turbo": turbo,
             "prompt": prompt,
+            "tokens": built["tokens"],
+            "token_warn": built["warn"],
+            "token_limit": built["limit"],
             "kind": "image",
         })
+
+    def _preview_prompt(self, body: dict) -> dict:
+        prof = inbox.get_profile(inbox.active_profile_id())
+        appearance = (body.get("persona") or "").strip()
+        if not appearance and prof:
+            appearance = prof.get("appearance_prompt") or ""
+        quality_on = body.get("quality_prefix")
+        if quality_on is None:
+            quality_on = inbox.get_setting("quality_prefix", "1") != "0"
+        return image_gen.build_positive_prompt(
+            scene=body.get("prompt") or body.get("scene") or "",
+            appearance=appearance,
+            quality=bool(quality_on),
+        )
 
     def _generate_video(self, body: dict) -> None:
         caps = video_capabilities()
         if not caps.get("comfy_ok"):
             self._json(503, {"ok": False, "error": caps.get("comfy_message") or caps.get("message")})
             return
+        if not caps.get("ready") and not caps.get("ad_ok"):
+            self._json(400, {
+                "ok": False,
+                "error": caps.get("message") or "Video podrška nije instalirana. Pritisni „Instaliraj video podršku”.",
+                "capabilities": caps,
+            })
+            return
         prof = inbox.get_profile(inbox.active_profile_id())
-        prefix = (body.get("persona") or "").strip()
-        if not prefix and prof:
-            prefix = prof.get("appearance_prompt") or ""
-        prompt = compose_prompt(prefix, body.get("prompt") or "")
-        if not prompt:
-            self._json(400, {"ok": False, "error": "Upiši opis klipa."})
+        appearance = (body.get("persona") or "").strip()
+        if not appearance and prof:
+            appearance = prof.get("appearance_prompt") or ""
+        scene = (body.get("prompt") or "").strip()
+        quality_on = body.get("quality_prefix")
+        if quality_on is None:
+            quality_on = inbox.get_setting("quality_prefix", "1") != "0"
+        built = image_gen.build_positive_prompt(scene=scene or "subtle natural movement, gentle motion", appearance=appearance, quality=bool(quality_on))
+        prompt = built["prompt"]
+        if not scene and not body.get("init_image") and not body.get("image"):
+            self._json(400, {"ok": False, "error": "Upiši opis klipa ili odaberi sliku."})
             return
         negative = (body.get("negative") or "").strip()
         if not negative and prof:
@@ -1120,20 +1238,35 @@ class StudioHandler(BaseHTTPRequestHandler):
         if not negative:
             negative = DEFAULT_NEGATIVE
         model = (body.get("model") or "").strip()
-        if not model and prof:
-            model = (prof.get("preferred_model") or "").strip()
-        if not model:
-            model = DEFAULT_MODEL
+        sd15s = caps.get("sd15_models") or video_mod.list_sd15_models()
+        model = video_mod.pick_sd15_model(model, sd15s)
+        if not model or image_gen.detect_model_arch(model) != "sd15":
+            self._json(400, {
+                "ok": False,
+                "error": "Za video treba SD 1.5 model (npr. Realistic Vision). Pritisni „Instaliraj video podršku” ili preuzmi ga u Modelima.",
+                "capabilities": caps,
+            })
+            return
         rec = caps.get("recommend") or video_mod.recommend_settings(8)
-        width = clamp_int(body.get("width"), 256, 512, rec["width"])
-        height = clamp_int(body.get("height"), 256, 512, rec["height"])
-        frames = clamp_int(body.get("frames"), 4, 16, rec["frames"])
+        width = clamp_int(body.get("width"), 256, 768, rec["width"])
+        height = clamp_int(body.get("height"), 256, 768, rec["height"])
+        frames = clamp_int(body.get("frames"), 8, 24, rec["frames"])
         steps = clamp_int(body.get("steps"), 8, 30, rec["steps"])
+        fps = clamp_int(body.get("fps"), 4, 16, rec.get("fps") or 8)
         seed = body.get("seed")
         if seed is None or seed == "" or int(seed) < 0:
             seed = random.randint(0, 2_147_483_647)
         else:
             seed = clamp_int(seed, 0, 2_147_483_647, random.randint(0, 2_147_483_647))
+        init_name = ""
+        init_info = body.get("init_image") or body.get("image")
+        if init_info:
+            try:
+                init_name = stage_init_image(init_info)
+            except Exception as exc:
+                self._json(400, {"ok": False, "error": f"Referentna slika nije spremna: {exc}"})
+                return
+        info = cached_object_info()
         wf, note = video_mod.build_video_workflow(
             caps,
             prompt=prompt,
@@ -1144,6 +1277,11 @@ class StudioHandler(BaseHTTPRequestHandler):
             frames=frames,
             steps=steps,
             seed=seed,
+            fps=fps,
+            init_image=init_name,
+            motion_model=caps.get("motion_model") or "",
+            object_info=info,
+            prompt_chunks=built["chunks"],
         )
         if not wf:
             self._json(400, {"ok": False, "error": note, "capabilities": caps})
@@ -1156,9 +1294,12 @@ class StudioHandler(BaseHTTPRequestHandler):
             "height": height,
             "frames": frames,
             "steps": steps,
+            "fps": fps,
             "prompt": prompt,
             "kind": "video",
             "warning": note,
+            "init_image": init_name,
+            "tokens": built["tokens"],
         })
 
     def _queue_prompt(self, workflow: dict, extra: dict) -> None:
@@ -1219,7 +1360,16 @@ class StudioHandler(BaseHTTPRequestHandler):
             "curated": model_download.CURATED,
             "download": model_download.snapshot(),
             "checkpoints_dir": str(comfy_launch.checkpoints_dir()),
+            "loras_dir": str(comfy_launch.loras_dir()),
+            "loras": image_gen.list_loras(),
+            "turbo": image_gen.TURBO_SDXL,
+            "turbo_ready": image_gen.lora_available(image_gen.TURBO_SDXL["lora_filename"]),
             "lowvram_note": image_gen.LOWVRAM_NOTE,
+            "triton_note": (
+                "Triton test na ovom PC-u pada jer clang ne nalazi stdio.h (nema Visual Studio / Windows SDK). "
+                "Popravak (Build Tools + SDK) možda upali pokoje jezgre, ali na ZLUDA to nije ključno za brzinu. "
+                "Pravi dobitak je Turbo LoRA (8 koraka)."
+            ),
         }
         self._json(200, payload)
 
@@ -1227,6 +1377,9 @@ class StudioHandler(BaseHTTPRequestHandler):
         curated_id = (body.get("id") or body.get("curated") or "").strip()
         url = (body.get("url") or "").strip()
         filename = (body.get("filename") or "").strip()
+        dest_dir = None
+        if body.get("kind"):
+            dest_dir = model_download.dest_dir_for(str(body.get("kind")))
         if curated_id:
             item = next((c for c in model_download.CURATED if c["id"] == curated_id), None)
             if not item:
@@ -1234,8 +1387,9 @@ class StudioHandler(BaseHTTPRequestHandler):
                 return
             url = item["url"]
             filename = filename or item["filename"]
+            dest_dir = model_download.dest_dir_for(item.get("kind") or "checkpoint")
         try:
-            info = model_download.start_download(url, filename or None)
+            info = model_download.start_download(url, filename or None, dest_dir=dest_dir)
         except (ValueError, RuntimeError) as exc:
             self._json(400, {"ok": False, "error": str(exc)})
             return

@@ -1,5 +1,11 @@
 # Promjene
 
+## 1.0.9 — 2026-11-18
+- Kartica Video: na RX 6600 (8 GB) realan je AnimateDiff-Evolved + SD 1.5 (Realistic Vision) + mm_sd_v15_v2, 512×512, 16 sličica / 2 s. Gumb „Instaliraj video podršku” klonira čvorove, instalira requirements u venv i preuzima modele; zatim ponovo pokreni ComfyUI. Klip iz zadnje slike ili opisa, sprema se mp4. LTX-Video / Wan / SVD-XT nisu praktični na 8 GB.
+- Turbo (8 koraka): Hyper-SDXL CFG LoRA u kartici Modeli (~750 MB), euler + sgm_uniform, cfg 5. Na RX 6600 (~17 s/korak) slika padne s ~8–9 min na ~2–2,5 min. Triton test (nema stdio.h / Visual Studio) nije ključan za brzinu.
+- Slike su čišće: veliki opis scene, formati, Turbo/Kvaliteta i gumb Generiraj; model, seed, negativni prompt i hires su pod Napredno.
+- Prompt: scena ide prva, zatim izgled (bez vodećeg „portrait of”), pa oznake kvalitete. „adult woman” ostaje na početku. Brojač tokena upozori oko 75; višak se spaja preko ConditioningConcat da CLIP ne odreže scenu.
+
 ## 1.0.8 — 2026-11-18
 - Gašenje više ne ubija ComfyUI usred generiranja: pokretač ne gasi sesiju dok /queue na :8188 ima posla ili Studio generira sliku.
 - Zatvaranje prozora se potvrđuje po procesima preglednika s našim --user-data-dir (PowerShell ili WMIC), ne samo po prvom PID-u koji je pokretač otvorio. pagehide/goodbye i tišina heartbeat-a (sada 120 s) su samo nagovještaj; nakon kratkog čekanja ponovno se provjerava. Razlog gašenja ide u data/logs/launcher.log.

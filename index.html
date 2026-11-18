@@ -28,7 +28,7 @@
       font-family: var(--sans);
       color: var(--text);
       background:
-        radial-gradient(1200px 600px at 10% -10%, rgba(228, 181, 106, 0.14), transparent 55%),
+        radial-gradient(1200px 600px at 10% -10%, rgba(228, 181, 106, 0.08), transparent 55%),
         radial-gradient(900px 500px at 100% 0%, rgba(217, 137, 122, 0.12), transparent 50%),
         radial-gradient(800px 400px at 80% 100%, rgba(90, 120, 180, 0.10), transparent 50%),
         var(--bg0);
@@ -507,6 +507,33 @@
       white-space: pre-wrap;
     }
     .toast.bad { color: var(--bad); border-color: rgba(224,122,122,0.4); background: #241616; }
+
+    .create-form { padding: 28px 26px 24px; }
+    .create-form .prompt-field textarea {
+      min-height: 180px;
+      font-size: 1.08rem;
+      line-height: 1.5;
+      border-radius: 14px;
+    }
+    .token-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 8px;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .token-row.warn { color: var(--gold); }
+    .token-row.warn #tokenWarn { display: inline; }
+    .create-form .go { margin-top: 6px; padding: 16px 18px; font-size: 1.12rem; border-radius: 16px; }
+    .create-form .field { margin-bottom: 18px; }
+    .grid { gap: 28px; }
+    .vid-frame video, .shot video {
+      width: 100%;
+      display: block;
+      border-radius: 12px;
+      background: #000;
+    }
     .update-hint { font-size: 0.8rem; color: var(--muted); width: 100%; text-align: right; }
   </style>
 </head>
@@ -521,6 +548,7 @@
       <div class="header-mid">
         <div class="tabs" role="tablist">
           <button type="button" class="on" data-tab="slike">Slike</button>
+          <button type="button" data-tab="video">Video</button>
           <button type="button" data-tab="poruke">Poruke</button>
           <button type="button" data-tab="influenceri">Influenceri</button>
           <button type="button" data-tab="modeli">Modeli</button>
@@ -541,25 +569,13 @@
     </header>
 
     <div id="tab-slike" class="tab-panel on grid">
-      <form class="card form" id="form" autocomplete="off">
-        <div class="field">
-          <label class="lbl" for="prompt">Opis</label>
-          <textarea id="prompt" placeholder="Npr. portret žene u zlatnom večernjem svjetlu, fotografija, oštar fokus, prirodna koža" required></textarea>
-          <div class="hint">Kratki, konkretni opisi rade bolje: mjesto, svjetlo, odjeća, izraz lica. Prefix izgleda dolazi s profila. Ctrl+Enter pokreće generiranje.</div>
+      <form class="card form create-form" id="form" autocomplete="off">
+        <div class="field prompt-field">
+          <label class="lbl" for="prompt">Opis scene</label>
+          <textarea id="prompt" placeholder="Npr. leži na krevetu, uslikana mobitelom, jutarnje svjetlo, nered na posteljini" required></textarea>
+          <div class="token-row" id="tokenRow"><span id="tokenCount">≈ 0 / 75 tokena</span><span id="tokenWarn" hidden>Predugačak opis — scena ostaje prva, višak se spaja.</span></div>
+          <div class="hint">Prvo ide tvoja scena, zatim izgled s profila, pa oznake kvalitete. „Portrait of” se skida s izgleda da CLIP ne odreže scenu (limit ~75 tokena). Ctrl+Enter pokreće.</div>
           <div class="chips" id="styleChips" aria-label="Brzi stilovi"></div>
-        </div>
-
-        <div class="field">
-          <label class="lbl" for="persona">Izgled (s profila, možeš privremeno dopuniti)</label>
-          <input type="text" id="persona" placeholder="Npr. smeđa kosa, zelene oči…" />
-          <div class="hint">Trajni izgled i osobnost uređuješ u kartici Influenceri.</div>
-        </div>
-
-        <div class="field">
-          <label class="lbl" for="model">Model</label>
-          <select id="model">
-            <option value="Realistic_Vision_V6.0_NV_B1_fp16.safetensors">Realistic_Vision_V6.0_NV_B1_fp16.safetensors</option>
-          </select>
         </div>
 
         <div class="field">
@@ -571,71 +587,61 @@
           </div>
         </div>
 
-        <div class="row">
-          <div class="field">
-            <label class="lbl">Broj slika</label>
-            <div class="seg" id="batch">
-              <button type="button" data-n="1" class="on">1</button>
-              <button type="button" data-n="2">2</button>
-              <button type="button" data-n="3">3</button>
-              <button type="button" data-n="4">4</button>
-            </div>
-          </div>
-          <div class="field">
-            <label class="lbl">Brzina</label>
-            <div class="seg" id="quality">
-              <button type="button" data-steps="20">Brzo<br>20 koraka</button>
-              <button type="button" data-steps="30" class="on">Kvaliteta<br>30 koraka</button>
-            </div>
-          </div>
-        </div>
         <div class="field">
-          <label class="lbl"><input type="checkbox" id="qualityPrefix" checked /> Bolja kvaliteta (RAW photo, detaljna koža)</label>
-          <div class="hint">Po zadanom se na početak opisa dodaje „RAW photo, best quality, highly detailed skin”.</div>
-        </div>
-        <div class="field">
-          <label class="lbl"><input type="checkbox" id="hiresFix" /> Hires fix (latent 1,5×, denoise 0.4)</label>
-          <div class="hint" id="hiresHint">Samo za SD 1.5 po zadanom. Na 8 GB VRAM-a može biti tijesno. Za SDXL upozoravamo na memoriju.</div>
-        </div>
-        <div class="hint" id="archHint">Model: SD 1.5 · formati 512×768 / 512×512 / 768×512. Na RX 6600 (8 GB) u postavkama možeš uključiti Low VRAM.</div>
-
-        <div class="field">
-          <label class="lbl" for="seed">Seed</label>
-          <div class="seed-row">
-            <input type="number" id="seed" value="-1" min="-1" max="2147483647" />
-            <button type="button" class="ghost" id="randSeed">Nasumično</button>
+          <label class="lbl">Brzina</label>
+          <div class="seg" id="quality">
+            <button type="button" data-mode="turbo" data-steps="8">Turbo<br>8 koraka</button>
+            <button type="button" data-mode="quality" data-steps="30" class="on">Kvaliteta<br>30 koraka</button>
           </div>
-          <div class="hint">−1 znači nasumični seed pri svakom pokretanju.</div>
+          <div class="hint" id="turboHint">Turbo (Hyper-SDXL LoRA) na RX 6600 skraćuje sliku s ~8–9 min na ~2–2,5 min. Preuzmi LoRA u kartici Modeli. Samo za SDXL.</div>
         </div>
-
-        <details class="adv">
-          <summary>Napredno</summary>
-          <div class="inner">
-            <div class="field">
-              <label class="lbl" for="negative">Negativni prompt</label>
-              <textarea id="negative" style="min-height:90px"></textarea>
-            </div>
-          </div>
-        </details>
 
         <button class="go" id="go" type="submit">Generiraj</button>
         <div class="hint" id="firstRunHint">Prvo pokretanje može trajati dulje (kompilacija u ComfyUI-ju, posebno na AMD).</div>
         <div class="err" id="err"></div>
 
-        <details class="adv" id="videoBox">
-          <summary>Video (kratki klip, pokus)</summary>
+        <details class="adv">
+          <summary>Napredno</summary>
           <div class="inner">
-            <div class="warn" id="videoNote">Na 8 GB VRAM-a (RX 6600) realni su samo kratki klipovi niske rezolucije, npr. 512×512 i 8 sličica. Trebaš dodatne ComfyUI custom nodeove (AnimateDiff i/ili VideoHelperSuite) i odgovarajuće modele.</div>
             <div class="field">
-              <label class="lbl">Sličice</label>
-              <div class="seg" id="frames">
-                <button type="button" data-f="8" class="on">8</button>
-                <button type="button" data-f="12">12</button>
-                <button type="button" data-f="16">16</button>
+              <label class="lbl" for="persona">Izgled (s profila, možeš privremeno dopuniti)</label>
+              <input type="text" id="persona" placeholder="Npr. smeđa kosa, zelene oči…" />
+            </div>
+            <div class="field">
+              <label class="lbl" for="model">Model</label>
+              <select id="model">
+                <option value="Realistic_Vision_V6.0_NV_B1_fp16.safetensors">Realistic_Vision_V6.0_NV_B1_fp16.safetensors</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="lbl">Broj slika</label>
+              <div class="seg" id="batch">
+                <button type="button" data-n="1" class="on">1</button>
+                <button type="button" data-n="2">2</button>
+                <button type="button" data-n="3">3</button>
+                <button type="button" data-n="4">4</button>
               </div>
             </div>
-            <button class="btn" type="button" id="goVideo">Generiraj kratki video</button>
-            <div class="hint" id="videoCaps">Provjeravam video čvorove…</div>
+            <div class="field">
+              <label class="lbl"><input type="checkbox" id="qualityPrefix" checked /> Bolja kvaliteta (RAW photo, detaljna koža) — ide na kraj prompta</label>
+            </div>
+            <div class="field">
+              <label class="lbl"><input type="checkbox" id="hiresFix" /> Hires fix (latent 1,5×, denoise 0.4)</label>
+              <div class="hint" id="hiresHint">Samo za SD 1.5 po zadanom. Na 8 GB VRAM-a može biti tijesno.</div>
+            </div>
+            <div class="hint" id="archHint">Model: SD 1.5 · formati 512×768 / 512×512 / 768×512.</div>
+            <div class="field">
+              <label class="lbl" for="seed">Seed</label>
+              <div class="seed-row">
+                <input type="number" id="seed" value="-1" min="-1" max="2147483647" />
+                <button type="button" class="ghost" id="randSeed">Nasumično</button>
+              </div>
+              <div class="hint">−1 znači nasumični seed pri svakom pokretanju.</div>
+            </div>
+            <div class="field">
+              <label class="lbl" for="negative">Negativni prompt</label>
+              <textarea id="negative" style="min-height:90px"></textarea>
+            </div>
           </div>
         </details>
       </form>
@@ -652,6 +658,51 @@
         <div id="results"></div>
         <h2 class="sec">Povijest</h2>
         <div class="gallery" id="history"></div>
+      </section>
+    </div>
+
+    <div id="tab-video" class="tab-panel grid">
+      <form class="card form create-form" id="videoForm" autocomplete="off">
+        <h2 class="sec" style="margin-top:0">Kratki video</h2>
+        <p class="hint" id="videoNote">Na RX 6600 (8 GB, ZLUDA) realan je AnimateDiff uz SD 1.5 i motion modul, 512×512, 2 s (16 sličica). LTX-Video, Wan i SVD-XT na 8 GB nisu praktični.</p>
+        <div id="videoStatus" class="warn">Provjeravam video podršku…</div>
+        <div class="field">
+          <button type="button" class="btn primary" id="installVideo">Instaliraj video podršku</button>
+          <div class="progress-block" id="videoInstWrap" hidden style="margin-top:12px">
+            <div class="progress-label"><span id="videoInstText">Instalacija…</span><span id="videoInstPct">0%</span></div>
+            <div class="bar"><i id="videoInstFill"></i></div>
+          </div>
+          <div class="hint" id="videoCaps">Git clone AnimateDiff-Evolved i VideoHelperSuite u custom_nodes, pip u venv, pa mm_sd_v15_v2 i po potrebi Realistic Vision. Zatim ponovo pokreni ComfyUI. Log: data\logs\video.log</div>
+        </div>
+        <div class="field">
+          <label class="lbl">Izvor</label>
+          <div class="seg" id="videoSource">
+            <button type="button" data-src="image" class="on">Iz zadnje slike</button>
+            <button type="button" data-src="prompt">Iz opisa</button>
+          </div>
+        </div>
+        <div class="field">
+          <label class="lbl" for="videoPrompt">Opis pokreta / scene</label>
+          <textarea id="videoPrompt" placeholder="Npr. lagano se pomiče, trepće, kosa se malo miče, uslikano mobitelom"></textarea>
+        </div>
+        <div class="field">
+          <label class="lbl">Duljina</label>
+          <div class="seg" id="frames">
+            <button type="button" data-f="8">1 s<br>8 sličica</button>
+            <button type="button" data-f="16" class="on">2 s<br>16 sličica</button>
+            <button type="button" data-f="24">3 s<br>24 sličice</button>
+          </div>
+          <div class="hint">24 sličice na 8 GB može zapeti na memoriji. Očekuj 1–4 min po klipu.</div>
+        </div>
+        <button class="go" id="goVideo" type="button">Generiraj klip</button>
+        <div class="err" id="videoErr"></div>
+      </form>
+      <section class="card stage">
+        <div class="progress-block" id="videoProgWrap" hidden>
+          <div class="progress-label"><span id="videoProgText">Generiranje…</span><span id="videoProgPct">0%</span></div>
+          <div class="bar"><i id="videoProgFill"></i></div>
+        </div>
+        <div id="videoResults"></div>
       </section>
     </div>
 
@@ -735,7 +786,7 @@
           </div>
           <div class="field" style="margin-top:12px">
             <label class="lbl"><input type="checkbox" id="lowVram" /> Low VRAM u ComfyUI-ju</label>
-            <div class="hint">Pri sljedećem paljenju ComfyUI-ja preko Studija dodaje --lowvram (manje VRAM-a, ponekad sporije). --use-split-cross-attention se ionako dodaje radi brzine na RX 6600 (8 GB). Zadani SDXL portret je 768×1152; 832×1216 ostaje kao Portret HD.</div>
+            <div class="hint">Pri sljedećem paljenju ComfyUI-ja preko Studija dodaje --lowvram (manje VRAM-a, ponekad sporije). --use-split-cross-attention se ionako dodaje radi brzine na RX 6600 (8 GB). Zadani SDXL portret je 768×1152; 832×1216 ostaje kao Portret HD. Triton test na ovom PC-u pada (nema stdio.h / Visual Studio) — popravak nije ključan za brzinu; Turbo LoRA jest.</div>
           </div>
           <div class="field" style="margin-top:18px">
             <label class="lbl">Ažuriranje aplikacije</label>
@@ -899,7 +950,7 @@
     const bar = $("bar");
     const barFill = $("barFill");
 
-    let width = 512, height = 768, batch = 1, steps = 30, frames = 8, currentArch = "sd15", lastMeta = null;
+    let width = 512, height = 768, batch = 1, steps = 30, frames = 16, currentArch = "sd15", lastMeta = null, turboMode = false, lastImage = null, videoSource = "image";
     let pollTimer = null;
     let comfyOk = false;
     let state = { profiles: [], active_profile_id: null, settings: {}, active_profile: null };
@@ -933,6 +984,8 @@
       currentTab = name;
       document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
       document.querySelectorAll(".tab-panel").forEach((p) => p.classList.toggle("on", p.id === "tab-" + name));
+      if (name === "video") loadVideoCaps();
+      if (name === "modeli") refreshModelsPanel();
       if (location.hash !== "#" + name) {
         try { history.replaceState(null, "", "#" + name); } catch (e) {}
       }
@@ -1182,7 +1235,17 @@
       const b = e.target.closest("button");
       if (!b) return;
       steps = Number(b.dataset.steps);
-      setSeg("quality", "data-steps", steps);
+      turboMode = b.dataset.mode === "turbo";
+      setSeg("quality", "data-mode", b.dataset.mode || (turboMode ? "turbo" : "quality"));
+      updateTokenCount();
+      const th = $("turboHint");
+      if (th) th.style.opacity = turboMode ? "1" : "0.75";
+    });
+    if ($("videoSource")) $("videoSource").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      videoSource = b.dataset.src || "image";
+      document.querySelectorAll("#videoSource button").forEach((x) => x.classList.toggle("on", x === b));
     });
     $("frames").addEventListener("click", (e) => {
       const b = e.target.closest("button");
@@ -1301,15 +1364,62 @@
         const r = await fetch("/api/video/capabilities", { cache: "no-store" });
         const d = await r.json();
         const el = $("videoCaps");
-        if (!d.comfy_ok) { el.textContent = d.comfy_message || d.message || "ComfyUI nije spojen."; return; }
-        if (d.ready) {
-          el.textContent = "Video čvorovi su pronađeni: " + [].concat(d.animatediff||[], d.svd||[], d.native||[]).slice(0,6).join(", ");
-        } else {
-          el.textContent = d.message || "Video čvorovi nisu instalirani. Vidi KRATKO_UPUTE.txt.";
+        const st = $("videoStatus");
+        if (d.notes_hr && $("videoNote")) $("videoNote").textContent = d.notes_hr;
+        if (!d.comfy_ok) {
+          if (st) { st.className = "warn danger"; st.textContent = d.comfy_message || d.message || "ComfyUI nije spojen."; }
+          if (el) el.textContent = "Upali Studio prečacem da se ComfyUI pokrene, zatim instaliraj podršku.";
+          return d;
         }
-        if (d.notes_hr) $("videoNote").textContent = d.notes_hr;
-      } catch (e) { $("videoCaps").textContent = String(e); }
+        if (d.ready) {
+          if (st) { st.className = "warn"; st.style.borderColor = "rgba(125,206,160,0.35)"; st.textContent = "Video podrška je spremna. Motion: " + (d.motion_model || "da") + (d.sd15_models && d.sd15_models[0] ? (" · SD 1.5: " + d.sd15_models[0]) : ""); }
+          if (el) el.textContent = "Čvorovi: " + [].concat(d.animatediff||[], d.vhs||[]).slice(0,6).join(", ");
+        } else {
+          if (st) { st.className = "warn"; st.textContent = d.message || "Video podrška nije instalirana."; }
+          if (el) el.textContent = d.honest || d.notes_hr || "Pritisni „Instaliraj video podršku”.";
+        }
+        if (d.install && d.install.status === "running") pollVideoInstall();
+        if (d.install && d.install.status === "done" && d.install.restart_required && !d.ready) {
+          if (st) st.textContent = d.install.message || "Instalirano — ponovo pokreni ComfyUI (zatvori Studio i upali prečac).";
+        }
+        return d;
+      } catch (e) {
+        if ($("videoCaps")) $("videoCaps").textContent = String(e);
+        return null;
+      }
     }
+    let videoInstTimer = null;
+    async function pollVideoInstall() {
+      try {
+        const r = await fetch("/api/video/install", { cache: "no-store" });
+        const d = await r.json();
+        const inst = d.install || {};
+        const wrap = $("videoInstWrap");
+        if (wrap) wrap.hidden = inst.status !== "running" && inst.status !== "done";
+        if ($("videoInstFill")) $("videoInstFill").style.width = (inst.percent || 0) + "%";
+        if ($("videoInstText")) $("videoInstText").textContent = inst.message || inst.error || "Instalacija…";
+        if ($("videoInstPct")) $("videoInstPct").textContent = (inst.percent || 0) + "%";
+        if (inst.status === "running") {
+          if (!videoInstTimer) videoInstTimer = setInterval(pollVideoInstall, 1000);
+          return;
+        }
+        if (videoInstTimer) { clearInterval(videoInstTimer); videoInstTimer = null; }
+        if (inst.status === "done") showToast(inst.message || "Video podrška je instalirana.");
+        if (inst.status === "error") showToast(inst.error || "Instalacija nije uspjela.", true);
+        loadVideoCaps();
+      } catch (e) {
+        if (videoInstTimer) { clearInterval(videoInstTimer); videoInstTimer = null; }
+      }
+    }
+    if ($("installVideo")) $("installVideo").addEventListener("click", async () => {
+      try {
+        const r = await fetch("/api/video/install", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ include_sd15: true }) });
+        const d = await r.json();
+        if (!r.ok || !d.ok) { showToast((d && d.error) || "Instalacija nije krenula.", true); return; }
+        if ($("videoInstWrap")) $("videoInstWrap").hidden = false;
+        pollVideoInstall();
+      } catch (e) { showToast(String(e), true); }
+    });
 
     function loadHistory() {
       let items = [];
@@ -1337,12 +1447,21 @@
       }
       historyEl.innerHTML = items.map(cardHtml).join("");
     }
+    function isVideoItem(item) {
+      const n = ((item && (item.filename || item.url)) || "").toLowerCase();
+      const k = (item && (item.kind || item.type) || "").toLowerCase();
+      return k === "video" || k === "gifs" || k === "videos" || /\.(mp4|webm|mov|mkv|gif)$/.test(n);
+    }
     function cardHtml(item) {
       const dl = item.url + (item.url.indexOf("?") >= 0 ? "&" : "?") + "download=1";
       const cap = (item.seed != null ? "seed " + item.seed : "");
       const safeUrl = item.url.replace(/"/g, "");
       const promptAttr = escapeHtml(item.prompt || "");
-      return '<figure class="shot"><img src="' + safeUrl + '" alt="" data-full="' + safeUrl + '" data-dl="' + dl + '" /><figcaption><span>' + cap + '</span><span class="acts"><button type="button" class="dl remix" data-seed="' + (item.seed != null ? item.seed : -1) + '" data-prompt="' + promptAttr + '">Ponovi s istim seedom</button><a class="dl" href="' + dl + '" download>Preuzmi</a></span></figcaption></figure>';
+      const media = isVideoItem(item)
+        ? '<video src="' + safeUrl + '" controls playsinline loop></video>'
+        : '<img src="' + safeUrl + '" alt="" data-full="' + safeUrl + '" data-dl="' + dl + '" />';
+      const remix = isVideoItem(item) ? "" : '<button type="button" class="dl remix" data-seed="' + (item.seed != null ? item.seed : -1) + '" data-prompt="' + promptAttr + '">Ponovi s istim seedom</button>';
+      return '<figure class="shot">' + media + '<figcaption><span>' + cap + '</span><span class="acts">' + remix + '<a class="dl" href="' + dl + '" download>Preuzmi</a></span></figcaption></figure>';
     }
     function renderResults(images, meta) {
       if (!images.length) { resultsEl.innerHTML = '<div class="empty">Čekam slike…</div>'; return; }
@@ -1406,9 +1525,16 @@
         const images = d.images || [];
         if (!images.length) { showErr(errEl, "Zadatak je završio, ali nema izlaznih datoteka."); return; }
         lastMeta = Object.assign({}, meta, { width: width, height: height, model: modelEl.value, steps: steps });
-        renderResults(images, lastMeta);
-        addToHistory(images, lastMeta);
-        showToast("Slika je gotova.");
+        const stills = images.filter((im) => !isVideoItem(im));
+        if (stills[0]) lastImage = stills[0];
+        if (meta && meta.kind === "video" && $("videoResults")) {
+          $("videoResults").innerHTML = '<div class="gallery results">' + images.map((img) => cardHtml({ url: img.url, filename: img.filename, seed: meta.seed, prompt: meta.prompt, kind: img.kind })).join("") + "</div>";
+        } else {
+          renderResults(images, lastMeta);
+          addToHistory(stills, lastMeta);
+        }
+        showToast(meta && meta.kind === "video" ? "Klip je gotov." : "Slika je gotova.");
+        if (meta && meta.token_warn) showToast("Opis je bio dug — scena je ostala na početku, ostatak je spojen.", false);
       } catch (e) {
         stopPoll(); goBtn.disabled = false; $("goVideo").disabled = false;
         showErr(errEl, "Izgubljena veza dok se čekao rezultat: " + e);
@@ -1425,9 +1551,36 @@
         seed: Number(seedEl.value),
         quality_prefix: $("qualityPrefix") ? $("qualityPrefix").checked : true,
         hires: $("hiresFix") ? $("hiresFix").checked : false,
+        turbo: !!turboMode,
         model_type: currentArch === "sdxl" ? "sdxl" : (currentArch === "sd15" ? "sd15" : "auto")
       };
     }
+
+    function estimateClipTokens(text) {
+      const parts = String(text || "").match(/[A-Za-z0-9]+(?:'[A-Za-z]+)?|[^\s\w]/g);
+      return parts ? parts.length : 0;
+    }
+    function stripLeadingPortrait(text) {
+      return String(text || "").replace(/^(a\s+)?((photorealistic|realistic|beautiful|stunning|detailed|close[- ]up)\s+)*portraits?(\s+photo)?(\s+of(\s+an?)?|\s+shot)?\s*[,:]?\s*/i, "").trim();
+    }
+    function updateTokenCount() {
+      const scene = promptEl ? promptEl.value.trim() : "";
+      const appearance = stripLeadingPortrait(personaEl ? personaEl.value : "");
+      const quality = ($("qualityPrefix") && $("qualityPrefix").checked) ? "RAW photo, best quality, highly detailed skin" : "";
+      const adult = /\badult\b/i.test(scene + " " + appearance) ? "" : "adult woman";
+      const full = [adult, scene, appearance, quality].filter(Boolean).join(", ");
+      const n = estimateClipTokens(full);
+      const el = $("tokenCount");
+      const warn = $("tokenWarn");
+      const row = $("tokenRow");
+      if (el) el.textContent = "≈ " + n + " / 75 tokena";
+      if (row) row.classList.toggle("warn", n > 75);
+      if (warn) warn.hidden = n <= 75;
+    }
+    if (promptEl) promptEl.addEventListener("input", updateTokenCount);
+    if (personaEl) personaEl.addEventListener("input", updateTokenCount);
+    if ($("qualityPrefix")) $("qualityPrefix").addEventListener("input", updateTokenCount);
+    updateTokenCount();
 
     async function generate(ev) {
       if (ev) ev.preventDefault();
@@ -1455,25 +1608,40 @@
     }
 
     $("goVideo").addEventListener("click", async () => {
-      showErr(errEl, "");
-      if (!promptEl.value.trim()) { showErr(errEl, "Upiši opis klipa."); return; }
+      const errV = $("videoErr") || errEl;
+      showErr(errV, "");
+      const vPrompt = ($("videoPrompt") && $("videoPrompt").value.trim()) || promptEl.value.trim();
+      if (videoSource === "prompt" && !vPrompt) { showErr(errV, "Upiši opis klipa."); return; }
+      if (videoSource === "image" && !lastImage) { showErr(errV, "Nema zadnje slike — prvo generiraj sliku u kartici Slike, ili odaberi „Iz opisa”."); return; }
       $("goVideo").disabled = true;
+      if ($("videoProgWrap")) $("videoProgWrap").hidden = false;
       setProgress(0.05, "Šaljem video zadatak…", true);
-      const body = Object.assign(payloadBase(), { frames: frames, width: Math.min(width, 512), height: Math.min(height, 512) });
+      const body = Object.assign(payloadBase(), {
+        prompt: vPrompt,
+        frames: frames,
+        width: 512,
+        height: 512,
+        fps: 8,
+        turbo: false
+      });
+      if (videoSource === "image" && lastImage) {
+        body.init_image = { filename: lastImage.filename, subfolder: lastImage.subfolder || "", type: lastImage.type || "output" };
+      }
       try {
         const r = await fetch("/api/video/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
         const d = await r.json();
         if (!r.ok || !d.ok) {
-          $("goVideo").disabled = false; progWrap.hidden = true;
-          showErr(errEl, d.error || "Video nije pokrenut.");
+          $("goVideo").disabled = false;
+          if (progWrap) progWrap.hidden = true;
+          showErr(errV, d.error || "Video nije pokrenut.");
           return;
         }
-        if (d.warning) showErr(errEl, d.warning);
-        const meta = { prompt: d.prompt, seed: d.seed };
+        if (d.warning) showToast(d.warning);
+        const meta = { prompt: d.prompt, seed: d.seed, kind: "video" };
         stopPoll();
         pollTimer = setInterval(() => pollJob(d.prompt_id, meta), 700);
         pollJob(d.prompt_id, meta);
-      } catch (e) { $("goVideo").disabled = false; showErr(errEl, String(e)); }
+      } catch (e) { $("goVideo").disabled = false; showErr(errV, String(e)); }
     });
 
     $("form").addEventListener("submit", generate);
@@ -1931,9 +2099,10 @@
       if (!box) return;
       const items = list || [];
       box.innerHTML = items.map((c) => {
-        const gb = c.size_bytes ? (c.size_bytes / (1024*1024*1024)).toFixed(1) + " GB" : "";
+        const gb = c.size_bytes ? (c.size_bytes / (1024*1024*1024)).toFixed(2).replace(/\.00$/, "") + " GB" : "";
+        const tag = c.turbo ? "TURBO" : (c.kind === "lora" ? "LoRA" : (c.kind === "animatediff" ? "VIDEO" : (c.arch === "sd15" ? "SD 1.5" : "SDXL")));
         return '<div class="model-card" data-id="' + c.id + '">'
-          + '<div class="arch-tag">SDXL</div>'
+          + '<div class="arch-tag">' + tag + "</div>"
           + "<h3>" + escapeHtml(c.name) + (gb ? " · " + gb : "") + "</h3>"
           + '<div class="hint">' + escapeHtml(c.note || "") + "</div>"
           + '<button type="button" class="btn primary dl-curated" data-id="' + c.id + '">Preuzmi</button>'

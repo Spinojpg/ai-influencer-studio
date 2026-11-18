@@ -113,16 +113,16 @@ Samo ComfyUI (ispravak greške s krivom radnom mapom):
 Kako koristiti
 --------------
 
-- Upiši opis slike (Opis).
-- Po želji upiši "Lik / persona" — taj se tekst uvijek doda na početak
-  opisa i pamti se u pregledniku, da lik ostane prepoznatljiv.
-- Odaberi model, format (Portret / Kvadrat / Pejzaž), broj slika i
-  Brzo (20 koraka) ili Kvaliteta (30 koraka).
-- Seed -1 = nasumično. Isti seed + isti opis daje sličan rezultat.
-- "Napredno" skriva negativni prompt (već ima dobar zadani tekst).
+- Upiši opis SCENE (što se događa, gdje, kakva je slika). Izgled s
+  profila ide IZA scene, pa oznake kvalitete — da CLIP (~75 tokena)
+  ne odreže scenu. „Portrait of” se skida s izgleda. Brojač tokena
+  upozori kad je opis predugačak; višak se spaja (ConditioningConcat).
+  „adult woman” ostaje na početku.
+- Odaberi format i brzinu: Turbo (8 koraka, treba Hyper-SDXL LoRA iz
+  Modelâ, samo SDXL) ili Kvaliteta (30 koraka). Model, seed, negativni
+  prompt i hires su pod Napredno.
 - Generiraj. Traka pokazuje napredak. Klik na sliku je uvećava;
-  Preuzmi sprema PNG.
-- Povijest zadnjih slika ostaje u ovom pregledniku.
+  Preuzmi sprema PNG. Povijest ostaje u ovom pregledniku.
 
 
 Ako nešto ne radi
@@ -194,6 +194,12 @@ Modeli (SD 1.5 i SDXL)
   (1,5× latent + drugi sampler, denoise 0.4) je za SD 1.5; na SDXL
   upozoravamo na VRAM. Pokretač dodaje --use-split-cross-attention;
   Low VRAM (--lowvram) uključi u postavkama ako zapne memorija.
+  Turbo: preuzmi Hyper-SDXL (8 koraka, CFG) LoRA u kartici Modeli
+  (~750 MB, models/loras). Radi uz RealVisXL: 8 koraka, cfg 5, euler,
+  sgm_uniform. Na RX 6600 (~17 s/korak) slika padne s ~8–9 min na
+  ~2–2,5 min. Triton test na ovom PC-u pada jer clang ne nalazi
+  stdio.h (nema Visual Studio / Windows SDK). Popravak Build Toolsa
+  nije ključan za brzinu — Turbo LoRA je pravi dobitak.
 
 Slika je gotova, a postotak stoji na 0 %
   Studio sada čita napredak preko ComfyUI websocketom. Ako progres nije
@@ -212,8 +218,10 @@ pristanka).
 Kartice u sučelju
 -----------------
 
-- Slike: kao dosad, txt2img preko ComfyUI. Prefix izgleda, negativni
-  prompt i preferirani model dolaze s odabranog influencera (gore).
+- Slike: čistiji ekran — veliki opis scene, formati, Turbo/Kvaliteta
+  i gumb Generiraj. Izgled, model, seed i negativni prompt su pod
+  Napredno. Scena ide prva u promptu.
+- Video: kratki klip (2 s @ 512×512) preko AnimateDiff + SD 1.5.
 - Poruke: Grok bot za fanove. Detalji u PORUKE_UPUTE.txt
   (ključ s console.x.ai, simulacija, Instagram, Telegram).
 - Influenceri: više profila (ime, izgled za slike, osobnost za chat,
@@ -224,21 +232,22 @@ Kartice u sučelju
 Video (pokret)
 --------------
 
-U kartici Slike, odjeljak "Video (kratki klip, pokus)".
+Kartica Video. Na RX 6600 (8 GB, ZLUDA) realan je AnimateDiff-Evolved
+uz SD 1.5 (Realistic Vision) i motion modul mm_sd_v15_v2: 512×512,
+16 sličica, 8 fps (oko 2 s). Očekuj 1–4 min po klipu. 3 s (24 sličice)
+može zapeti na VRAM-u.
 
-Na RX 6600 s 8 GB VRAM-a realni su samo kratki, niske rezolucije
-klipovi (npr. 512×512, 8 sličica, 8 fps). Za pravi motion trebaš
-dodatne ComfyUI pakete, npr.:
+SVD-XT, LTX-Video i Wan2.1 1.3B nisu preporučeni na 8 GB (T5 encoder
+sam je ~10 GB ili je VRAM tijesan). AnimateDiff ne radi na SDXL.
 
-  - ComfyUI-AnimateDiff-Evolved  (za SD 1.5)
-  - ComfyUI-VideoHelperSuite     (spajanje sličica u video)
-  - ili SVD / img2vid čvorove i odgovarajući model
+Gumb "Instaliraj video podršku" (treba Git):
+  - git clone ComfyUI-AnimateDiff-Evolved i ComfyUI-VideoHelperSuite
+    u C:\ComfyUI-Zluda\custom_nodes
+  - pip install -r requirements.txt u ComfyUI venv
+  - preuzme mm_sd_v15_v2.ckpt u models/animatediff_models (~1,7 GB)
+  - ako nemaš SD 1.5, preuzme Realistic Vision V5.1 (~2 GB)
 
-Modele stavi u mape koje ti paket nalaže (često
-models/animatediff_models). Nakon instalacije restartaj ComfyUI.
-
-Ako ti ti čvorovi nisu instalirani, Studio NEće slati krivi workflow
-nego će jasno napisati što nedostaje. Ako su AnimateDiff čvorovi tu,
-ali se ulazi razlikuju po verziji, Studio te uputi da workflow
-složiš u samom ComfyUI-ju (izvoz API formata) dok se automatika
-ne uskladi s tvojim paketom.
+Zatim zatvori Studio i ponovo upali prečac da se ComfyUI učita s
+novim čvorovima. Log je u data\logs\video.log. Klip može ići iz
+zadnje slike (img2vid) ili iz opisa. Sprema se mp4 (ili GIF ako
+nema ffmpeg formata).

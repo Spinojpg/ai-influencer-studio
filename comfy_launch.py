@@ -25,6 +25,53 @@ def checkpoints_dir() -> Path:
     return comfy_dir() / "models" / "checkpoints"
 
 
+def models_root() -> Path:
+    raw = (os.environ.get("COMFYUI_MODELS_ROOT") or "").strip()
+    if raw:
+        return Path(raw)
+    ck = os.environ.get("COMFYUI_MODELS_DIR") or ""
+    if ck.strip():
+        return Path(ck).parent
+    return comfy_dir() / "models"
+
+
+def loras_dir() -> Path:
+    raw = (os.environ.get("COMFYUI_LORAS_DIR") or "").strip()
+    return Path(raw) if raw else models_root() / "loras"
+
+
+def animatediff_models_dir() -> Path:
+    raw = (os.environ.get("COMFYUI_ANIMATEDIFF_DIR") or "").strip()
+    return Path(raw) if raw else models_root() / "animatediff_models"
+
+
+def custom_nodes_dir() -> Path:
+    return comfy_dir() / "custom_nodes"
+
+
+def venv_python() -> Path:
+    folder = comfy_dir()
+    if os.name == "nt" or str(folder).startswith("C:\\") or "\\" in str(folder):
+        win = folder / "venv" / "Scripts" / "python.exe"
+        if win.exists() or os.name == "nt":
+            return win
+    return folder / "venv" / "bin" / "python"
+
+
+def list_files(folder: Path, suffixes: tuple[str, ...] = (".safetensors", ".ckpt", ".pt", ".pth", ".bin")) -> list[str]:
+    folder = Path(folder)
+    if not folder.is_dir():
+        return []
+    names = []
+    try:
+        for p in folder.iterdir():
+            if p.is_file() and p.suffix.lower() in suffixes:
+                names.append(p.name)
+    except OSError:
+        return []
+    return sorted(names)
+
+
 def setting_on(raw: str | None, default: bool = True) -> bool:
     if raw is None or str(raw).strip() == "":
         return default
