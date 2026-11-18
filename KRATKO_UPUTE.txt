@@ -129,6 +129,21 @@ Studio se ne otvara
   zatim py -3.11, zatim python iz PATH-a.
   Ako koristiš instalirani prečac, gleda se i pythonw.exe.
 
+  Ako Edge pokaže ERR_EMPTY_RESPONSE ili praznu stranicu, otvori log
+  (vidi "Otvori log" dolje) — tamo piše zašto poslužitelj nije odgovorio.
+
+Otvori log
+  Logovi su u mapi podataka:
+
+    %LOCALAPPDATA%\AIInfluencerStudio\data\logs\studio.log
+    %LOCALAPPDATA%\AIInfluencerStudio\data\logs\launcher.log
+    %LOCALAPPDATA%\AIInfluencerStudio\data\logs\comfyui.log
+
+  Otvori studio.log ili launcher.log u Notepadu ako se aplikacija ne
+  podigne, ako vidiš prazan odgovor na http://127.0.0.1:7860, ili ako
+  se ComfyUI nije upalio. ComfyUI ide u zasebni minimizirani konzolni
+  prozor (comfyui-n.bat, ostaje upaljen); pogledaj i programsku traku.
+
 Ažuriranje ne radi
   Provjeri data\update.json (owner i repo). Za privatni repo treba
   GITHUB_TOKEN u data\.env. Gumb "Provjeri update" pokaže poruku greške.

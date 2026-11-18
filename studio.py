@@ -24,6 +24,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import applog
 import inbox
 import updater
 import video as video_mod
@@ -47,12 +48,7 @@ DEFAULT_NEGATIVE = (
 
 
 def _stdio_utf8() -> None:
-    if sys.platform == "win32":
-        for stream in (sys.stdout, sys.stderr):
-            try:
-                stream.reconfigure(encoding="utf-8", errors="replace")
-            except Exception:
-                pass
+    applog.safe_stdio()
 
 
 def comfy_request(path: str, data=None, timeout: float = 15, method: str | None = None):
@@ -334,16 +330,65 @@ class StudioHandler(BaseHTTPRequestHandler):
     server_version = "SimpleStudio/1.0"
 
     def log_message(self, fmt: str, *args) -> None:
-        msg = fmt % args
+        try:
+            msg = fmt % args
+        except Exception:
+            msg = str(fmt)
         # Nikad ne zapisuj tajne iz queryja ili zaglavlja.
         for name in ("XAI_API_KEY", "IG_ACCESS_TOKEN", "IG_APP_SECRET", "IG_VERIFY_TOKEN", "TELEGRAM_BOT_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"):
-            val = inbox.secret(name)
+            try:
+                val = inbox.secret(name)
+            except Exception:
+                val = ""
             if val:
-                msg = msg.replace(val, inbox._redact(val))
-        sys.stderr.write("%s - %s\n" % (self.address_string(), msg))
+                try:
+                    msg = msg.replace(val, inbox._redact(val))
+                except Exception:
+                    pass
+        try:
+            applog.get_logger("studio").info("%s - %s", self.address_string(), msg)
+        except Exception:
+            pass
+
+    def log_error(self, fmt: str, *args) -> None:
+        try:
+            msg = fmt % args
+        except Exception:
+            msg = str(fmt)
+        try:
+            applog.get_logger("studio").error("%s - %s", self.address_string(), msg)
+        except Exception:
+            pass
+
+    def _headers_already_sent(self) -> bool:
+        return bool(getattr(self, "_studio_headers_sent", False))
+
+    def _send_error_response(self) -> None:
+        if self._headers_already_sent():
+            self.close_connection = True
+            return
+        try:
+            self._json(500, {"ok": False, "error": "Unutarnja greška poslužitelja."})
+        except Exception:
+            self.close_connection = True
+            try:
+                applog.get_logger("studio").exception("Nisam mogao poslati HTTP 500")
+            except Exception:
+                pass
+
+    def handle(self) -> None:
+        try:
+            super().handle()
+        except Exception:
+            try:
+                applog.get_logger("studio").exception("Nepopravljiva greška HTTP veze")
+            except Exception:
+                pass
+            self.close_connection = True
 
     def _send(self, code: int, body: bytes, content_type: str, extra_headers=None) -> None:
         self.send_response(code)
+        self._studio_headers_sent = True
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         headers = {"Cache-Control": "no-store"}
@@ -373,30 +418,41 @@ class StudioHandler(BaseHTTPRequestHandler):
         try:
             self._handle_get()
         except Exception:
-            traceback.print_exc()
-            if not getattr(self, "_headers_sent_flag", False):
-                self._json(500, {"ok": False, "error": "Unutarnja greška poslužitelja."})
+            try:
+                applog.get_logger("studio").exception("Greška u GET %s", getattr(self, "path", ""))
+            except Exception:
+                pass
+            self._send_error_response()
 
     def do_POST(self) -> None:  # noqa: N802
         try:
             self._handle_post()
         except Exception:
-            traceback.print_exc()
-            self._json(500, {"ok": False, "error": "Unutarnja greška poslužitelja."})
+            try:
+                applog.get_logger("studio").exception("Greška u zahtjevu %s", getattr(self, "path", ""))
+            except Exception:
+                pass
+            self._send_error_response()
 
     def do_PUT(self) -> None:  # noqa: N802
         try:
             self._handle_put()
         except Exception:
-            traceback.print_exc()
-            self._json(500, {"ok": False, "error": "Unutarnja greška poslužitelja."})
+            try:
+                applog.get_logger("studio").exception("Greška u zahtjevu %s", getattr(self, "path", ""))
+            except Exception:
+                pass
+            self._send_error_response()
 
     def do_DELETE(self) -> None:  # noqa: N802
         try:
             self._handle_delete()
         except Exception:
-            traceback.print_exc()
-            self._json(500, {"ok": False, "error": "Unutarnja greška poslužitelja."})
+            try:
+                applog.get_logger("studio").exception("Greška u zahtjevu %s", getattr(self, "path", ""))
+            except Exception:
+                pass
+            self._send_error_response()
 
     def do_OPTIONS(self) -> None:  # noqa: N802
         self._send(204, b"", "text/plain")
@@ -1064,8 +1120,9 @@ def open_browser(url: str) -> None:
 
 def main() -> int:
     global _httpd
-    _stdio_utf8()
     inbox.configure_paths()
+    applog.setup(inbox.DATA_DIR, "studio")
+    _stdio_utf8()
     inbox.load_dotenv(inbox.ENV_PATH)
     inbox.load_dotenv(ROOT / ".env")
     inbox.init_db()
@@ -1088,6 +1145,7 @@ def main() -> int:
     print(f"  Sucelje:  {url}")
     print(f"  ComfyUI:  {COMFY_BASE}")
     print(f"  Podaci:   {inbox.DATA_DIR}")
+    print(f"  Log:      {inbox.DATA_DIR / 'logs' / 'studio.log'}")
     print("  Kartice: Slike, Poruke, Influenceri")
     print("============================================")
     print("Zaustavi sa Ctrl+C.")

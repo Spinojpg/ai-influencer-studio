@@ -21,6 +21,7 @@ if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 os.chdir(APP_DIR)
 
+import applog  # noqa: E402
 import inbox  # noqa: E402
 import updater  # noqa: E402
 
@@ -32,12 +33,7 @@ STUDIO_WAIT_S = int(os.environ.get("STUDIO_WAIT_SECONDS", "60"))
 
 
 def _py_console() -> str:
-    if sys.platform == "win32":
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace") if hasattr(sys.stdout, "reconfigure") else None
-        try:
-            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
+    applog.safe_stdio()
     return ""
 
 
@@ -85,35 +81,69 @@ def comfy_dir() -> Path:
     return Path(raw)
 
 
-def start_comfy_if_needed() -> None:
+def start_comfy_if_needed() -> subprocess.Popen | None:
+    """Pokreni comfyui-n.bat u novom minimiziranom konzolnom prozoru; ne gasimo ga."""
     if url_ok(COMFY_URL + "/system_stats"):
         print("ComfyUI vec radi.")
-        return
+        return None
     folder = comfy_dir()
     bat = folder / "comfyui-n.bat"
     if not bat.is_file():
         print("UPOZORENJE: Nema", bat, "- preskacem pokretanje ComfyUI-ja.")
-        return
-    print("Pokrecem ComfyUI (minimized) iz", folder)
+        return None
+    print("Pokrecem ComfyUI u novom minimiziranom prozoru iz", folder)
+    try:
+        log_path = applog.logs_dir(inbox.DATA_DIR) / "comfyui.log"
+        with log_path.open("a", encoding="utf-8") as fh:
+            from datetime import datetime
+            fh.write(f"{datetime.now().isoformat(timespec='seconds')} pokrecem {bat} (cwd={folder})\n")
+    except Exception:
+        log_path = None
+    proc = None
     if sys.platform == "win32":
-        # Novi minimizirani prozor, radna mapa C:\ComfyUI-Zluda.
-        flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0x00000010)
+        # Novi VIDLJIVI minimizirani konzolni prozor. comfyui-n.bat zavrsava
+        # s pause, pa mu treba konzola — ne smije biti CREATE_NO_WINDOW / hidden.
+        flags = int(getattr(subprocess, "CREATE_NEW_CONSOLE", 0x00000010))
+        flags |= int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200))
         startup = subprocess.STARTUPINFO()
-        startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startup.wShowWindow = 6  # SW_MINIMIZE
-        subprocess.Popen(
+        startup.dwFlags |= int(getattr(subprocess, "STARTF_USESHOWWINDOW", 0x00000001))
+        startup.wShowWindow = 6  # SW_MINIMIZE — prozor postoji, nije skriven
+        proc = subprocess.Popen(
             ["cmd", "/c", "comfyui-n.bat"],
             cwd=str(folder),
             startupinfo=startup,
             creationflags=flags,
-            close_fds=True,
+            close_fds=False,
+            stdin=None,
+            stdout=None,
+            stderr=None,
         )
     else:
-        # Na Linuxu samo ako korisnik ima skriptu (testovi ovo ne zovu nužno).
-        subprocess.Popen(["bash", str(bat)], cwd=str(folder), start_new_session=True)
-    print("Cekam ComfyUI na", COMFY_URL, "...")
-    if not wait_url(COMFY_URL + "/system_stats", COMFY_WAIT_S):
+        # Linux/test: odvojeni proces, ne ubijamo ga s launcherom.
+        proc = subprocess.Popen(
+            ["bash", str(bat)],
+            cwd=str(folder),
+            start_new_session=True,
+            stdin=subprocess.DEVNULL,
+        )
+    # Namjerno ne cuvamo referencu radi gasenja — proces zivi samostalno.
+    print("Cekam ComfyUI na", COMFY_URL, "do", COMFY_WAIT_S, "s ...")
+    ok = wait_url(COMFY_URL + "/system_stats", COMFY_WAIT_S)
+    if ok:
+        print("ComfyUI je spreman.")
+    else:
         print("UPOZORENJE: ComfyUI nije odgovorio na vrijeme. Studio ce se ipak pokrenuti.")
+    if log_path is not None:
+        try:
+            with log_path.open("a", encoding="utf-8") as fh:
+                from datetime import datetime
+                fh.write(
+                    f"{datetime.now().isoformat(timespec='seconds')} "
+                    f"{'spreman na ' + COMFY_URL if ok else 'nije odgovorio u roku'}\n"
+                )
+        except Exception:
+            pass
+    return proc
 
 
 def start_studio_hidden(app_dir: Path, data_dir: Path) -> subprocess.Popen:
@@ -273,7 +303,6 @@ def apply_pending(app_dir: Path, data_dir: Path) -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
-    _py_console()
     argv = list(argv if argv is not None else sys.argv[1:])
     apply = "--apply-pending" in argv
     no_update = "--no-update" in argv or os.environ.get("STUDIO_SKIP_UPDATE") == "1"
@@ -281,6 +310,8 @@ def main(argv: list[str] | None = None) -> int:
 
     inbox.configure_paths(APP_DIR)
     data_dir = inbox.DATA_DIR
+    applog.setup(data_dir, "launcher")
+    _py_console()
     inbox.load_dotenv(inbox.ENV_PATH)
     inbox.load_dotenv(APP_DIR / ".env")
     updater.write_default_update_config(data_dir)
