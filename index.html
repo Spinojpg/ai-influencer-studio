@@ -148,6 +148,36 @@
     }
     .hint { color: var(--muted); font-size: 0.8rem; margin-top: 6px; }
 
+    .appear-summary {
+      margin-top: 8px;
+      padding: 10px 12px;
+      background: var(--bg0);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      font-size: 0.85rem;
+      line-height: 1.45;
+      color: var(--muted);
+    }
+    .appear-summary .appear-text { color: var(--text); }
+    .appear-summary.empty .appear-text { color: var(--muted); font-style: italic; }
+    .range-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 8px;
+    }
+    .range-row input[type="range"] {
+      flex: 1;
+      accent-color: #d7a15a;
+    }
+    .range-row .range-val {
+      min-width: 2.4em;
+      text-align: right;
+      color: var(--gold);
+      font-variant-numeric: tabular-nums;
+      font-size: 0.9rem;
+    }
+
     .seg {
       display: flex;
       gap: 6px;
@@ -602,11 +632,21 @@
 
     <div id="tab-slike" class="tab-panel on grid">
       <form class="card form create-form" id="form" autocomplete="off">
+        <div class="field person-field">
+          <label class="lbl" for="osoba">Osoba</label>
+          <select id="osoba"></select>
+          <div class="appear-summary" id="appearSummary">
+            <div class="appear-text" id="appearText"></div>
+          </div>
+          <label class="lbl" for="appearExtra" style="margin-top:12px">Dodatno</label>
+          <input type="text" id="appearExtra" placeholder="Privremeno, samo za ovu sliku (npr. crvena haljina)…" />
+        </div>
+
         <div class="field prompt-field">
           <label class="lbl" for="prompt">Opis scene</label>
           <textarea id="prompt" placeholder="Npr. leži na krevetu, uslikana mobitelom, jutarnje svjetlo, nered na posteljini" required></textarea>
           <div class="token-row" id="tokenRow"><span id="tokenCount">≈ 0 / 75 tokena</span><span id="tokenWarn" hidden>Predugačak opis — scena ostaje prva, višak se spaja.</span></div>
-          <div class="hint">Prvo ide tvoja scena, zatim izgled s profila, pa oznake kvalitete. „Portrait of” se skida s izgleda da CLIP ne odreže scenu (limit ~75 tokena). Ctrl+Enter pokreće.</div>
+          <div class="hint">Odaberi osobu, zatim upiši samo što radi. Prvo ide tvoja scena, zatim izgled s profila, pa oznake kvalitete. „Portrait of” se skida s izgleda da CLIP ne odreže scenu (limit ~75 tokena). Ctrl+Enter pokreće.</div>
           <div class="chips" id="styleChips" aria-label="Brzi stilovi"></div>
         </div>
 
@@ -642,14 +682,21 @@
           <summary>Napredno</summary>
           <div class="inner">
             <div class="field">
-              <label class="lbl" for="persona">Izgled (s profila, možeš privremeno dopuniti)</label>
-              <input type="text" id="persona" placeholder="Npr. smeđa kosa, zelene oči…" />
-            </div>
-            <div class="field">
               <label class="lbl" for="model">Model</label>
               <select id="model">
                 <option value="Realistic_Vision_V6.0_NV_B1_fp16.safetensors">Realistic_Vision_V6.0_NV_B1_fp16.safetensors</option>
               </select>
+            </div>
+            <div class="field" id="loraField">
+              <label class="lbl" for="lora">LoRA</label>
+              <select id="lora">
+                <option value="">Bez LoRA-e</option>
+              </select>
+              <div class="range-row" id="loraStrengthRow">
+                <input type="range" id="loraStrength" min="0" max="1.5" step="0.05" value="0.8" />
+                <span class="range-val" id="loraStrengthVal">0.8</span>
+              </div>
+              <div class="hint" id="loraHint">LoRA-e iz models/loras, usklađene s odabranim modelom. Nepoznate su pod Ostalo. Turbo LoRA se dodaje zasebno kad uključiš Turbo.</div>
             </div>
             <div class="field">
               <label class="lbl">Broj slika</label>
@@ -970,13 +1017,17 @@
     const QUALITY_PREFIX = "RAW photo, best quality, highly detailed skin";
     const DEFAULT_MODEL = "Realistic_Vision_V6.0_NV_B1_fp16.safetensors";
     const LS_HISTORY = "ais-studio-history";
+    const LS_LORA = "ais-studio-lora-by-model";
 
     const $ = (id) => document.getElementById(id);
     const statusEl = $("status");
     const grokEl = $("grokStatus");
     const modelEl = $("model");
     const promptEl = $("prompt");
-    const personaEl = $("persona");
+    const osobaEl = $("osoba");
+    const appearExtraEl = $("appearExtra");
+    const loraEl = $("lora");
+    const loraStrengthEl = $("loraStrength");
     const negEl = $("negative");
     const seedEl = $("seed");
     const errEl = $("err");
@@ -1040,6 +1091,8 @@
       showTab(location.hash.slice(1));
     }
 
+    const APPEAR_FIELDS = ["appearance_prompt", "looks", "hair", "eyes", "body", "tattoos", "distinguishing_marks"];
+
     function fillProfileSelects() {
       const opts = (state.profiles || []).map((p) => {
         const sel = p.id === state.active_profile_id ? " selected" : "";
@@ -1051,17 +1104,85 @@
       const s = state.settings || {};
       if (s.instagram_profile_id) $("igProfile").value = s.instagram_profile_id;
       if (s.telegram_profile_id) $("tgProfile").value = s.telegram_profile_id;
+      fillOsobaSelect();
+    }
+
+    function fillOsobaSelect() {
+      if (!osobaEl) return;
+      const keep = osobaEl.value;
+      const profiles = state.profiles || [];
+      const preferred = keep || String(state.active_profile_id || "");
+      osobaEl.innerHTML = profiles.map((p) => {
+        const sel = String(p.id) === String(preferred) ? " selected" : "";
+        return '<option value="' + p.id + '"' + sel + ">" + escapeHtml(p.name) + "</option>";
+      }).join("");
+      if (preferred && Array.from(osobaEl.options).some((o) => o.value === String(preferred))) {
+        osobaEl.value = String(preferred);
+      } else if (state.active_profile_id) {
+        osobaEl.value = String(state.active_profile_id);
+      }
+      updateAppearanceSummary();
+    }
+
+    function selectedPersona() {
+      const id = Number(osobaEl && osobaEl.value);
+      return (state.profiles || []).find((p) => Number(p.id) === id) || state.active_profile || null;
+    }
+
+    function appearanceFromProfile(prof, extra) {
+      const parts = [];
+      const seen = {};
+      function add(raw) {
+        const t = stripLeadingPortrait(String(raw || "").trim());
+        if (!t) return;
+        const key = t.toLowerCase();
+        if (seen[key]) return;
+        if (parts.some((p) => p.toLowerCase().indexOf(key) >= 0)) return;
+        seen[key] = 1;
+        parts.push(t);
+      }
+      if (prof) APPEAR_FIELDS.forEach((k) => add(prof[k]));
+      add(extra);
+      return parts.join(", ");
+    }
+
+    function currentAppearance() {
+      return appearanceFromProfile(selectedPersona(), appearExtraEl ? appearExtraEl.value : "");
+    }
+
+    function updateAppearanceSummary() {
+      const el = $("appearText");
+      const box = $("appearSummary");
+      if (!el || !box) return;
+      const prof = selectedPersona();
+      const text = appearanceFromProfile(prof, "");
+      if (text) {
+        el.textContent = text;
+        box.classList.remove("empty");
+        box.hidden = false;
+      } else {
+        el.textContent = "Nema opisa izgleda u profilu. Uredi ga u kartici Influenceri.";
+        box.classList.add("empty");
+        box.hidden = false;
+      }
+      updateTokenCount();
     }
 
     function applyProfileToImageForm(prof) {
       if (!prof) return;
-      personaEl.value = prof.appearance_prompt || "";
+      if (osobaEl && prof.id != null) {
+        if (Array.from(osobaEl.options).some((o) => o.value === String(prof.id))) {
+          osobaEl.value = String(prof.id);
+        }
+      }
+      updateAppearanceSummary();
       if (prof.negative_prompt) negEl.value = prof.negative_prompt;
       if (prof.preferred_model) {
         const exists = Array.from(modelEl.options).some((o) => o.value === prof.preferred_model);
         if (exists) modelEl.value = prof.preferred_model;
       }
       updateActiveModelLine();
+      fillLoraSelect();
     }
 
     async function loadState() {
@@ -1269,7 +1390,7 @@
       batch = Number(b.dataset.n);
       setSeg("batch", "data-n", batch);
     });
-    modelEl.addEventListener("change", () => applyArchFromModel());
+    modelEl.addEventListener("change", () => { applyArchFromModel(); fillLoraSelect(); });
 
     $("quality").addEventListener("click", (e) => {
       const b = e.target.closest("button");
@@ -1312,7 +1433,9 @@
       try {
         const r = await fetch("/api/models", { cache: "no-store" });
         const d = await r.json();
-        if (!d.ok) { setStatus(false, d.error || ""); return; }
+        if (d.loras_info) { window._loras = d.loras_info; }
+        if (d.turbo) window._turbo = d.turbo;
+        if (!d.ok) { setStatus(false, d.error || ""); fillLoraSelect(); return; }
         setStatus(true, "ComfyUI je spojen");
         const models = d.models || [];
         const preferred = d.default || DEFAULT_MODEL;
@@ -1337,8 +1460,11 @@
           modelEl.appendChild(o);
         });
         window._presets = d.presets || window._presets;
+        window._loras = d.loras_info || window._loras || [];
+        if (d.turbo) window._turbo = d.turbo;
         applyProfileToImageForm(state.active_profile);
         applyArchFromModel();
+        fillLoraSelect();
         renderInstalledModels(models);
       } catch (e) { setStatus(false, String(e)); }
     }
@@ -1383,6 +1509,72 @@
       if (nameEl) nameEl.textContent = shortModelName(modelEl && modelEl.value) || "—";
       if (badge) badge.hidden = !(turboMode || currentArch === "krea2");
     }
+    function loadLoraMemory() {
+      try { return JSON.parse(localStorage.getItem(LS_LORA) || "{}") || {}; } catch (e) { return {}; }
+    }
+    function saveLoraMemory(map) {
+      try { localStorage.setItem(LS_LORA, JSON.stringify(map || {})); } catch (e) {}
+    }
+    function rememberLoraForModel() {
+      if (!modelEl || currentArch === "krea2") return;
+      const map = loadLoraMemory();
+      map[modelEl.value] = {
+        name: loraEl ? (loraEl.value || "") : "",
+        strength: loraStrengthEl ? Number(loraStrengthEl.value) : 0.8
+      };
+      saveLoraMemory(map);
+    }
+    function fillLoraSelect() {
+      if (!loraEl) return;
+      const arch = currentArch;
+      const field = $("loraField");
+      if (field) field.hidden = arch === "krea2";
+      if (arch === "krea2") {
+        loraEl.innerHTML = '<option value="">Bez LoRA-e</option>';
+        loraEl.value = "";
+        if ($("loraStrengthRow")) $("loraStrengthRow").hidden = true;
+        return;
+      }
+      const all = window._loras || [];
+      const turboName = ((window._turbo && window._turbo.lora_filename) || "Hyper-SDXL-8steps-CFG-lora.safetensors").toLowerCase();
+      const compatible = all.filter((item) => {
+        const name = (item.name || item || "").toString();
+        if (!name || name.toLowerCase() === turboName) return false;
+        const a = (item.arch || "unknown").toLowerCase();
+        return a === "unknown" || a === "ostalo" || a === arch;
+      });
+      const groups = { sdxl: [], sd15: [], unknown: [] };
+      compatible.forEach((item) => {
+        const name = item.name || item;
+        const a = (item.arch || "unknown").toLowerCase();
+        (groups[a] || groups.unknown).push({ name: name, group: item.group || (a === "sdxl" ? "SDXL" : (a === "sd15" ? "SD 1.5" : "Ostalo")) });
+      });
+      const remembered = (loadLoraMemory()[modelEl.value] || {});
+      const prev = (remembered.name != null ? remembered.name : loraEl.value) || "";
+      let html = '<option value="">Bez LoRA-e</option>';
+      [["sdxl", "SDXL"], ["sd15", "SD 1.5"], ["unknown", "Ostalo"]].forEach(([key, label]) => {
+        const list = groups[key] || [];
+        if (!list.length) return;
+        html += '<optgroup label="' + label + '">';
+        list.forEach((item) => {
+          html += '<option value="' + escapeHtml(item.name) + '">' + escapeHtml(item.name) + "</option>";
+        });
+        html += "</optgroup>";
+      });
+      loraEl.innerHTML = html;
+      const exists = Array.from(loraEl.options).some((o) => o.value === prev);
+      loraEl.value = exists ? prev : "";
+      if (loraStrengthEl && remembered.strength != null && !Number.isNaN(Number(remembered.strength))) {
+        loraStrengthEl.value = String(remembered.strength);
+      }
+      syncLoraStrengthUi();
+    }
+    function syncLoraStrengthUi() {
+      const n = loraStrengthEl ? Number(loraStrengthEl.value) : 0.8;
+      if ($("loraStrengthVal")) $("loraStrengthVal").textContent = (Math.round(n * 100) / 100).toFixed(2);
+      if ($("loraStrengthRow")) $("loraStrengthRow").hidden = !(loraEl && loraEl.value) || currentArch === "krea2";
+    }
+
     function detectArch(name) {
       const n = (name || "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
       if (n.indexOf("krea2") >= 0 || n.indexOf("krea_2") >= 0) return "krea2";
@@ -1451,7 +1643,11 @@
       if (arch === "krea2" && $("hiresFix")) $("hiresFix").checked = false;
       if ($("kreaHint")) $("kreaHint").hidden = arch !== "krea2";
       if (arch === "krea2") turboMode = false;
+      const loraField = $("loraField");
+      if (loraField) loraField.hidden = arch === "krea2";
+      if (arch === "krea2" && loraEl) loraEl.value = "";
       updateActiveModelLine();
+      fillLoraSelect();
     }
 
     async function loadVideoCaps() {
@@ -1657,9 +1853,12 @@
     }
 
     function payloadBase() {
+      const prof = selectedPersona();
       return {
         prompt: promptEl.value.trim(),
-        persona: personaEl.value,
+        persona_id: prof && prof.id != null ? prof.id : state.active_profile_id,
+        appearance_extra: appearExtraEl ? appearExtraEl.value.trim() : "",
+        persona: currentAppearance(),
         negative: negEl.value,
         model: modelEl.value,
         width: width, height: height, batch: batch, steps: steps,
@@ -1667,6 +1866,8 @@
         quality_prefix: $("qualityPrefix") ? $("qualityPrefix").checked : true,
         hires: $("hiresFix") ? $("hiresFix").checked : false,
         turbo: currentArch === "krea2" ? false : !!turboMode,
+        lora: currentArch === "krea2" ? "" : (loraEl ? loraEl.value : ""),
+        lora_strength: currentArch === "krea2" ? 0.8 : (loraStrengthEl ? Number(loraStrengthEl.value) : 0.8),
         model_type: currentArch === "sdxl" ? "sdxl" : (currentArch === "sd15" ? "sd15" : (currentArch === "krea2" ? "krea2" : "auto"))
       };
     }
@@ -1680,7 +1881,7 @@
     }
     function updateTokenCount() {
       const scene = promptEl ? promptEl.value.trim() : "";
-      const appearance = stripLeadingPortrait(personaEl ? personaEl.value : "");
+      const appearance = stripLeadingPortrait(currentAppearance());
       const quality = ($("qualityPrefix") && $("qualityPrefix").checked) ? "RAW photo, best quality, highly detailed skin" : "";
       const adult = /\badult\b/i.test(scene + " " + appearance) ? "" : "adult woman";
       const full = [adult, scene, appearance, quality].filter(Boolean).join(", ");
@@ -1693,10 +1894,18 @@
       if (warn) warn.hidden = n <= 75;
     }
     if (promptEl) promptEl.addEventListener("input", updateTokenCount);
-    if (personaEl) personaEl.addEventListener("input", updateTokenCount);
+    if (appearExtraEl) appearExtraEl.addEventListener("input", updateTokenCount);
+    if (osobaEl) osobaEl.addEventListener("change", () => {
+      const prof = selectedPersona();
+      if (prof && prof.negative_prompt) negEl.value = prof.negative_prompt;
+      updateAppearanceSummary();
+    });
+    if (loraEl) loraEl.addEventListener("change", () => { syncLoraStrengthUi(); rememberLoraForModel(); });
+    if (loraStrengthEl) loraStrengthEl.addEventListener("input", () => { syncLoraStrengthUi(); rememberLoraForModel(); });
     if ($("qualityPrefix")) $("qualityPrefix").addEventListener("input", updateTokenCount);
     updateTokenCount();
     updateActiveModelLine();
+    syncLoraStrengthUi();
 
     async function generate(ev) {
       if (ev) ev.preventDefault();

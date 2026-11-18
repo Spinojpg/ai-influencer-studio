@@ -82,6 +82,113 @@ def list_loras() -> list[str]:
     return list_files(loras_dir())
 
 
+def is_turbo_lora_file(name: str) -> bool:
+    """Interna Hyper-SDXL Turbo LoRA — ne ide u korisnički izbornik."""
+    base = (name or "").replace("\\", "/").split("/")[-1].strip().lower()
+    return bool(base) and base == TURBO_SDXL["lora_filename"].lower()
+
+
+def read_safetensors_metadata(path: Path | str) -> dict:
+    """Pročitaj __metadata__ iz zaglavlja safetensors datoteke (bez učitavanja težina)."""
+    p = Path(path)
+    if not p.is_file():
+        return {}
+    try:
+        with p.open("rb") as fh:
+            header_len = int.from_bytes(fh.read(8), "little")
+            if header_len <= 2 or header_len > 16 * 1024 * 1024:
+                return {}
+            raw = fh.read(header_len)
+        import json as _json
+        header = _json.loads(raw.decode("utf-8"))
+        meta = header.get("__metadata__") if isinstance(header, dict) else None
+        return dict(meta) if isinstance(meta, dict) else {}
+    except Exception:
+        return {}
+
+
+def detect_lora_arch(name: str, metadata: dict | None = None) -> str:
+    """Vrati 'sdxl', 'sd15' ili 'unknown' iz imena i/ili safetensors metapodataka."""
+    texts: list[str] = []
+    meta = metadata if isinstance(metadata, dict) else {}
+    for key in (
+        "ss_base_model_version",
+        "ss_sd_model_name",
+        "ss_base_model_name",
+        "modelspec.architecture",
+        "modelspec.title",
+        "ss_network_module",
+    ):
+        val = meta.get(key)
+        if val:
+            texts.append(str(val))
+    nested = meta.get("modelspec")
+    if isinstance(nested, dict):
+        for val in nested.values():
+            if val:
+                texts.append(str(val))
+    blob = " ".join(texts).lower()
+    if blob:
+        if any(s in blob for s in ("sdxl", "stable-diffusion-xl", "sd_xl", "sd-xl", "pony")):
+            return "sdxl"
+        if any(s in blob for s in ("flux", "sd3", "stable-diffusion-3", "hunyuan", "wan21", "krea")):
+            return "unknown"
+        if re.search(r"sd[\s_-]*v?2|stable-diffusion-v2", blob):
+            return "unknown"
+        if (
+            re.search(r"sd[\s_-]*v?1([._-]?5)?", blob)
+            or "stable-diffusion-v1" in blob
+            or "sd_v1" in blob
+        ):
+            return "sd15"
+
+    n = re.sub(r"[^a-z0-9]+", "_", (name or "").replace("\\", "/").split("/")[-1].lower()).strip("_")
+    if "sdxl" in n or "sd_xl" in n or "hypersdxl" in n or "hyper_sdxl" in n:
+        return "sdxl"
+    if re.search(r"(^|_)xl(\d*)($|_)", n):
+        return "sdxl"
+    if re.search(r"sd[_\-]?1[_\-]?5", n) or "sd15" in n or re.search(r"(^|_)1[_\-]?5($|_)", n):
+        return "sd15"
+    return "unknown"
+
+
+def classify_loras(names: list[str] | None, metadata_fn=None) -> list[dict]:
+    """Popis korisničkih LoRA-a (bez interne Turbo datoteke) s arhitekturom i grupom."""
+    out: list[dict] = []
+    for name in names or []:
+        if not name or is_turbo_lora_file(name):
+            continue
+        meta: dict = {}
+        arch = detect_lora_arch(name)
+        if arch == "unknown":
+            if callable(metadata_fn):
+                try:
+                    meta = metadata_fn(name) or {}
+                except Exception:
+                    meta = {}
+            if not meta:
+                folder = loras_dir()
+                meta = read_safetensors_metadata(folder / Path(str(name).replace("\\", "/")).name)
+            if meta:
+                arch = detect_lora_arch(name, meta)
+        group = "SDXL" if arch == "sdxl" else ("SD 1.5" if arch == "sd15" else "Ostalo")
+        out.append({"name": name, "arch": arch, "group": group})
+    return out
+
+
+def loras_for_arch(entries: list[dict] | None, model_arch: str) -> list[dict]:
+    """LoRA-e kompatibilne s modelom; 'unknown' (Ostalo) ide uz svaki SD model. Krea 2: prazno."""
+    arch = (model_arch or "").strip().lower()
+    if arch in {"krea2", "krea", "krea_2"}:
+        return []
+    out: list[dict] = []
+    for item in entries or []:
+        a = (item.get("arch") or "unknown").strip().lower()
+        if a in {"unknown", "", "ostalo"} or a == arch:
+            out.append(item)
+    return out
+
+
 def detect_model_arch(name: str, override: str = "") -> str:
     """Vrati 'sdxl' ili 'sd15'. Realistic Vision ostaje SD 1.5 (ne 'realvis')."""
     o = (override or "").strip().lower().replace(" ", "")
@@ -275,6 +382,68 @@ def sanitize_appearance(text: str, *, drop_conflicts: bool = True) -> str:
         t = re.sub(r"\s+", " ", t)
         t = t.strip(" ,")
     return t
+
+
+VISUAL_APPEARANCE_FIELDS = (
+    "appearance_prompt",
+    "looks",
+    "hair",
+    "eyes",
+    "body",
+    "tattoos",
+    "distinguishing_marks",
+)
+
+
+def appearance_from_profile(profile: dict | None, extra: str = "") -> str:
+    """Sastavi izgled iz polja profila (što postoji) plus privremeni dodatak."""
+    parts: list[str] = []
+    seen: set[str] = set()
+
+    def add(raw: str) -> None:
+        text = sanitize_appearance(raw or "", drop_conflicts=False)
+        if not text:
+            return
+        key = re.sub(r"\s+", " ", text).strip().lower()
+        if not key or key in seen:
+            return
+        for prev in parts:
+            if key in prev.lower():
+                return
+        seen.add(key)
+        parts.append(text)
+
+    if isinstance(profile, dict):
+        for field in VISUAL_APPEARANCE_FIELDS:
+            add(str(profile.get(field) or ""))
+    add(extra or "")
+    return ", ".join(parts)
+
+
+def extract_adult_age(*texts: str) -> int | None:
+    """Nađi eksplicitnu dob 21–99 (persone su uvijek odrasle)."""
+    blob = " ".join(str(t) for t in texts if t)
+    for match in re.finditer(r"\b(2[1-9]|[3-9]\d)\b", blob):
+        return int(match.group(1))
+    return None
+
+
+def adult_term_for_profile(
+    profile: dict | None,
+    *,
+    appearance: str = "",
+    scene: str = "",
+    adult_term: str = ADULT_TERM,
+) -> str:
+    """'adult woman' ili 'adult woman, 26' ako je dob jasno navedena."""
+    texts = [appearance, scene]
+    if isinstance(profile, dict):
+        for key in ("age_vibe", "age", "appearance_prompt"):
+            texts.append(str(profile.get(key) or ""))
+    age = extract_adult_age(*texts)
+    if age:
+        return f"{adult_term}, {age}"
+    return adult_term
 
 
 def build_positive_prompt(
@@ -597,6 +766,8 @@ def build_workflow(
     lora_strength: float = 1.0,
     turbo: bool = False,
     prompt_chunks: list[str] | None = None,
+    user_lora: str = "",
+    user_lora_strength: float | None = None,
 ) -> dict:
     if (arch or "").lower() in {"krea2", "krea"} or detect_model_arch(model, arch) == "krea2":
         return build_krea2_workflow(
@@ -612,16 +783,31 @@ def build_workflow(
             scheduler=scheduler,
             object_info=object_info,
         )
+    stack: list[tuple[str, float]] = []
+    user = (user_lora or "").strip()
+    legacy = (lora or "").strip()
+    if user_lora_strength is None:
+        u_strength = float(lora_strength) if (user or (legacy and not is_turbo_lora_file(legacy))) else 0.8
+    else:
+        u_strength = float(user_lora_strength)
+    u_strength = max(0.0, min(1.5, u_strength))
+    if not user and legacy and not is_turbo_lora_file(legacy):
+        user = legacy
     if turbo:
         spec = TURBO_SDXL
-        lora = lora or spec["lora_filename"]
-        lora_strength = float(spec["lora_strength"] if lora_strength == 1.0 else lora_strength)
         steps = int(spec["steps"])
         cfg = float(spec["cfg"] if cfg is None else cfg)
         sampler_name = spec["sampler_name"]
         scheduler = spec["scheduler"]
         hires = False
         arch = "sdxl"
+        if user and not is_turbo_lora_file(user):
+            stack.append((user, u_strength))
+        stack.append((spec["lora_filename"], float(spec["lora_strength"])))
+    elif user:
+        stack.append((user, u_strength))
+    elif legacy:
+        stack.append((legacy, max(0.0, min(1.5, float(lora_strength)))))
     if cfg is None:
         cfg = default_cfg(arch)
     width = max(256, min(1536, int(width) - (int(width) % 8)))
@@ -634,19 +820,26 @@ def build_workflow(
             "inputs": {"ckpt_name": model},
         },
     }
-    if lora:
-        wf["12"] = {
+    lora_ids = ("12", "22", "23", "24")
+    prev_model: list = ["4", 0]
+    prev_clip: list = ["4", 1]
+    for i, (lora_name, strength) in enumerate(stack):
+        nid = lora_ids[i] if i < len(lora_ids) else str(20 + i)
+        wf[nid] = {
             "class_type": "LoraLoader",
             "inputs": {
-                "model": ["4", 0],
-                "clip": ["4", 1],
-                "lora_name": lora,
-                "strength_model": float(lora_strength),
-                "strength_clip": float(lora_strength),
+                "model": prev_model,
+                "clip": prev_clip,
+                "lora_name": lora_name,
+                "strength_model": float(strength),
+                "strength_clip": float(strength),
             },
         }
-        model_ref = ["12", 0]
-        clip_ref = ["12", 1]
+        prev_model = [nid, 0]
+        prev_clip = [nid, 1]
+    if stack:
+        model_ref = prev_model
+        clip_ref = prev_clip
     wf["5"] = {
         "class_type": "EmptyLatentImage",
         "inputs": {

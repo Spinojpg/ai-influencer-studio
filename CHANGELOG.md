@@ -1,5 +1,9 @@
 # Promjene
 
+## 1.0.14 — 2026-11-18
+- Kartica Slike: pod Napredno, odmah ispod modela, izbornik LoRA-e iz models/loras (usklađene s arhitekturom modela; nepoznate pod Ostalo). Zadano „Bez LoRA-e”, klizač jačine 0,0–1,5 (zadano 0,8). Izbor se pamti po modelu. Interna Turbo LoRA nije na popisu, ali se i dalje spaja kad uključiš Turbo, zajedno s odabranom LoRA-om. Kod Krea 2 izbornik je skriven.
+- Polje Izgled zamijenjeno izbornikom Osoba: odabereš personu (zadano aktivna), Studio sam povuče izgled s profila (kosa, oči, tetovaže…). Ispod vidiš kratki sažetak, a Dodatno je za privremene dopune. Ti upišeš samo što osoba radi. Pravila za odrasle (adult woman, eventualno dob) i poredak scene ostaju.
+
 ## 1.0.13 — 2026-11-18
 - Kartica Modeli: paket Krea 2 Turbo (FP8) s Hugging Facea (Comfy-Org/Krea-2) — diffusion model 13,1 GB u models/diffusion_models, Qwen3-VL encoder 5,24 GB u text_encoders i VAE 254 MB u vae (ukupno ~18,6 GB, resume je podržan). Studio ga pali kao poseban arh: UNETLoader + CLIPLoader (type=krea2) + VAELoader, bez Load Checkpoint. 8 koraka, cfg 1, euler/simple, zadano 1024×1024. Hires i Hyper-SDXL LoRA se ne koriste. Ako CLIPLoader nema tip krea2, ažuriraj ComfyUI na 0.45.0 ili noviji. Na RX 6600 (8 GB) ovaj model vjerojatno nije izvediv: sam fp8 UNET je 13 GB, a na ZLUDA/RDNA2 se fp8 često pretvara u fp16 (~26 GB). Samostalni ComfyUI workflow je u workflows/krea2_turbo_fp8.json (službeni latent je EmptyLatentImage).
 - Nova ikona aplikacije (crni zaobljeni kvadrat, zlatni crtež lica) s prozirnim uglovima, ICO 16/24/32/48/64/128/256 px, i kao favicon. Nakon ažuriranja pokretač ponovo napiše prečace na radnoj površini i u Start izborniku te isprazni Windows cache ikona (SHChangeNotify / ie4uinit).

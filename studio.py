@@ -160,6 +160,94 @@ def list_diffusion_models() -> list[str]:
     return names
 
 
+def parse_lora_list(data) -> list[str]:
+    if isinstance(data, list):
+        return [str(x) for x in data if x]
+    if not isinstance(data, dict):
+        return []
+    node = data.get("LoraLoader", data)
+    try:
+        names = node["input"]["required"]["lora_name"][0]
+        if isinstance(names, list):
+            return [str(x) for x in names if x]
+    except Exception:
+        pass
+    return []
+
+
+def list_lora_names() -> list[str]:
+    for path in ("/models/loras", "/object_info/LoraLoader"):
+        try:
+            data, _, _ = comfy_request(path, timeout=8)
+            names = parse_lora_list(data)
+            if names:
+                return names
+        except Exception:
+            continue
+    return image_gen.list_loras()
+
+
+def fetch_lora_metadata(name: str) -> dict:
+    """Metapodaci LoRA-e: prvo ComfyUI /view_metadata/loras, zatim lokalna datoteka."""
+    filename = (name or "").replace("\\", "/").split("/")[-1]
+    if not filename:
+        return {}
+    try:
+        qs = urllib.parse.urlencode({"filename": filename})
+        data, _, _ = comfy_request("/view_metadata/loras?" + qs, timeout=6)
+        if isinstance(data, dict) and data:
+            return data
+    except Exception:
+        pass
+    return image_gen.read_safetensors_metadata(comfy_launch.loras_dir() / filename)
+
+
+def lora_entries(names: list[str] | None = None) -> list[dict]:
+    if names is None:
+        names = list_lora_names()
+    return image_gen.classify_loras(names, metadata_fn=fetch_lora_metadata)
+
+
+def resolve_generation_profile(body: dict, fallback: dict | None = None) -> dict | None:
+    """Profil osobe za sliku (persona_id), inače predani fallback (aktivni)."""
+    raw = body.get("persona_id", body.get("profile_id"))
+    if raw not in (None, ""):
+        try:
+            pid = int(raw)
+        except (TypeError, ValueError):
+            return fallback
+        if fallback and fallback.get("id") is not None:
+            try:
+                if int(fallback["id"]) == pid:
+                    return fallback
+            except (TypeError, ValueError):
+                pass
+        try:
+            prof = inbox.get_profile(pid)
+            if prof:
+                return prof
+        except Exception:
+            pass
+        return fallback
+    return fallback
+
+
+def resolve_appearance(body: dict, profile: dict | None) -> str:
+    """Izgled iz odabrane osobe + Dodatno, ili ručni body['persona'] (stari klijenti/testovi)."""
+    extra = (body.get("appearance_extra") or body.get("dodatno") or "").strip()
+    has_id = body.get("persona_id", body.get("profile_id")) not in (None, "")
+    if has_id and profile:
+        return image_gen.appearance_from_profile(profile, extra)
+    typed = (body.get("persona") or "").strip()
+    if typed:
+        if extra:
+            return image_gen.appearance_from_profile({"appearance_prompt": typed}, extra)
+        return typed
+    if profile:
+        return image_gen.appearance_from_profile(profile, extra)
+    return extra
+
+
 def object_info() -> dict:
     try:
         data, _, _ = comfy_request("/object_info", timeout=20)
@@ -459,6 +547,13 @@ def clamp_int(value, lo, hi, default):
     return max(lo, min(hi, n))
 
 
+def clamp_float(value, lo, hi, default):
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, n))
+
 
 def plan_image_generation(
     body: dict,
@@ -470,10 +565,8 @@ def plan_image_generation(
 
     Vraća {ok, workflow, meta} ili {ok: False, status, error, ...}.
     """
-    prof = profile
-    appearance = (body.get("persona") or "").strip()
-    if not appearance and prof:
-        appearance = prof.get("appearance_prompt") or ""
+    prof = resolve_generation_profile(body, profile)
+    appearance = resolve_appearance(body, prof)
     scene = (body.get("prompt") or "").strip()
     if not scene:
         return {"ok": False, "status": 400, "error": "Upiši opis slike."}
@@ -495,7 +588,13 @@ def plan_image_generation(
     quality_on = body.get("quality_prefix")
     if quality_on is None:
         quality_on = inbox.get_setting("quality_prefix", "1") != "0"
-    built = image_gen.build_positive_prompt(scene=scene, appearance=appearance, quality=bool(quality_on))
+    adult_term = image_gen.adult_term_for_profile(prof, appearance=appearance, scene=scene)
+    built = image_gen.build_positive_prompt(
+        scene=scene,
+        appearance=appearance,
+        quality=bool(quality_on),
+        adult_term=adult_term,
+    )
     prompt = built["prompt"]
 
     dim_max = 2048 if arch == "krea2" else 1536
@@ -523,7 +622,10 @@ def plan_image_generation(
         seed = clamp_int(seed, 0, 2_147_483_647, random.randint(0, 2_147_483_647))
 
     turbo = bool(body.get("turbo"))
-    lora = (body.get("lora") or "").strip()
+    user_lora = (body.get("lora") or body.get("user_lora") or "").strip()
+    if image_gen.is_turbo_lora_file(user_lora):
+        user_lora = ""
+    user_lora_strength = clamp_float(body.get("lora_strength", body.get("user_lora_strength")), 0.0, 1.5, 0.8)
     sampler_name, scheduler = image_gen.default_sampler(arch)
 
     if arch == "krea2":
@@ -549,11 +651,19 @@ def plan_image_generation(
         sampler_name = spec["sampler_name"]
         scheduler = spec["scheduler"]
         hires = False
-        lora = ""
+        user_lora = ""
         turbo = False  # ne miješaj Hyper-SDXL LoRA; meta.krea_turbo označava način
         krea_turbo = True
     else:
         krea_turbo = False
+
+    if user_lora and arch != "krea2" and not image_gen.lora_available(user_lora):
+        return {
+            "ok": False,
+            "status": 400,
+            "error": "Odabrana LoRA nije pronađena u models/loras.",
+            "need": "lora",
+        }
 
     if turbo and arch != "krea2":
         if arch != "sdxl":
@@ -564,8 +674,7 @@ def plan_image_generation(
                 "need": "sdxl",
             }
         spec = image_gen.TURBO_SDXL
-        lora = lora or spec["lora_filename"]
-        if not image_gen.lora_available(lora):
+        if not image_gen.lora_available(spec["lora_filename"]):
             return {
                 "ok": False,
                 "status": 400,
@@ -593,8 +702,8 @@ def plan_image_generation(
         arch=arch,
         hires=hires,
         object_info=object_info if object_info is not None else {},
-        lora=lora,
-        lora_strength=float(image_gen.TURBO_SDXL["lora_strength"] if turbo else 1.0),
+        user_lora=user_lora if arch != "krea2" else "",
+        user_lora_strength=user_lora_strength,
         turbo=turbo,
         prompt_chunks=None if arch == "krea2" else built["chunks"],
     )
@@ -615,6 +724,8 @@ def plan_image_generation(
             "hires": hires,
             "turbo": bool(turbo or krea_turbo),
             "krea_turbo": krea_turbo,
+            "lora": user_lora if arch != "krea2" else "",
+            "lora_strength": user_lora_strength if (arch != "krea2" and user_lora) else None,
             "prompt": prompt,
             "tokens": built["tokens"],
             "token_warn": built["warn"],
@@ -853,6 +964,10 @@ class StudioHandler(BaseHTTPRequestHandler):
 
         if path == "/api/models":
             self._models_payload()
+            return
+
+        if path == "/api/loras":
+            self._loras_payload()
             return
 
         if path == "/api/models/download":
@@ -1318,9 +1433,10 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._json(503, {"ok": False, "error": msg})
             return
 
+        active = inbox.get_profile(inbox.active_profile_id())
         result = plan_image_generation(
             body,
-            profile=inbox.get_profile(inbox.active_profile_id()),
+            profile=resolve_generation_profile(body, active),
             object_info=cached_object_info(),
         )
         if not result.get("ok"):
@@ -1330,17 +1446,19 @@ class StudioHandler(BaseHTTPRequestHandler):
         self._queue_prompt(result["workflow"], result["meta"])
 
     def _preview_prompt(self, body: dict) -> dict:
-        prof = inbox.get_profile(inbox.active_profile_id())
-        appearance = (body.get("persona") or "").strip()
-        if not appearance and prof:
-            appearance = prof.get("appearance_prompt") or ""
+        active = inbox.get_profile(inbox.active_profile_id())
+        prof = resolve_generation_profile(body, active)
+        appearance = resolve_appearance(body, prof)
+        scene = body.get("prompt") or body.get("scene") or ""
         quality_on = body.get("quality_prefix")
         if quality_on is None:
             quality_on = inbox.get_setting("quality_prefix", "1") != "0"
+        adult_term = image_gen.adult_term_for_profile(prof, appearance=appearance, scene=scene)
         return image_gen.build_positive_prompt(
-            scene=body.get("prompt") or body.get("scene") or "",
+            scene=scene,
             appearance=appearance,
             quality=bool(quality_on),
+            adult_term=adult_term,
         )
 
     def _generate_video(self, body: dict) -> None:
@@ -1355,15 +1473,20 @@ class StudioHandler(BaseHTTPRequestHandler):
                 "capabilities": caps,
             })
             return
-        prof = inbox.get_profile(inbox.active_profile_id())
-        appearance = (body.get("persona") or "").strip()
-        if not appearance and prof:
-            appearance = prof.get("appearance_prompt") or ""
+        active = inbox.get_profile(inbox.active_profile_id())
+        prof = resolve_generation_profile(body, active)
+        appearance = resolve_appearance(body, prof)
         scene = (body.get("prompt") or "").strip()
         quality_on = body.get("quality_prefix")
         if quality_on is None:
             quality_on = inbox.get_setting("quality_prefix", "1") != "0"
-        built = image_gen.build_positive_prompt(scene=scene or "subtle natural movement, gentle motion", appearance=appearance, quality=bool(quality_on))
+        adult_term = image_gen.adult_term_for_profile(prof, appearance=appearance, scene=scene or "subtle natural movement, gentle motion")
+        built = image_gen.build_positive_prompt(
+            scene=scene or "subtle natural movement, gentle motion",
+            appearance=appearance,
+            quality=bool(quality_on),
+            adult_term=adult_term,
+        )
         prompt = built["prompt"]
         if not scene and not body.get("init_image") and not body.get("image"):
             self._json(400, {"ok": False, "error": "Upiši opis klipa ili odaberi sliku."})
@@ -1471,6 +1594,15 @@ class StudioHandler(BaseHTTPRequestHandler):
         self._json(200, extra)
 
 
+    def _loras_payload(self) -> None:
+        entries = lora_entries()
+        self._json(200, {
+            "ok": True,
+            "loras": entries,
+            "loras_dir": str(comfy_launch.loras_dir()),
+            "excluded": [image_gen.TURBO_SDXL["lora_filename"]],
+        })
+
     def _models_payload(self) -> None:
         ok, msg = comfy_up()
         names = list_models() if ok else []
@@ -1507,6 +1639,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             "krea2_files": krea2_file_status(),
             "loras_dir": str(comfy_launch.loras_dir()),
             "loras": image_gen.list_loras(),
+            "loras_info": lora_entries(),
             "turbo": image_gen.TURBO_SDXL,
             "turbo_ready": image_gen.lora_available(image_gen.TURBO_SDXL["lora_filename"]),
             "lowvram_note": image_gen.LOWVRAM_NOTE,
