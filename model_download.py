@@ -115,7 +115,7 @@ CURATED = [
         "arch": "sd15",
         "kind": "checkpoint",
         "size_bytes": 2132625894,
-        "note": "SD 1.5 checkpoint za video (AnimateDiff ne radi na SDXL). Oko 2 GB. Koristi se i za slike 512×768.",
+        "note": "SD 1.5 checkpoint, preporučen za video na 8 GB (AnimateDiff uz mm_sd_v15_v2). Oko 2 GB. Koristi se i za slike 512×768.",
     },
     {
         "id": "ipadapter-plus-face",
@@ -165,7 +165,27 @@ CURATED = [
         "arch": "sd15",
         "kind": "animatediff",
         "size_bytes": 1817888431,
-        "note": "Motion modul za kratke klipove (AnimateDiff-Evolved). Oko 1,7 GB, ide u models/animatediff_models.",
+        "note": "Motion modul za kratke SD 1.5 klipove (AnimateDiff-Evolved). Oko 1,7 GB, ide u models/animatediff_models.",
+    },
+    {
+        "id": "mm-sdxl-v10-beta",
+        "name": "AnimateDiff motion modul (SDXL v1.0 beta)",
+        "filename": "mm_sdxl_v10_beta.ckpt",
+        "url": "https://huggingface.co/guoyww/animatediff/resolve/main/mm_sdxl_v10_beta.ckpt",
+        "arch": "sdxl",
+        "kind": "animatediff",
+        "size_bytes": 950143538,
+        "note": "Motion modul za kratke SDXL klipove (guoyww AnimateDiff, mm_sdxl_v10_beta). Oko 906 MB, javni Hugging Face URL, resume je podržan. Ide u models/animatediff_models. Na RX 6600 (8 GB) je težak — Studio koristi 512×512 i manje sličica; out of memory je moguć.",
+    },
+    {
+        "id": "hsxl-temporal-f16",
+        "name": "Hotshot-XL temporal layers (SDXL, fp16)",
+        "filename": "hsxl_temporal_layers.f16.safetensors",
+        "url": "https://huggingface.co/hotshotco/Hotshot-XL/resolve/main/hsxl_temporal_layers.f16.safetensors",
+        "arch": "sdxl",
+        "kind": "animatediff",
+        "size_bytes": 474694696,
+        "note": "Zamjenski SDXL motion modul (Hotshot-XL). Oko 453 MB, ide u models/animatediff_models. Studio za SDXL prednost daje mm_sdxl_v10_beta; ovaj je manji rezervni izbor. Na 8 GB također može biti tijesan.",
     },
 ]
 
@@ -195,7 +215,7 @@ def curated_by_id(cid: str) -> dict | None:
     cid = (cid or "").strip()
     return next((c for c in CURATED if c["id"] == cid), None)
 
-_UA = "AI-Influencer-Studio/1.0.18"
+_UA = "AI-Influencer-Studio/1.0.20"
 _lock = threading.RLock()
 _state: dict = {
     "status": "idle",  # idle|running|done|error

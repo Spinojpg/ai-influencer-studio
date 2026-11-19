@@ -206,7 +206,7 @@ def _run(include_sd15: bool) -> None:
     except Exception:
         pass
     try:
-        _log("Instalacija video podrške (AnimateDiff-Evolved + VideoHelperSuite + mm_sd_v15_v2).")
+        _log("Instalacija video podrške (AnimateDiff-Evolved + VideoHelperSuite + mm_sd_v15_v2). SDXL modul mm_sdxl_v10_beta preuzmi u kartici Modeli.")
         git = find_git()
         if not git:
             raise RuntimeError(

@@ -237,7 +237,8 @@ Kartice u sučelju
 - Slike: čistiji ekran — veliki opis scene, formati, Turbo/Kvaliteta
   i gumb Generiraj. Izgled, model, seed i negativni prompt su pod
   Napredno. Scena ide prva u promptu.
-- Video: kratki klip (2 s @ 512×512) preko AnimateDiff + SD 1.5.
+- Video: kratki klip preko AnimateDiff (SD 1.5 2 s @ 512×512, ili SDXL
+  uz mm_sdxl_v10_beta, teže na 8 GB).
 - Poruke: Grok bot za fanove. Detalji u PORUKE_UPUTE.txt
   (ključ s console.x.ai, simulacija, Instagram, Telegram).
 - Influenceri: više profila (ime, izgled za slike, osobnost za chat,
@@ -248,13 +249,20 @@ Kartice u sučelju
 Video (pokret)
 --------------
 
-Kartica Video. Na RX 6600 (8 GB, ZLUDA) realan je AnimateDiff-Evolved
-uz SD 1.5 (Realistic Vision) i motion modul mm_sd_v15_v2: 512×512,
-16 sličica, 8 fps (oko 2 s). Očekuj 1–4 min po klipu. 3 s (24 sličice)
-može zapeti na VRAM-u.
+Kartica Video. Na RX 6600 (8 GB, ZLUDA) najpouzdaniji je
+AnimateDiff-Evolved uz SD 1.5 (Realistic Vision) i motion modul
+mm_sd_v15_v2: 512×512, 16 sličica, 8 fps (oko 2 s). Očekuj 1–4 min
+po klipu. 3 s (24 sličice) može zapeti na VRAM-u.
+
+SDXL video radi uz motion modul mm_sdxl_v10_beta.ckpt (preuzmi ga u
+kartici Modeli, oko 906 MB, ide u models/animatediff_models). Na 8 GB
+je težak: Studio koristi 512×512 i do 16 sličica. Ako javi out of
+memory, odaberi 1 s (8 sličica) ili ostani na SD 1.5. Studio sam bira
+motion modul prema odabranom checkpointu (SD 1.5 ili SDXL) i ne šalje
+zadatak ako modul nije instaliran.
 
 SVD-XT, LTX-Video i Wan2.1 1.3B nisu preporučeni na 8 GB (T5 encoder
-sam je ~10 GB ili je VRAM tijesan). AnimateDiff ne radi na SDXL.
+sam je ~10 GB ili je VRAM tijesan).
 
 Gumb "Instaliraj video podršku" (treba Git):
   - git clone ComfyUI-AnimateDiff-Evolved i ComfyUI-VideoHelperSuite
@@ -262,6 +270,8 @@ Gumb "Instaliraj video podršku" (treba Git):
   - pip install -r requirements.txt u ComfyUI venv
   - preuzme mm_sd_v15_v2.ckpt u models/animatediff_models (~1,7 GB)
   - ako nemaš SD 1.5, preuzme Realistic Vision V5.1 (~2 GB)
+  SDXL modul mm_sdxl_v10_beta preuzmi posebno u kartici Modeli
+  (ili gumbom na kartici Video).
 
 Zatim zatvori Studio i ponovo upali prečac da se ComfyUI učita s
 novim čvorovima. Log je u data\logs\video.log. Klip može ići iz

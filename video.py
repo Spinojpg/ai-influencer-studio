@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Kratki lokalni video: AnimateDiff-Evolved + SD 1.5 (realno na RX 6600 8 GB)."""
+"""Kratki lokalni video: AnimateDiff-Evolved (SD 1.5 ili SDXL) na RX 6600 8 GB."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pathlib import Path
 from comfy_launch import (
     animatediff_models_dir,
     checkpoints_dir,
+    custom_nodes_dir,
     list_files,
 )
 import image_gen
@@ -38,13 +39,26 @@ NATIVE_NODES = {
     "SaveVideo",
 }
 
-MOTION_CANDIDATES = (
+MOTION_SD15 = (
     "mm_sd_v15_v2.ckpt",
     "mm_sd_v15_v2.safetensors",
     "v3_sd15_mm.ckpt",
     "v3_sd15_mm.safetensors",
     "mm_sd_v15.ckpt",
 )
+MOTION_SDXL = (
+    "mm_sdxl_v10_beta.ckpt",
+    "mm_sdxl_v10_beta.safetensors",
+    "hsxl_temporal_layers.f16.safetensors",
+    "hsxl_temporal_layers.safetensors",
+)
+# Stari naziv, radi postojećih poziva.
+MOTION_CANDIDATES = MOTION_SD15
+
+DOWNLOAD_ID_SD15 = "mm-sd15-v2"
+DOWNLOAD_ID_SDXL = "mm-sdxl-v10-beta"
+MOTION_FILENAME_SD15 = "mm_sd_v15_v2.ckpt"
+MOTION_FILENAME_SDXL = "mm_sdxl_v10_beta.ckpt"
 
 REPOS = (
     {
@@ -62,13 +76,15 @@ REPOS = (
 )
 
 NOTES_HR = (
-    "Na RX 6600 (8 GB, ZLUDA) realan je lokalni put AnimateDiff-Evolved uz SD 1.5 "
+    "Na RX 6600 (8 GB, ZLUDA) najpouzdaniji je AnimateDiff-Evolved uz SD 1.5 "
     "(npr. Realistic Vision) i motion modul mm_sd_v15_v2: 512×512, 16 sličica, 8 fps "
     "(oko 2 s). Na ovoj kartici to je obično 1–4 min po klipu. "
-    "SVD-XT, LTX-Video i Wan2.1 1.3B nisu praktični na 8 GB (T5-XXL sam zauzme ~10 GB, "
-    "ili je VRAM tijesan i spor s offloadom). AnimateDiff ne radi na SDXL; za video "
-    "treba SD 1.5 model. Gumb „Instaliraj video podršku” skine čvorove i modele; "
-    "zatim ponovo pokreni ComfyUI."
+    "SDXL video radi uz motion modul mm_sdxl_v10_beta, ali je težak na 8 GB — "
+    "Studio zato koristi manju rezoluciju (512×512) i manje sličica (do 16). "
+    "Ako javi out of memory, odaberi 1 s (8 sličica) ili ostani na SD 1.5. "
+    "SVD-XT, LTX-Video i Wan2.1 1.3B nisu praktični na 8 GB. "
+    "Gumb „Instaliraj video podršku” skine čvorove i SD 1.5 motion modul; "
+    "SDXL modul preuzmi u kartici Modeli ili gumbom na ovoj kartici. Zatim ponovo pokreni ComfyUI."
 )
 
 
@@ -107,6 +123,8 @@ def classify_nodes(object_info: dict) -> dict:
         "CreateVideo" in names and "SaveVideo" in names
     )
     motion = list_motion_models()
+    motion_sd15 = pick_motion_model(motion, "sd15")
+    motion_sdxl = pick_motion_model(motion, "sdxl")
     missing = []
     if not ad_ok:
         missing.append(
@@ -120,7 +138,8 @@ def classify_nodes(object_info: dict) -> dict:
         )
     if ad_ok and not motion:
         missing.append(
-            "Nema motion modula u models/animatediff_models (očekujem mm_sd_v15_v2.ckpt)."
+            "Nema motion modula u models/animatediff_models "
+            "(SD 1.5: mm_sd_v15_v2.ckpt, SDXL: mm_sdxl_v10_beta.ckpt)."
         )
     ready = bool(ad_ok and vhs_ok and motion)
     return {
@@ -132,19 +151,46 @@ def classify_nodes(object_info: dict) -> dict:
         "ad_ok": ad_ok,
         "vhs_ok": vhs_ok,
         "motion_models": motion,
-        "motion_model": pick_motion_model(motion),
+        "motion_model": motion_sd15 or motion_sdxl,
+        "motion_model_sd15": motion_sd15,
+        "motion_model_sdxl": motion_sdxl,
+        "motion_by_arch": {"sd15": motion_sd15, "sdxl": motion_sdxl},
+        "download_ids": {"sd15": DOWNLOAD_ID_SD15, "sdxl": DOWNLOAD_ID_SDXL},
         "sd15_models": list_sd15_models(),
+        "sdxl_models": list_sdxl_models(),
         "message": " ".join(missing),
         "notes_hr": NOTES_HR,
-        "path": "animatediff-sd15",
+        "path": "animatediff",
+        "recommend": recommend_settings(8, "sd15"),
+        "recommend_by_arch": {
+            "sd15": recommend_settings(8, "sd15"),
+            "sdxl": recommend_settings(8, "sdxl"),
+        },
         "honest": (
             "LTX-Video / Wan2.1 / SVD-XT na 8 GB AMD nisu preporučeni — preveliki text encoder "
-            "ili nestabilan VRAM na ZLUDA. AnimateDiff + SD 1.5 je najpouzdaniji lokalni put."
+            "ili nestabilan VRAM na ZLUDA. AnimateDiff + SD 1.5 je najpouzdaniji lokalni put; "
+            "SDXL video je moguć uz mm_sdxl_v10_beta, ali je težak na 8 GB."
         ),
     }
 
 
-def recommend_settings(vram_hint_gb: int = 8) -> dict:
+def recommend_settings(vram_hint_gb: int = 8, arch: str = "sd15") -> dict:
+    _ = vram_hint_gb
+    if (arch or "").strip().lower() == "sdxl":
+        return {
+            "width": 512,
+            "height": 512,
+            "frames": 12,
+            "steps": 12,
+            "fps": 8,
+            "cfg": 7.0,
+            "denoise": 0.7,
+            "note": (
+                "SDXL video je težak na 8 GB. Preporuka: 512×512, 12 sličica (~1,5 s @ 8 fps), "
+                "12 koraka. 16+ sličica ili veća rezolucija može javiti out of memory. "
+                "Sigurniji i brži je SD 1.5."
+            ),
+        }
     return {
         "width": 512,
         "height": 512,
@@ -159,27 +205,74 @@ def recommend_settings(vram_hint_gb: int = 8) -> dict:
 
 def list_motion_models() -> list[str]:
     names = list_files(animatediff_models_dir(), (".ckpt", ".safetensors", ".pt", ".pth"))
-    # stari default: moduli i u custom_nodes/.../models
-    extra = Path(animatediff_models_dir())
+    extra_dir = custom_nodes_dir() / "ComfyUI-AnimateDiff-Evolved" / "models"
+    try:
+        if extra_dir.is_dir() and extra_dir.resolve() != Path(animatediff_models_dir()).resolve():
+            for n in list_files(extra_dir, (".ckpt", ".safetensors", ".pt", ".pth")):
+                if n not in names:
+                    names.append(n)
+    except Exception:
+        pass
     return names
 
 
-def pick_motion_model(names: list[str] | None = None) -> str:
+def motion_arch(name: str) -> str:
+    n = re.sub(r"[^a-z0-9]+", "_", (name or "").lower()).strip("_")
+    if "sdxl" in n or "hsxl" in n or "hotshot" in n:
+        return "sdxl"
+    if "sd15" in n or "sd_v15" in n or "v15" in n or "sd14" in n:
+        return "sd15"
+    return ""
+
+
+def pick_motion_model(names: list[str] | None = None, arch: str = "sd15") -> str:
+    """Odaberi motion modul koji odgovara arhitekturi checkpointa. Nikad krivi par."""
     names = list(names if names is not None else list_motion_models())
+    want = (arch or "sd15").strip().lower()
+    if want not in {"sd15", "sdxl"}:
+        want = "sd15"
+    cands = MOTION_SDXL if want == "sdxl" else MOTION_SD15
     lower = {n.lower(): n for n in names}
-    for cand in MOTION_CANDIDATES:
+    for cand in cands:
         if cand.lower() in lower:
             return lower[cand.lower()]
     for n in names:
-        if "sd15" in n.lower() or "sd_v15" in n.lower() or "v15" in n.lower():
+        if motion_arch(n) == want:
             return n
-    return names[0] if names else ""
+    return ""
+
+
+def missing_motion_message(arch: str) -> str:
+    if (arch or "").strip().lower() == "sdxl":
+        return (
+            "Za SDXL video treba motion modul mm_sdxl_v10_beta.ckpt. "
+            "Preuzmi ga u kartici Modeli ili pritisni gumb „Preuzmi SDXL motion modul” "
+            "(oko 906 MB, ide u models\\animatediff_models). "
+            "Na RX 6600 (8 GB) je težak — Studio će koristiti 512×512 i manje sličica."
+        )
+    return (
+        "Nema AnimateDiff motion modula (mm_sd_v15_v2). "
+        "Pritisni „Instaliraj video podršku” ili preuzmi ga u kartici Modeli "
+        "da se spremi u models\\animatediff_models."
+    )
+
+
+def download_id_for_arch(arch: str) -> str:
+    return DOWNLOAD_ID_SDXL if (arch or "").strip().lower() == "sdxl" else DOWNLOAD_ID_SD15
 
 
 def list_sd15_models() -> list[str]:
     out = []
     for name in list_files(checkpoints_dir()):
-        if image_gen.detect_model_arch(name) == "sd15":
+        if detect_video_model_arch(name) == "sd15":
+            out.append(name)
+    return out
+
+
+def list_sdxl_models() -> list[str]:
+    out = []
+    for name in list_files(checkpoints_dir()):
+        if detect_video_model_arch(name) == "sdxl":
             out.append(name)
     return out
 
@@ -192,6 +285,52 @@ def pick_sd15_model(preferred: str = "", available: list[str] | None = None) -> 
         if "realistic_vision" in n.lower() or "realisticvision" in n.lower():
             return n
     return names[0] if names else preferred
+
+
+def pick_video_model(preferred: str = "", available: list[str] | None = None, arch: str = "") -> str:
+    """Odaberi checkpoint za video (SD 1.5 ili SDXL, ne Krea 2)."""
+    if available is None:
+        names = list_sd15_models() + list_sdxl_models()
+    else:
+        names = list(available)
+    if preferred and preferred in names:
+        return preferred
+    want = (arch or "").strip().lower()
+    if want in {"sd15", "sdxl"}:
+        matching = [n for n in names if detect_video_model_arch(n) == want]
+        if want == "sd15":
+            return pick_sd15_model(preferred, matching) or (names[0] if names else preferred)
+        return matching[0] if matching else (names[0] if names else preferred)
+    if preferred and detect_video_model_arch(preferred) in {"sd15", "sdxl"}:
+        return preferred
+    return pick_sd15_model(preferred, [n for n in names if detect_video_model_arch(n) == "sd15"]) or (
+        names[0] if names else preferred
+    )
+
+
+def detect_video_model_arch(name: str, override: str = "") -> str:
+    """Arhitektura checkpointa za video. Override (npr. iz sučelja) ima prednost."""
+    o = (override or "").strip().lower().replace(" ", "")
+    o = o.replace("1.5", "15")
+    if o in {"krea2", "krea", "krea_2"}:
+        return "krea2"
+    if o in {"sdxl", "xl"}:
+        return "sdxl"
+    if o in {"sd15", "sd1.5", "15", "sd1", "sd14"}:
+        return "sd15"
+    arch = image_gen.detect_model_arch(name, override)
+    if arch in {"sdxl", "krea2"}:
+        return arch
+    # Ime bez 'xl' inače padne na sd15, a AnimateDiff onda javi krivi motion modul.
+    try:
+        path = Path(name)
+        if not path.is_file():
+            path = checkpoints_dir() / Path(str(name).replace("\\", "/")).name
+        if path.is_file() and path.stat().st_size >= 4_000_000_000:
+            return "sdxl"
+    except Exception:
+        pass
+    return arch
 
 
 def node_spec(object_info: dict | None, class_type: str) -> dict:
@@ -264,6 +403,7 @@ def build_video_workflow(
     motion_model: str = "",
     object_info: dict | None = None,
     prompt_chunks: list[str] | None = None,
+    model_type: str = "",
 ) -> tuple[dict | None, str]:
     """Pravi AnimateDiff graf (Gen1, inače Gen2) + VHS_VideoCombine. (workflow, note/error)."""
     object_info = object_info or {}
@@ -284,23 +424,39 @@ def build_video_workflow(
             "zatim ponovo pokreni ComfyUI."
         )
 
-    motion = motion_model or caps.get("motion_model") or pick_motion_model(caps.get("motion_models"))
-    if not motion:
+    arch = detect_video_model_arch(model, model_type)
+    if arch == "krea2":
         return None, (
-            "Nema AnimateDiff motion modula (mm_sd_v15_v2). "
-            "Pritisni „Instaliraj video podršku” da se preuzme u models/animatediff_models."
+            "Krea 2 se ne koristi za AnimateDiff video. "
+            "Odaberi SDXL ili SD 1.5 checkpoint u kartici Slike (Napredno)."
         )
-    if image_gen.detect_model_arch(model) != "sd15":
-        return None, (
-            f"AnimateDiff na 8 GB radi sa SD 1.5, ne sa SDXL ({model}). "
-            "Instaliraj Realistic Vision (gumb za video podršku to može skinuti) ili odaberi SD 1.5 model."
-        )
+    if arch not in {"sd15", "sdxl"}:
+        arch = "sd15"
 
-    rec = recommend_settings(8)
-    width = max(256, min(768, int(width) - int(width) % 8))
-    height = max(256, min(768, int(height) - int(height) % 8))
-    frames = max(8, min(24, int(frames)))
-    steps = max(8, min(30, int(steps)))
+    motion_list = list(caps.get("motion_models") or [])
+    by_arch = caps.get("motion_by_arch") if isinstance(caps.get("motion_by_arch"), dict) else {}
+    requested = (motion_model or caps.get("motion_model") or "").strip()
+    if requested and motion_arch(requested) in {"", arch}:
+        motion = requested
+    else:
+        motion = ""
+    if not motion:
+        motion = (by_arch.get(arch) or "") if by_arch else ""
+    if not motion:
+        motion = pick_motion_model(motion_list or None, arch)
+    if motion and motion_arch(motion) not in {"", arch}:
+        motion = pick_motion_model(motion_list or None, arch)
+    if not motion:
+        return None, missing_motion_message(arch)
+
+    rec = recommend_settings(8, arch)
+    max_side = 768
+    max_frames = 16 if arch == "sdxl" else 24
+    max_steps = 20 if arch == "sdxl" else 30
+    width = max(256, min(max_side, int(width) - int(width) % 8))
+    height = max(256, min(max_side, int(height) - int(height) % 8))
+    frames = max(8, min(max_frames, int(frames)))
+    steps = max(8, min(max_steps, int(steps)))
     fps = max(4, min(16, int(fps)))
     cfg = float(rec["cfg"] if cfg is None else cfg)
     use_init = bool(init_image)
@@ -392,10 +548,17 @@ def build_video_workflow(
     }
     wf["8"] = {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}}
 
+    arch_label = "SDXL" if arch == "sdxl" else "SD 1.5"
     note = (
-        f"AnimateDiff {note_path}, {width}×{height}, {frames} sličica @ {fps} fps "
+        f"AnimateDiff {note_path} ({arch_label}, {Path(motion).name}), "
+        f"{width}×{height}, {frames} sličica @ {fps} fps "
         f"({'img2vid, denoise '+str(denoise) if use_init else 'txt2vid'}). "
-        "Na RX 6600 očekuj 1–4 min za 2 s klipa. Prvo paljenje može trajati dulje."
+        + (
+            "SDXL video je težak na 8 GB; ako javi out of memory, smanji na 8 sličica ili koristi SD 1.5. "
+            if arch == "sdxl"
+            else "Na RX 6600 očekuj 1–4 min za 2 s klipa. "
+        )
+        + "Prvo paljenje može trajati dulje."
     )
     if has("VHS_VideoCombine") or (not names and caps.get("vhs")):
         fmt, fmt_note = pick_vhs_format(object_info) if names else ("video/h264-mp4", "")

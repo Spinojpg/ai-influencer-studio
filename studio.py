@@ -424,8 +424,12 @@ def video_capabilities() -> dict:
         "native": [],
         "message": "",
         "comfy_ok": False,
-        "recommend": video_mod.recommend_settings(8),
-        "notes_hr": video_mod.recommend_settings(8)["note"],
+        "recommend": video_mod.recommend_settings(8, "sd15"),
+        "recommend_by_arch": {
+            "sd15": video_mod.recommend_settings(8, "sd15"),
+            "sdxl": video_mod.recommend_settings(8, "sdxl"),
+        },
+        "notes_hr": video_mod.NOTES_HR,
     }
     ok, msg = comfy_up()
     caps["comfy_ok"] = ok
@@ -445,7 +449,11 @@ def video_capabilities() -> dict:
     classified = video_mod.classify_nodes(info)
     classified["comfy_ok"] = True
     classified["comfy_message"] = msg
-    classified["recommend"] = video_mod.recommend_settings(8)
+    classified["recommend"] = classified.get("recommend") or video_mod.recommend_settings(8, "sd15")
+    classified.setdefault("recommend_by_arch", {
+        "sd15": video_mod.recommend_settings(8, "sd15"),
+        "sdxl": video_mod.recommend_settings(8, "sdxl"),
+    })
     classified["install"] = video_install.snapshot()
     classified["nodes_on_disk"] = {
         r["id"]: (comfy_launch.custom_nodes_dir() / r["dir"]).is_dir()
@@ -1842,26 +1850,51 @@ class StudioHandler(BaseHTTPRequestHandler):
         if not negative:
             negative = DEFAULT_NEGATIVE
         model = (body.get("model") or "").strip()
-        sd15s = caps.get("sd15_models") or video_mod.list_sd15_models()
-        model = video_mod.pick_sd15_model(model, sd15s)
-        if not model or image_gen.detect_model_arch(model) != "sd15":
+        model_type = (body.get("model_type") or body.get("arch") or "").strip()
+        arch = video_mod.detect_video_model_arch(model, model_type)
+        if arch == "krea2":
             self._json(400, {
                 "ok": False,
-                "error": "Za video treba SD 1.5 model (npr. Realistic Vision). Pritisni „Instaliraj video podršku” ili preuzmi ga u Modelima.",
+                "error": "Krea 2 se ne koristi za AnimateDiff video. Odaberi SDXL ili SD 1.5 checkpoint u kartici Slike (Napredno).",
                 "capabilities": caps,
             })
             return
-        rec = caps.get("recommend") or video_mod.recommend_settings(8)
+        available = list(caps.get("sd15_models") or video_mod.list_sd15_models()) + list(
+            caps.get("sdxl_models") or video_mod.list_sdxl_models()
+        )
+        model = video_mod.pick_video_model(model, available, arch)
+        arch = video_mod.detect_video_model_arch(model, model_type if model_type else arch)
+        if not model or arch not in {"sd15", "sdxl"}:
+            self._json(400, {
+                "ok": False,
+                "error": "Za video treba SD 1.5 ili SDXL checkpoint. Pritisni „Instaliraj video podršku” ili preuzmi model u kartici Modeli.",
+                "capabilities": caps,
+            })
+            return
+        rec_map = caps.get("recommend_by_arch") if isinstance(caps.get("recommend_by_arch"), dict) else {}
+        rec = rec_map.get(arch) or video_mod.recommend_settings(8, arch)
+        max_frames = 16 if arch == "sdxl" else 24
+        max_steps = 20 if arch == "sdxl" else 30
         width = clamp_int(body.get("width"), 256, 768, rec["width"])
         height = clamp_int(body.get("height"), 256, 768, rec["height"])
-        frames = clamp_int(body.get("frames"), 8, 24, rec["frames"])
-        steps = clamp_int(body.get("steps"), 8, 30, rec["steps"])
+        frames = clamp_int(body.get("frames"), 8, max_frames, rec["frames"])
+        steps = clamp_int(body.get("steps"), 8, max_steps, rec["steps"])
         fps = clamp_int(body.get("fps"), 4, 16, rec.get("fps") or 8)
         seed = body.get("seed")
         if seed is None or seed == "" or int(seed) < 0:
             seed = random.randint(0, 2_147_483_647)
         else:
             seed = clamp_int(seed, 0, 2_147_483_647, random.randint(0, 2_147_483_647))
+        motion = video_mod.pick_motion_model(caps.get("motion_models"), arch)
+        if not motion:
+            self._json(400, {
+                "ok": False,
+                "error": video_mod.missing_motion_message(arch),
+                "need_motion": arch,
+                "download_id": video_mod.download_id_for_arch(arch),
+                "capabilities": caps,
+            })
+            return
         init_name = ""
         init_info = body.get("init_image") or body.get("image")
         if init_info:
@@ -1883,12 +1916,17 @@ class StudioHandler(BaseHTTPRequestHandler):
             seed=seed,
             fps=fps,
             init_image=init_name,
-            motion_model=caps.get("motion_model") or "",
+            motion_model=motion,
             object_info=info,
             prompt_chunks=built["chunks"],
+            model_type=arch,
         )
         if not wf:
-            self._json(400, {"ok": False, "error": note, "capabilities": caps})
+            payload = {"ok": False, "error": note, "capabilities": caps}
+            if "motion modul" in (note or "").lower() or "motion modula" in (note or "").lower():
+                payload["need_motion"] = arch
+                payload["download_id"] = video_mod.download_id_for_arch(arch)
+            self._json(400, payload)
             return
         self._queue_prompt(wf, {
             "ok": True,

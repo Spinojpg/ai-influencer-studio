@@ -961,7 +961,7 @@
     <div id="tab-video" class="tab-panel grid">
       <form class="card form create-form" id="videoForm" autocomplete="off">
         <h2 class="sec" style="margin-top:0">Kratki video</h2>
-        <p class="hint" id="videoNote">Na RX 6600 (8 GB, ZLUDA) realan je AnimateDiff uz SD 1.5 i motion modul, 512×512, 2 s (16 sličica). LTX-Video, Wan i SVD-XT na 8 GB nisu praktični.</p>
+        <p class="hint" id="videoNote">Na RX 6600 (8 GB, ZLUDA) najpouzdaniji je AnimateDiff uz SD 1.5 i mm_sd_v15_v2, 512×512, 2 s. SDXL video treba poseban motion modul (mm_sdxl_v10_beta) i težak je na 8 GB. LTX-Video, Wan i SVD-XT nisu praktični.</p>
         <div id="videoStatus" class="warn">Provjeravam video podršku…</div>
         <div class="field">
           <button type="button" class="btn primary" id="installVideo">Instaliraj video podršku</button>
@@ -969,7 +969,15 @@
             <div class="progress-label"><span id="videoInstText">Instalacija…</span><span id="videoInstPct">0%</span></div>
             <div class="bar"><i id="videoInstFill"></i></div>
           </div>
-          <div class="hint" id="videoCaps">Git clone AnimateDiff-Evolved i VideoHelperSuite u custom_nodes, pip u venv, pa mm_sd_v15_v2 i po potrebi Realistic Vision. Zatim ponovo pokreni ComfyUI. Log: data\logs\video.log</div>
+          <div class="hint" id="videoCaps">Git clone AnimateDiff-Evolved i VideoHelperSuite u custom_nodes, pip u venv, pa mm_sd_v15_v2 i po potrebi Realistic Vision. SDXL motion modul preuzmi u kartici Modeli. Zatim ponovo pokreni ComfyUI. Log: data\logs\video.log</div>
+          <div id="videoMotionMissing" hidden style="margin-top:12px">
+            <div class="warn" id="videoMotionMsg"></div>
+            <button type="button" class="btn primary" id="downloadMotion" style="margin-top:10px">Preuzmi motion modul</button>
+            <div class="progress-block" id="videoMotionWrap" hidden style="margin-top:12px">
+              <div class="progress-label"><span id="videoMotionText">Preuzimanje…</span><span id="videoMotionPct">0%</span></div>
+              <div class="bar"><i id="videoMotionFill"></i></div>
+            </div>
+          </div>
         </div>
         <div class="field">
           <label class="lbl">Izvor</label>
@@ -989,7 +997,7 @@
             <button type="button" data-f="16" class="on">2 s<br>16 sličica</button>
             <button type="button" data-f="24">3 s<br>24 sličice</button>
           </div>
-          <div class="hint">24 sličice na 8 GB može zapeti na memoriji. Očekuj 1–4 min po klipu.</div>
+          <div class="hint" id="videoFramesHint">24 sličice na 8 GB može zapeti na memoriji. Očekuj 1–4 min po klipu.</div>
         </div>
         <button class="go" id="goVideo" type="button">Generiraj klip</button>
         <div class="err" id="videoErr"></div>
@@ -1326,7 +1334,7 @@
     const bar = $("bar");
     const barFill = $("barFill");
 
-    let width = 512, height = 768, outputWidth = 512, outputHeight = 768, sizePreset = "", batch = 1, steps = 30, frames = 16, currentArch = "sd15", lastMeta = null, turboMode = false, lastImage = null, videoSource = "image";
+    let width = 512, height = 768, outputWidth = 512, outputHeight = 768, sizePreset = "", batch = 1, steps = 30, frames = 16, currentArch = "sd15", lastMeta = null, turboMode = false, lastImage = null, videoSource = "image", videoCaps = null, videoMotionTimer = null;
     let pendingRefs = [];
     let pollTimer = null;
     let comfyOk = false;
@@ -2081,22 +2089,29 @@
       if (arch === "krea2" && loraEl) loraEl.value = "";
       updateActiveModelLine();
       fillLoraSelect();
+      updateVideoForArch();
     }
 
     async function loadVideoCaps() {
       try {
         const r = await fetch("/api/video/capabilities", { cache: "no-store" });
         const d = await r.json();
+        videoCaps = d;
         const el = $("videoCaps");
         const st = $("videoStatus");
         if (d.notes_hr && $("videoNote")) $("videoNote").textContent = d.notes_hr;
         if (!d.comfy_ok) {
           if (st) { st.className = "warn danger"; st.textContent = d.comfy_message || d.message || "ComfyUI nije spojen."; }
           if (el) el.textContent = "Upali Studio prečacem da se ComfyUI pokrene, zatim instaliraj podršku.";
+          updateVideoForArch();
           return d;
         }
+        const by = d.motion_by_arch || {};
+        const motionBits = [];
+        if (by.sd15) motionBits.push("SD 1.5: " + by.sd15);
+        if (by.sdxl) motionBits.push("SDXL: " + by.sdxl);
         if (d.ready) {
-          if (st) { st.className = "warn"; st.style.borderColor = "rgba(125,206,160,0.35)"; st.textContent = "Video podrška je spremna. Motion: " + (d.motion_model || "da") + (d.sd15_models && d.sd15_models[0] ? (" · SD 1.5: " + d.sd15_models[0]) : ""); }
+          if (st) { st.className = "warn"; st.style.borderColor = "rgba(125,206,160,0.35)"; st.textContent = "Video podrška je spremna. Motion: " + (motionBits.join(" · ") || d.motion_model || "da"); }
           if (el) el.textContent = "Čvorovi: " + [].concat(d.animatediff||[], d.vhs||[]).slice(0,6).join(", ");
         } else {
           if (st) { st.className = "warn"; st.textContent = d.message || "Video podrška nije instalirana."; }
@@ -2106,10 +2121,51 @@
         if (d.install && d.install.status === "done" && d.install.restart_required && !d.ready) {
           if (st) st.textContent = d.install.message || "Instalirano — ponovo pokreni ComfyUI (zatvori Studio i upali prečac).";
         }
+        updateVideoForArch();
         return d;
       } catch (e) {
         if ($("videoCaps")) $("videoCaps").textContent = String(e);
         return null;
+      }
+    }
+    function videoRecForArch(arch) {
+      const d = videoCaps || {};
+      const map = d.recommend_by_arch || {};
+      return map[arch] || d.recommend || { width: 512, height: 512, frames: arch === "sdxl" ? 12 : 16, fps: 8, steps: arch === "sdxl" ? 12 : 16 };
+    }
+    function updateVideoForArch() {
+      const arch = currentArch;
+      const hint = $("videoFramesHint");
+      const rec = videoRecForArch(arch);
+      if (hint) {
+        if (arch === "krea2") hint.textContent = "Krea 2 se ne koristi za AnimateDiff video. Odaberi SDXL ili SD 1.5 model u Slikama (Napredno).";
+        else if (arch === "sdxl") hint.textContent = "SDXL video je težak na 8 GB. Studio šalje " + (rec.width || 512) + "×" + (rec.height || 512) + ", do 16 sličica. Ako javi out of memory, odaberi 1 s (8 sličica) ili SD 1.5.";
+        else hint.textContent = "24 sličice na 8 GB može zapeti na memoriji. Očekuj 1–4 min po klipu.";
+      }
+      const btn24 = document.querySelector("#frames button[data-f='24']");
+      if (btn24) btn24.style.opacity = arch === "sdxl" ? "0.55" : "";
+      const box = $("videoMotionMissing");
+      const msg = $("videoMotionMsg");
+      const btn = $("downloadMotion");
+      if (!box) return;
+      const d = videoCaps;
+      if (!d || !d.comfy_ok || !d.ad_ok) { box.hidden = true; return; }
+      if (arch === "krea2") {
+        box.hidden = false;
+        if (msg) msg.textContent = "Krea 2 se ne koristi za AnimateDiff video. Odaberi SDXL ili SD 1.5 checkpoint u kartici Slike (Napredno).";
+        if (btn) btn.hidden = true;
+        return;
+      }
+      const motion = (d.motion_by_arch && d.motion_by_arch[arch]) || "";
+      if (motion) { box.hidden = true; return; }
+      box.hidden = false;
+      if (btn) btn.hidden = false;
+      if (arch === "sdxl") {
+        if (msg) msg.textContent = "Za SDXL video treba motion modul mm_sdxl_v10_beta.ckpt. Preuzmi ga ovdje (oko 906 MB, ide u models\\animatediff_models). Na 8 GB je težak — Studio će koristiti 512×512 i manje sličica.";
+        if (btn) { btn.dataset.id = "mm-sdxl-v10-beta"; btn.textContent = "Preuzmi SDXL motion modul"; }
+      } else {
+        if (msg) msg.textContent = "Za SD 1.5 video treba motion modul mm_sd_v15_v2.ckpt. Preuzmi ga ovdje ili pritisni „Instaliraj video podršku”.";
+        if (btn) { btn.dataset.id = "mm-sd15-v2"; btn.textContent = "Preuzmi SD 1.5 motion modul"; }
       }
     }
     let videoInstTimer = null;
@@ -2142,6 +2198,39 @@
         if (!r.ok || !d.ok) { showToast((d && d.error) || "Instalacija nije krenula.", true); return; }
         if ($("videoInstWrap")) $("videoInstWrap").hidden = false;
         pollVideoInstall();
+      } catch (e) { showToast(String(e), true); }
+    });
+    async function pollVideoMotionDownload() {
+      try {
+        const r = await fetch("/api/models/download", { cache: "no-store" });
+        const d = await r.json();
+        const st = d.download || {};
+        const wrap = $("videoMotionWrap");
+        if (wrap) wrap.hidden = st.status !== "running" && st.status !== "done";
+        if ($("videoMotionFill")) $("videoMotionFill").style.width = (st.percent || 0) + "%";
+        if ($("videoMotionText")) $("videoMotionText").textContent = st.message || st.error || "Preuzimanje…";
+        if ($("videoMotionPct")) $("videoMotionPct").textContent = (st.percent || 0) + "%";
+        if (st.status === "running") {
+          if (!videoMotionTimer) videoMotionTimer = setInterval(pollVideoMotionDownload, 700);
+          return;
+        }
+        if (videoMotionTimer) { clearInterval(videoMotionTimer); videoMotionTimer = null; }
+        if (st.status === "done") {
+          showToast("Motion modul je preuzet: " + (st.filename || ""));
+          await loadVideoCaps();
+        } else if (st.status === "error") {
+          showToast(st.error || "Preuzimanje nije uspjelo.", true);
+        }
+      } catch (e) {
+        if (videoMotionTimer) { clearInterval(videoMotionTimer); videoMotionTimer = null; }
+      }
+    }
+    if ($("downloadMotion")) $("downloadMotion").addEventListener("click", async () => {
+      const id = $("downloadMotion").dataset.id || "mm-sdxl-v10-beta";
+      try {
+        if ($("videoMotionWrap")) $("videoMotionWrap").hidden = false;
+        await startDownload({ id: id });
+        pollVideoMotionDownload();
       } catch (e) { showToast(String(e), true); }
     });
 
@@ -2434,15 +2523,31 @@
       const vPrompt = ($("videoPrompt") && $("videoPrompt").value.trim()) || promptEl.value.trim();
       if (videoSource === "prompt" && !vPrompt) { showErr(errV, "Upiši opis klipa."); return; }
       if (videoSource === "image" && !lastImage) { showErr(errV, "Nema zadnje slike — prvo generiraj sliku u kartici Slike, ili odaberi „Iz opisa”."); return; }
+      if (currentArch === "krea2") {
+        showErr(errV, "Krea 2 se ne koristi za AnimateDiff video. Odaberi SDXL ili SD 1.5 model.");
+        updateVideoForArch();
+        return;
+      }
+      const motionReady = videoCaps && videoCaps.motion_by_arch && videoCaps.motion_by_arch[currentArch];
+      if (videoCaps && videoCaps.ad_ok && !motionReady) {
+        updateVideoForArch();
+        showErr(errV, (currentArch === "sdxl")
+          ? "Za SDXL video prvo preuzmi motion modul mm_sdxl_v10_beta."
+          : "Za SD 1.5 video prvo preuzmi motion modul mm_sd_v15_v2.");
+        return;
+      }
       $("goVideo").disabled = true;
       if ($("videoProgWrap")) $("videoProgWrap").hidden = false;
       setProgress(0.05, "Šaljem video zadatak…", true);
+      const rec = videoRecForArch(currentArch);
+      const useFrames = currentArch === "sdxl" ? Math.min(Number(frames) || rec.frames || 12, 16) : frames;
       const body = Object.assign(payloadBase(), {
         prompt: vPrompt,
-        frames: frames,
-        width: 512,
-        height: 512,
-        fps: 8,
+        frames: useFrames,
+        width: rec.width || 512,
+        height: rec.height || 512,
+        steps: rec.steps || (currentArch === "sdxl" ? 12 : 16),
+        fps: rec.fps || 8,
         turbo: false
       });
       if (videoSource === "image" && lastImage) {
@@ -2455,6 +2560,12 @@
           $("goVideo").disabled = false;
           if (progWrap) progWrap.hidden = true;
           showErr(errV, d.error || "Video nije pokrenut.");
+          if (d.download_id) {
+            const btn = $("downloadMotion");
+            if (btn) { btn.dataset.id = d.download_id; btn.hidden = false; }
+            if ($("videoMotionMissing")) $("videoMotionMissing").hidden = false;
+            if ($("videoMotionMsg") && d.error) $("videoMotionMsg").textContent = d.error;
+          }
           return;
         }
         if (d.warning) showToast(d.warning);

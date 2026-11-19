@@ -118,12 +118,12 @@ def test_video_workflow():
     check(wf and wf["5"]["inputs"]["batch_size"] == 16, "16 frames latent")
     check(wf and wf["21"]["class_type"] == "VHS_VideoCombine", "VHS combine")
     check(wf and "h264-mp4" in str(wf["21"]["inputs"].get("format")), f"mp4 format {wf['21']['inputs'].get('format') if wf else None}")
-    # SDXL rejected
+    # SDXL without SDXL motion module is rejected (does not send SD 1.5 module)
     bad, err = video_mod.build_video_workflow(
         caps, prompt="x", negative="n", model="RealVisXL_V5.0_fp16.safetensors",
         width=512, height=512, frames=16, steps=16, seed=1, object_info=info,
     )
-    check(bad is None and "SD 1.5" in (err or ""), f"reject sdxl {err}")
+    check(bad is None and "mm_sdxl_v10_beta" in (err or "") and "SDXL" in (err or ""), f"reject sdxl without module {err}")
     # img2vid
     w2, n2 = video_mod.build_video_workflow(
         caps, prompt="gentle motion", negative="n",

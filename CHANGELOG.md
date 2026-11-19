@@ -1,5 +1,10 @@
 # Promjene
 
+## 1.0.20 — 2026-11-19
+- Kartica Modeli: AnimateDiff motion modul za SDXL (mm_sdxl_v10_beta.ckpt, guoyww, oko 906 MB) i opcijski manji Hotshot-XL (oko 453 MB). Oba idu u models/animatediff_models, preuzimanje je paralelno s nastavkom prekinutog skidanja.
+- Video sam bira motion modul prema odabranom checkpointu (SD 1.5 → mm_sd_v15_v2, SDXL → mm_sdxl_v10_beta). Ako odgovarajući modul nije instaliran, Studio ne šalje zadatak nego pokaže jasnu poruku i gumb za preuzimanje.
+- SDXL video je težak na 8 GB: koristi 512×512 i do 16 sličica, s upozorenjem u sučelju. Ako javi out of memory, odaberi 1 s (8 sličica) ili ostani na SD 1.5.
+
 ## 1.0.19 — 2026-11-18
 - LoRA izbornik u Slikama (Napredno) sada pokazuje iste LoRA-e kao kartica Modeli. Prije je popis dolazio samo iz ComfyUI-ja (ili s diska bez podmapa) i zatim se filtrirao po arhitekturi, pa su LoRA-e prepoznate kao SD 1.5 (ili SDXL dok ComfyUI još nije spreman) bile skrivene.
 - Popis LoRA-a čita models\loras s podmapama i spaja ga s popisom iz ComfyUI-ja. Ništa se više ne skriva: prvo su LoRA-e za odabrani model, ostale su pod „Ostalo / možda nekompatibilno”. Interna Turbo LoRA i dalje ide samo preko Brzina → Turbo.
