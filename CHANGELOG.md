@@ -1,5 +1,16 @@
 # Promjene
 
+## 1.1.0 — 2026-11-20
+- Nova struktura: modularni servisi (services/: hardver, generiranje, objave, CRM) i novo sučelje s karticama Pregled, Generiranje, Osobe, Video, Kalendar, Inbox i CRM, Modeli, Postavke.
+- Hardver: detekcija GPU-a i VRAM-a, izbor backenda (ZLUDA/CUDA/ROCm/DirectML/CPU), VAE i VRAM način, 8 GB siguran način, gumb „Preporuči za RX 6600” uz restart ComfyUI-ja. TORCH_BACKENDS_CUDNN_ENABLED=0 i dalje ostaje za RX 6600.
+- Generiranje: dpmpp_2m_sde + karras, hires fix 1,4–1,5 / 0,35–0,45 / 12–15 koraka s VAEDecodeTiled, FreeU_V2 (1,3 / 1,4 / 0,9 / 0,2), postavke Face Detailera, do 5 LoRA-a, InstantID ili IP-Adapter s bedžom.
+- Predlošci u bazi (Javni teaser i Premium sadržaj, SFW) s uređivanjem i dupliciranjem; trajni red čekanja s batchom i statusima U tijeku / Na čekanju / Gotovo / Greška / Otkazano; galerija s ocjenama Dobra/Loša i „Učitaj još”.
+- Osobe: LoRA stack, način referenci, Character Sheet 2×2, izvoz LoRA dataseta za Kohya/OneTrainer (8 GB).
+- Modeli: sekcija „Preporučene SDXL LoRA-e (realizam i detalji)” sa 6 SFW LoRA-a.
+- Kalendar i objave: Instagram (container → media_publish), Facebook, Telegram, Premium API, raspored svakih 30 s; ključevi u data/.env, maskirano u sučelju.
+- Inbox i CRM: istaknut prekidač Automatsko slanje odmah / Nacrt za odobrenje (globalno, po kanalu, po influenceru, jednim klikom), webhook, simulacija bez xAI ključa, LLM preko Ollame, LM Studija, xAI-ja ili pravila, memorija po fanu, prepoznavanje interesa, custom narudžbe, pretplatnici i analitika.
+- Nova dokumentacija: DOKUMENTACIJA.md.
+
 ## 1.0.20 — 2026-11-19
 - Kartica Modeli: AnimateDiff motion modul za SDXL (mm_sdxl_v10_beta.ckpt, guoyww, oko 906 MB) i opcijski manji Hotshot-XL (oko 453 MB). Oba idu u models/animatediff_models, preuzimanje je paralelno s nastavkom prekinutog skidanja.
 - Video sam bira motion modul prema odabranom checkpointu (SD 1.5 → mm_sd_v15_v2, SDXL → mm_sdxl_v10_beta). Ako odgovarajući modul nije instaliran, Studio ne šalje zadatak nego pokaže jasnu poruku i gumb za preuzimanje.

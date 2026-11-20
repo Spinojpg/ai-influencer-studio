@@ -30,6 +30,7 @@ import comfy_launch
 import comfy_ws
 import image_gen
 import inbox
+import api_v11
 import installed_models
 import model_download
 import updater
@@ -38,6 +39,8 @@ import video_install
 import character
 import character_install
 import subprocess
+from services import crm_service, generation_service, hardware_service, posting_service
+import services
 
 ROOT = Path(__file__).resolve().parent
 INDEX = ROOT / "index.html"
@@ -658,6 +661,7 @@ def plan_image_generation(
 
     Vraća {ok, workflow, meta} ili {ok: False, status, error, ...}.
     """
+    body = generation_service.apply_template(body)
     prof = resolve_generation_profile(body, profile)
     appearance = resolve_appearance(body, prof)
     scene = (body.get("prompt") or "").strip()
@@ -707,6 +711,8 @@ def plan_image_generation(
         preset_id=str(body.get("size_preset") or body.get("preset_id") or ""),
         dim_max=dim_max,
     )
+    # 1.1.0: 8 GB siguran mod (samo kad ga klijent pošalje): niža baza + upscale na ciljnu rezoluciju.
+    canvas = generation_service.safe_canvas(body, arch, canvas)
     width = canvas["width"]
     height = canvas["height"]
     output_width = canvas["output_width"]
@@ -759,6 +765,18 @@ def plan_image_generation(
         default_strength = clamp_float(prof.get("preferred_lora_strength"), 0.0, 1.5, 0.8)
     user_lora_strength = clamp_float(strength_src, 0.0, 1.5, default_strength)
     sampler_name, scheduler = image_gen.default_sampler(arch)
+    picked = generation_service.resolve_sampling(body, arch)
+    if picked:
+        sampler_name, scheduler = picked
+    hires_scale = clamp_float(body.get("hires_scale"), 1.1, 2.0, None)
+    hires_denoise = clamp_float(body.get("hires_denoise"), 0.1, 0.8, None)
+    hires_steps = _optional_int(body.get("hires_steps"))
+    freeu = character.truthy(body.get("freeu"), False)
+    vae_mode = str(body.get("vae_mode") or "standard").lower()
+    if vae_mode not in hardware_service.VAE_MODES:
+        vae_mode = "standard"
+    vae_tile = clamp_int(body.get("vae_tile"), 256, 1024, 512)
+    lora_stack = generation_service.resolve_lora_stack(body, prof, arch)
 
     if arch == "krea2":
         err = image_gen.krea2_support_error(object_info)
@@ -788,6 +806,17 @@ def plan_image_generation(
         krea_turbo = True
     else:
         krea_turbo = False
+
+    if arch == "krea2":
+        lora_stack = []
+    for entry in lora_stack:
+        if not image_gen.lora_available(entry["name"]):
+            return {
+                "ok": False,
+                "status": 400,
+                "error": f"LoRA „{entry['name']}” iz stacka nije pronađena u models/loras.",
+                "need": "lora",
+            }
 
     if user_lora and arch != "krea2" and not image_gen.lora_available(user_lora):
         return {
@@ -830,8 +859,46 @@ def plan_image_generation(
     if arch == "krea2":
         face_detailer = False
 
+    ref_mode = generation_service.resolve_ref_mode(body, prof)
+    use_instantid = False
+    instantid_image = ""
+    instantid_weight = clamp_float(
+        body.get("instantid_weight") if body.get("instantid_weight") not in (None, "") else ((prof or {}).get("instantid_weight") if (prof or {}).get("instantid_weight") not in (None, "") else generation_service.profile_extras((prof or {}).get("id")).get("instantid_weight", 0.8)),
+        0.0, 1.5, 0.8,
+    )
+    if arch == "sdxl" and ref_mode in {"instantid", "auto"}:
+        iid_ok = image_gen.instantid_available(object_info)
+        ipa_state = character.ipadapter_nodes_ok(object_info)
+        if ref_mode == "instantid":
+            if object_info and not iid_ok:
+                return {
+                    "ok": False,
+                    "status": 400,
+                    "error": "InstantID čvorovi nisu učitani u ComfyUI-ju. Instaliraj ComfyUI_InstantID (cubiq) s modelima "
+                             "(models/instantid/ip-adapter.bin, models/controlnet/instantid, InsightFace antelopev2) ili prebaci način na IP-Adapter.",
+                    "need": "instantid",
+                }
+            use_instantid = True
+        elif ipa_state is False and iid_ok:
+            use_instantid = True
+    if use_instantid:
+        paths = []
+        if prof and prof.get("id") is not None:
+            try:
+                paths = inbox.reference_paths(int(prof["id"]))
+            except Exception:
+                paths = []
+        staged_iid = body.get("ipadapter_images") or body.get("ref_images")
+        if isinstance(staged_iid, list) and staged_iid and isinstance(staged_iid[0], str):
+            instantid_image = staged_iid[0]
+        elif paths:
+            try:
+                instantid_image = character.stage_reference_images(paths[:1], prefix=f"studio_refs/p{int(prof['id'])}")[0]
+            except Exception as exc:
+                return {"ok": False, "status": 500, "error": f"Ne mogu pripremiti referentnu sliku: {exc}"}
+
     ipadapter_images: list[str] = []
-    if arch != "krea2":
+    if arch != "krea2" and not use_instantid:
         staged = body.get("ipadapter_images") or body.get("ref_images")
         if isinstance(staged, list) and staged and all(isinstance(x, str) and x.strip() for x in staged):
             ipadapter_images = [x.replace("\\", "/").strip() for x in staged][: character.MAX_REFS]
@@ -859,7 +926,10 @@ def plan_image_generation(
     if face_detailer:
         err = character.face_detailer_error(object_info, want=True)
         if err:
-            return err
+            if body.get("face_detailer_optional"):
+                face_detailer = False  # predložak ga samo predlaže; bez Impact Packa ide bez njega
+            else:
+                return err
 
     workflow = build_workflow(
         prompt=prompt,
@@ -885,6 +955,16 @@ def plan_image_generation(
         face_detailer=bool(face_detailer) and arch != "krea2",
         output_width=output_width,
         output_height=output_height,
+        loras=lora_stack if arch != "krea2" else None,
+        hires_scale=hires_scale,
+        hires_denoise=hires_denoise,
+        hires_steps=hires_steps,
+        freeu=freeu and arch != "krea2",
+        vae_mode=vae_mode,
+        vae_tile_size=vae_tile,
+        instantid_image=instantid_image if arch == "sdxl" else "",
+        instantid_weight=instantid_weight,
+        face_detailer_params=generation_service.face_detailer_params(body),
     )
     return {
         "ok": True,
@@ -916,6 +996,18 @@ def plan_image_generation(
             "ipadapter_images": ipadapter_images if arch != "krea2" else [],
             "face_detailer": bool(face_detailer) and arch != "krea2",
             "lock_seed": bool(lock_seed),
+            "sampler": sampler_name,
+            "scheduler": scheduler,
+            "loras": lora_stack,
+            "freeu": bool(freeu) and arch != "krea2" and (not object_info or "FreeU_V2" in (object_info or {})),
+            "vae_mode": vae_mode,
+            "safe_mode": bool(canvas.get("safe_mode")),
+            "ref_mode": "instantid" if instantid_image else ("ipadapter" if ipadapter_images else ref_mode),
+            "hires_scale": hires_scale if hires else None,
+            "hires_denoise": hires_denoise if hires else None,
+            "persona_id": (prof or {}).get("id"),
+            "template_id": body.get("template_id"),
+            "template_tier": body.get("template_tier"),
             "prompt": prompt,
             "tokens": built["tokens"],
             "token_warn": built["warn"],
@@ -964,6 +1056,35 @@ def stage_init_image(info: dict | str) -> str:
     safe = Path(filename).name
     (dest / safe).write_bytes(bytes(raw))
     return safe
+
+
+_STATS_CACHE: dict = {"t": 0.0, "data": {}}
+
+
+def cached_system_stats(max_age: float = 20.0) -> dict:
+    """ComfyUI /system_stats (za VRAM prikaz i detekciju GPU-a), kratko keširano."""
+    if time.time() - _STATS_CACHE["t"] < max_age:
+        return _STATS_CACHE["data"]
+    try:
+        payload, _, _ = comfy_request("/system_stats", timeout=3)
+        data = payload if isinstance(payload, dict) else {}
+    except Exception:
+        data = {}
+    _STATS_CACHE.update(t=time.time(), data=data)
+    return data
+
+
+def plan_for_queue(body: dict) -> dict:
+    """Planer za pozadinski red čekanja (isti put kao /api/generate)."""
+    active = inbox.get_profile(inbox.active_profile_id())
+    return plan_image_generation(body, profile=resolve_generation_profile(body, active), object_info=cached_object_info())
+
+
+V11_CTX = {
+    "comfy_up": lambda: comfy_up(),
+    "system_stats": lambda: cached_system_stats(),
+    "object_info": lambda: cached_object_info(),
+}
 
 
 class StudioHandler(BaseHTTPRequestHandler):
@@ -1101,6 +1222,9 @@ class StudioHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
         query = urllib.parse.parse_qs(parsed.query)
+
+        if (path.startswith("/static/") or path.startswith("/public/media/") or path.startswith("/api/")) and api_v11.handle(self, "GET", path, query, None, V11_CTX):
+            return
 
         if path in ("/", "/index.html"):
             if not INDEX.is_file():
@@ -1252,6 +1376,14 @@ class StudioHandler(BaseHTTPRequestHandler):
                 return
             result = job_status(prompt_id)
             result["ok"] = result.get("status") != "error"
+            if result.get("status") == "done" and result.get("images"):
+                try:
+                    ids = generation_service.record_prompt_images(prompt_id, result.get("images") or [])
+                    for img in result.get("images") or []:
+                        if img.get("filename") in ids:
+                            img["gallery_id"] = ids[img["filename"]]
+                except Exception:
+                    pass
             result["prompt_id"] = prompt_id
             for img in result.get("images") or []:
                 img["url"] = "/api/view?" + urllib.parse.urlencode(
@@ -1357,6 +1489,9 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._json(400, {"ok": False, "error": "Tijelo zahtjeva nije objekt."})
             return
 
+        if api_v11.handle(self, "POST", path, urllib.parse.parse_qs(parsed.query), body, V11_CTX):
+            return
+
         if path == "/api/generate":
             self._generate_image(body)
             return
@@ -1447,9 +1582,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                 self._json(400, {"ok": False, "error": "Nema aktivnog profila."})
                 return
             fan = (body.get("fan_name") or "Fan").strip() or "Fan"
-            if not inbox.xai_configured():
-                self._json(400, {"ok": False, "error": "Nema XAI_API_KEY. Uredi .env — vidi PORUKE_UPUTE.txt."})
-                return
+            # 1.1.0: bez xAI ključa odgovara lokalni LLM (Ollama/LM Studio) ili pravila
             try:
                 result = inbox.handle_incoming(pid, "simulate", "sim-" + fan.lower().replace(" ", "-")[:40], text, display_name=fan)
             except Exception as exc:
@@ -1551,6 +1684,8 @@ class StudioHandler(BaseHTTPRequestHandler):
         except Exception:
             self._json(400, {"ok": False, "error": "Tijelo zahtjeva nije valjani JSON."})
             return
+        if isinstance(body, dict) and api_v11.handle(self, "PUT", parsed.path, urllib.parse.parse_qs(parsed.query), body, V11_CTX):
+            return
         mref = re.fullmatch(r"/api/profiles/(\d+)/refs", parsed.path)
         if mref:
             if not isinstance(body, dict):
@@ -1601,6 +1736,8 @@ class StudioHandler(BaseHTTPRequestHandler):
 
     def _handle_delete(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
+        if api_v11.handle(self, "DELETE", parsed.path, urllib.parse.parse_qs(parsed.query), {}, V11_CTX):
+            return
         if parsed.path == "/api/models/installed":
             self._delete_installed_model()
             return
@@ -1968,6 +2105,10 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
         remember_job(str(prompt_id))
         try:
+            generation_service.remember_meta(str(prompt_id), extra)
+        except Exception:
+            pass
+        try:
             comfy_ws.start_watcher(COMFY_BASE, CLIENT_ID)
         except Exception:
             pass
@@ -2140,6 +2281,9 @@ def main() -> int:
     if not INDEX.is_file():
         print("GRESKA: Nedostaje index.html pored studio.py")
         return 1
+    generation_service.configure(planner=plan_for_queue, comfy_request=comfy_request, job_status=job_status,
+                                 comfy_up=comfy_up, remember_job=remember_job)
+    services.start_workers()
 
     httpd = ThreadingHTTPServer((HOST, PORT), StudioHandler)
     _httpd = httpd
@@ -2152,7 +2296,7 @@ def main() -> int:
     print(f"  ComfyUI:  {COMFY_BASE}")
     print(f"  Podaci:   {inbox.DATA_DIR}")
     print(f"  Log:      {inbox.DATA_DIR / 'logs' / 'studio.log'}")
-    print("  Kartice: Slike, Poruke, Influenceri")
+    print("  Kartice: Pregled, Generiranje, Osobe, Video, Kalendar, Inbox i CRM, Modeli, Postavke")
     print("============================================")
     print("Zaustavi sa Ctrl+C.")
     ok, msg = comfy_up()
@@ -2160,7 +2304,7 @@ def main() -> int:
     if inbox.xai_configured():
         print("OK: xAI kljuc je ucitan iz okruzenja / .env")
     else:
-        print("UPOZORENJE: Nema XAI_API_KEY. Kartica Poruke treba kljuc u .env — vidi PORUKE_UPUTE.txt")
+        print("INFO: Nema XAI_API_KEY. CRM koristi Ollama / LM Studio ako rade, inace pravila (vidi DOKUMENTACIJA.md)")
     if os.environ.get("STUDIO_NO_BROWSER") != "1":
         threading.Thread(target=open_browser, args=(url,), daemon=True).start()
     try:
@@ -2169,6 +2313,10 @@ def main() -> int:
         print("\nZaustavljam...")
     finally:
         inbox.stop_telegram_worker()
+        try:
+            services.stop_workers()
+        except Exception:
+            pass
         try:
             comfy_ws.stop_watcher()
         except Exception:

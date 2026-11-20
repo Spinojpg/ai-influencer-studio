@@ -186,6 +186,83 @@ CURATED = [
         "kind": "animatediff",
         "size_bytes": 474694696,
         "note": "Zamjenski SDXL motion modul (Hotshot-XL). Oko 453 MB, ide u models/animatediff_models. Studio za SDXL prednost daje mm_sdxl_v10_beta; ovaj je manji rezervni izbor. Na 8 GB također može biti tijesan.",
+    },    {
+        "id": "lora-photorealistic-slider-xl",
+        "name": "Photorealistic Slider SDXL (ostris)",
+        "filename": "ostris_photorealistic_slider_xl.safetensors",
+        "url": "https://huggingface.co/ostris/photorealistic-slider-sdxl-lora/resolve/main/sdxl_photorealistic_slider_v1-0.safetensors",
+        "arch": "sdxl",
+        "kind": "lora",
+        "group": "Preporučene SDXL LoRA-e (realizam i detalji)",
+        "category": "Realizam kože i fotografije",
+        "recommended_weight": 0.6,
+        "size_bytes": 24179004,
+        "note": "Slider za fotorealizam (ostris, javni Hugging Face). Pozitivna jačina 0,4–0,8 daje prirodniju kožu i izgled prave fotografije; negativna ide prema ilustraciji. Oko 23 MB.",
+    },
+    {
+        "id": "lora-extremely-detailed-xl",
+        "name": "Extremely Detailed slider SDXL (ntc-ai)",
+        "filename": "ntc_extremely_detailed_xl.safetensors",
+        "url": "https://huggingface.co/ntc-ai/SDXL-LoRA-slider.extremely-detailed/resolve/main/extremely%20detailed.safetensors",
+        "arch": "sdxl",
+        "kind": "lora",
+        "group": "Preporučene SDXL LoRA-e (realizam i detalji)",
+        "category": "Detalji i tekstura kože",
+        "recommended_weight": 0.5,
+        "size_bytes": 8789076,
+        "note": "Slider za fine detalje i teksturu (ntc-ai, MIT licenca). Preporučeno 0,3–0,8; uz Face Detailer pazi da ne pretjeraš. Oko 8 MB.",
+    },
+    {
+        "id": "lora-cinematic-lighting-xl",
+        "name": "Cinematic Lighting slider SDXL (ntc-ai)",
+        "filename": "ntc_cinematic_lighting_xl.safetensors",
+        "url": "https://huggingface.co/ntc-ai/SDXL-LoRA-slider.cinematic-lighting/resolve/main/cinematic%20lighting.safetensors",
+        "arch": "sdxl",
+        "kind": "lora",
+        "group": "Preporučene SDXL LoRA-e (realizam i detalji)",
+        "category": "Svjetlo",
+        "recommended_weight": 0.6,
+        "size_bytes": 8789076,
+        "note": "Filmsko svjetlo i kontrast (ntc-ai, MIT licenca). Dobro za editorial i studio glamour; preporučeno 0,4–1,0. Oko 8 MB.",
+    },
+    {
+        "id": "lora-offset-noise-xl",
+        "name": "SDXL Offset Noise LoRA (Stability AI)",
+        "filename": "sdxl_offset_example_lora_1.0.safetensors",
+        "url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_offset_example-lora_1.0.safetensors",
+        "arch": "sdxl",
+        "kind": "lora",
+        "group": "Preporučene SDXL LoRA-e (realizam i detalji)",
+        "category": "Svjetlo i kontrast",
+        "recommended_weight": 0.4,
+        "size_bytes": 49553604,
+        "note": "Službena Stability AI offset-noise LoRA (openrail++): dublje sjene i bogatiji kontrast. Preporučeno 0,3–0,6. Oko 47 MB.",
+    },
+    {
+        "id": "lora-nice-hands-xl",
+        "name": "Nice Hands slider SDXL (ntc-ai)",
+        "filename": "ntc_nice_hands_xl.safetensors",
+        "url": "https://huggingface.co/ntc-ai/SDXL-LoRA-slider.nice-hands/resolve/main/nice%20hands.safetensors",
+        "arch": "sdxl",
+        "kind": "lora",
+        "group": "Preporučene SDXL LoRA-e (realizam i detalji)",
+        "category": "Anatomija (ruke)",
+        "recommended_weight": 0.6,
+        "size_bytes": 8789076,
+        "note": "Slider za urednije ruke i prste (ntc-ai, MIT licenca). Preporučeno 0,4–1,0. Oko 8 MB.",
+    },
+    {
+        "id": "lora-detail-tweaker-xl",
+        "name": "Detail Tweaker XL (add-detail-xl)",
+        "filename": "add_detail_xl.safetensors",
+        "url": "https://huggingface.co/AiWise/Detail-Tweaker-XL_v1/resolve/main/add-detail-xl.safetensors",
+        "arch": "sdxl",
+        "kind": "lora",
+        "group": "Preporučene SDXL LoRA-e (realizam i detalji)",
+        "category": "Detalji i stabilnost lica",
+        "recommended_weight": 0.5,
+        "size_bytes": 228452344,
+        "note": "Dodaje ili smanjuje razinu detalja (creativeml-openrail-m). Pozitivno 0,3–1,0 za oštrije lice i kosu, negativno za glađi izgled. Oko 218 MB.",
     },
 ]
 
@@ -211,11 +288,14 @@ def dest_dir_for(kind: str | None = None) -> Path:
     return checkpoints_dir()
 
 
+CURATED_LORA_GROUP = "Preporučene SDXL LoRA-e (realizam i detalji)"
+
+
 def curated_by_id(cid: str) -> dict | None:
     cid = (cid or "").strip()
     return next((c for c in CURATED if c["id"] == cid), None)
 
-_UA = "AI-Influencer-Studio/1.0.20"
+_UA = "AI-Influencer-Studio/1.1.0"
 _lock = threading.RLock()
 _state: dict = {
     "status": "idle",  # idle|running|done|error

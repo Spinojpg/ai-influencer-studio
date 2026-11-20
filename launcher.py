@@ -101,15 +101,38 @@ def start_comfy_if_needed(*, wait: bool = False) -> subprocess.Popen | None:
         pass
     disable_cudnn = comfy_launch.setting_on(inbox.get_setting("disable_cudnn", "1"), True)
     low_vram = comfy_launch.setting_on(inbox.get_setting("low_vram", "0"), False)
+    extra_flags: list[str] = []
+    hw_settings = None
+    try:
+        # 1.1.0: Hardver i RX 6600 (VRAM način, --reserve-vram, --cpu-vae, backend, ROCm override)
+        from services import hardware_service
+        hw_settings = hardware_service.get_settings()
+        try:
+            src_text = comfy_launch._read_text(src)
+        except Exception:
+            src_text = ""
+        plan = hardware_service.launch_plan(src_text, hw_settings)
+        if plan["low_vram"]:
+            low_vram = True
+        elif hw_settings.get("hw_vram_mode") == "normalvram":
+            low_vram = False
+        extra_flags = list(plan["extra_flags"])
+    except Exception as exc:
+        print("UPOZORENJE: hardverske postavke nisu primijenjene:", exc)
     wrapper = folder / comfy_launch.WRAPPER_NAME
     try:
-        comfy_launch.build_comfy_studio_bat(src, wrapper, disable_cudnn=disable_cudnn, low_vram=low_vram)
+        comfy_launch.build_comfy_studio_bat(src, wrapper, disable_cudnn=disable_cudnn, low_vram=low_vram, extra_flags=extra_flags)
         run_bat = wrapper
-        print("Napravljen wrapper", wrapper, "(original comfyui-n.bat nije diran, low_vram=", low_vram, ")")
+        print("Napravljen wrapper", wrapper, "(original comfyui-n.bat nije diran, low_vram=", low_vram, "extra=", extra_flags, ")")
     except Exception as exc:
         print("UPOZORENJE: nisam mogao napraviti comfyui-studio.bat:", exc)
         run_bat = src
     env = comfy_launch.comfy_process_env(os.environ, disable_cudnn=disable_cudnn)
+    try:
+        from services import hardware_service
+        env = hardware_service.process_env(env, hw_settings, disable_cudnn=disable_cudnn)
+    except Exception as exc:
+        print("UPOZORENJE: hardversko okruženje nije primijenjeno:", exc)
     print("Pokrecem ComfyUI iz", folder, "preko", run_bat.name)
     if disable_cudnn:
         print("TORCH_BACKENDS_CUDNN_ENABLED=0 je u okruzenju procesa (ne samo u .bat).")

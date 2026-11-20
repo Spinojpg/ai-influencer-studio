@@ -472,7 +472,7 @@ def default_cfg(arch: str) -> float:
 def default_sampler(arch: str) -> tuple[str, str]:
     if arch == "krea2":
         return KREA2_TURBO["sampler_name"], KREA2_TURBO["scheduler"]
-    return "dpmpp_2m", "karras"
+    return "dpmpp_2m_sde", "karras"
 
 
 def default_steps(arch: str) -> int:
@@ -943,6 +943,111 @@ def build_krea2_workflow(
     return wf
 
 
+LORA_NODE_IDS = ("12", "22", "23", "24", "25", "26", "27")
+MAX_LORA_STACK = 5
+# FreeU_V2 (core ComfyUI). SDXL vrijednosti preporučene za SDXL, SD 1.5 iz FreeU repozitorija.
+FREEU_V2_SDXL = {"b1": 1.3, "b2": 1.4, "s1": 0.9, "s2": 0.2}
+FREEU_V2_SD15 = {"b1": 1.5, "b2": 1.6, "s1": 0.9, "s2": 0.2}
+INSTANTID_NODES = ("InstantIDModelLoader", "InstantIDFaceAnalysis", "ApplyInstantID")
+INSTANTID_MODEL = "ip-adapter.bin"
+INSTANTID_CONTROLNET = "instantid/diffusion_pytorch_model.safetensors"
+
+
+def normalize_lora_stack(loras) -> list[tuple[str, float, float]]:
+    """[{name, strength_model, strength_clip, enabled}] -> [(name, sm, sc)] (najviše 5, bez duplikata)."""
+    out: list[tuple[str, float, float]] = []
+    seen: set[str] = set()
+    for item in loras or []:
+        if isinstance(item, str):
+            item = {"name": item}
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or item.get("lora_name") or "").strip()
+        if not name or name in seen or is_turbo_lora_file(name):
+            continue
+        en = item.get("enabled", True)
+        if en in (False, 0, "0", "false", "off"):
+            continue
+        def _f(v, d):
+            try:
+                return max(-2.0, min(2.0, float(v)))
+            except (TypeError, ValueError):
+                return d
+        sm = _f(item.get("strength_model", item.get("strength", 0.8)), 0.8)
+        sc = _f(item.get("strength_clip", item.get("strength", sm)), sm)
+        seen.add(name)
+        out.append((name, sm, sc))
+        if len(out) >= MAX_LORA_STACK:
+            break
+    return out
+
+
+def _input_names(object_info: dict | None, class_type: str) -> set[str] | None:
+    cat = _object_info_catalog(object_info) or {}
+    node = cat.get(class_type) if isinstance(cat, dict) else None
+    if not isinstance(node, dict):
+        return None
+    inp = node.get("input") or {}
+    names = set((inp.get("required") or {}).keys()) | set((inp.get("optional") or {}).keys())
+    return names or None
+
+
+def vae_decode_tiled_node(samples: list, vae: list, *, tile_size: int = 512, object_info: dict | None = None) -> dict:
+    """VAEDecodeTiled za 8 GB VRAM-a. Novi ComfyUI traži i overlap/temporal_*, stari samo tile_size."""
+    tile = max(256, min(1024, int(tile_size or 512)))
+    tile -= tile % 64
+    inputs = {"samples": samples, "vae": vae, "tile_size": tile, "overlap": 64, "temporal_size": 64, "temporal_overlap": 8}
+    names = _input_names(object_info, "VAEDecodeTiled")
+    if names:
+        inputs = {k: v for k, v in inputs.items() if k in names or k in {"samples", "vae"}}
+    return {"class_type": "VAEDecodeTiled", "inputs": inputs}
+
+
+def _option_list(object_info: dict | None, class_type: str, field: str) -> list[str]:
+    cat = _object_info_catalog(object_info) or {}
+    node = cat.get(class_type) if isinstance(cat, dict) else None
+    req = (((node or {}).get("input") or {}).get("required") or {}) if isinstance(node, dict) else {}
+    typ = req.get(field)
+    if isinstance(typ, list) and typ and isinstance(typ[0], list):
+        return [str(x) for x in typ[0]]
+    return []
+
+
+def instantid_available(object_info: dict | None) -> bool:
+    return all(_node_exists(object_info, n) for n in INSTANTID_NODES)
+
+
+def apply_instantid(wf: dict, model_ref: list, pos_ref: list, neg_ref: list, image: str, *, weight: float = 0.8, object_info: dict | None = None):
+    """cubiq ComfyUI_InstantID: loader + FaceAnalysis (CPU, bez CUDA na AMD-u) + ControlNet + ApplyInstantID."""
+    ids = _option_list(object_info, "InstantIDModelLoader", "instantid_file")
+    model_file = next((x for x in ids if "ip-adapter" in x.lower() or "instantid" in x.lower()), ids[0] if ids else INSTANTID_MODEL)
+    cns = _option_list(object_info, "ControlNetLoader", "control_net_name")
+    cn_file = next((x for x in cns if "instantid" in x.lower().replace("\\", "/")), INSTANTID_CONTROLNET)
+    providers = _option_list(object_info, "InstantIDFaceAnalysis", "provider")
+    provider = "CPU" if (not providers or "CPU" in providers) else providers[0]
+    w = max(0.0, min(1.5, float(weight if weight not in (None, "") else 0.8)))
+    wf["40"] = {"class_type": "InstantIDModelLoader", "inputs": {"instantid_file": model_file}}
+    wf["41"] = {"class_type": "InstantIDFaceAnalysis", "inputs": {"provider": provider}}
+    wf["42"] = {"class_type": "ControlNetLoader", "inputs": {"control_net_name": cn_file}}
+    wf["43"] = {"class_type": "LoadImage", "inputs": {"image": str(image).replace("\\", "/")}}
+    wf["44"] = {
+        "class_type": "ApplyInstantID",
+        "inputs": {
+            "instantid": ["40", 0],
+            "insightface": ["41", 0],
+            "control_net": ["42", 0],
+            "image": ["43", 0],
+            "model": model_ref,
+            "positive": pos_ref,
+            "negative": neg_ref,
+            "weight": w,
+            "start_at": 0.0,
+            "end_at": 1.0,
+        },
+    }
+    return ["44", 0], ["44", 1], ["44", 2]
+
+
 def build_workflow(
     *,
     prompt: str,
@@ -970,6 +1075,17 @@ def build_workflow(
     face_detailer: bool = False,
     output_width: int | None = None,
     output_height: int | None = None,
+    loras: list | None = None,
+    hires_scale: float | None = None,
+    hires_denoise: float | None = None,
+    hires_steps: int | None = None,
+    freeu: bool = False,
+    freeu_params: dict | None = None,
+    vae_mode: str = "standard",
+    vae_tile_size: int = 512,
+    instantid_image: str = "",
+    instantid_weight: float = 0.8,
+    face_detailer_params: dict | None = None,
 ) -> dict:
     if (arch or "").lower() in {"krea2", "krea"} or detect_model_arch(model, arch) == "krea2":
         return build_krea2_workflow(
@@ -997,6 +1113,14 @@ def build_workflow(
     u_strength = max(0.0, min(1.5, u_strength))
     if not user and legacy and not is_turbo_lora_file(legacy):
         user = legacy
+    # 1.1.0: višestruki LoRA stack (do 5), svaki s vlastitom jačinom za model i CLIP.
+    multi = normalize_lora_stack(loras)
+    multi_names = {m[0] for m in multi}
+    if multi:
+        for m in multi:
+            stack.append(m)
+        if user and user in multi_names:
+            user = ""
     if turbo:
         spec = TURBO_SDXL
         steps = int(spec["steps"])
@@ -1024,11 +1148,16 @@ def build_workflow(
             "inputs": {"ckpt_name": model},
         },
     }
-    lora_ids = ("12", "22", "23", "24")
+    lora_ids = LORA_NODE_IDS
     prev_model: list = ["4", 0]
     prev_clip: list = ["4", 1]
-    for i, (lora_name, strength) in enumerate(stack):
-        nid = lora_ids[i] if i < len(lora_ids) else str(20 + i)
+    for i, entry in enumerate(stack):
+        if len(entry) == 3:
+            lora_name, strength, strength_clip = entry
+        else:
+            lora_name, strength = entry
+            strength_clip = strength
+        nid = lora_ids[i] if i < len(lora_ids) else str(300 + i)
         wf[nid] = {
             "class_type": "LoraLoader",
             "inputs": {
@@ -1036,7 +1165,7 @@ def build_workflow(
                 "clip": prev_clip,
                 "lora_name": lora_name,
                 "strength_model": float(strength),
-                "strength_clip": float(strength),
+                "strength_clip": float(strength_clip),
             },
         }
         prev_model = [nid, 0]
@@ -1054,6 +1183,11 @@ def build_workflow(
             weight=ipadapter_weight,
             object_info=object_info,
         )
+    if freeu and (not object_info or _node_exists(object_info, "FreeU_V2")):
+        fp = dict(FREEU_V2_SDXL if arch == "sdxl" else FREEU_V2_SD15)
+        fp.update({k: float(v) for k, v in (freeu_params or {}).items() if k in fp and v not in (None, "")})
+        wf["30"] = {"class_type": "FreeU_V2", "inputs": {"model": model_ref, **fp}}
+        model_ref = ["30", 0]
     wf["5"] = {
         "class_type": "EmptyLatentImage",
         "inputs": {
@@ -1067,6 +1201,12 @@ def build_workflow(
         "inputs": {"text": negative, "clip": clip_ref},
     }
     pos_ref = _encode_positive(wf, clip_ref, prompt, prompt_chunks, object_info)
+    neg_ref: list = ["7", 0]
+    fd_pos_ref, fd_neg_ref = pos_ref, neg_ref
+    if instantid_image and str(instantid_image).strip():
+        model_ref, pos_ref, neg_ref = apply_instantid(
+            wf, model_ref, pos_ref, neg_ref, str(instantid_image), weight=instantid_weight, object_info=object_info
+        )
     wf["3"] = {
         "class_type": "KSampler",
         "inputs": {
@@ -1078,24 +1218,26 @@ def build_workflow(
             "denoise": 1,
             "model": model_ref,
             "positive": pos_ref,
-            "negative": ["7", 0],
+            "negative": neg_ref,
             "latent_image": ["5", 0],
         },
     }
     latent_from = ["3", 0]
     if hires:
+        h_scale = 1.5 if hires_scale in (None, "") else max(1.1, min(2.0, float(hires_scale)))
+        h_denoise = 0.4 if hires_denoise in (None, "") else max(0.1, min(0.8, float(hires_denoise)))
         if object_info is None or _node_exists(object_info, "LatentUpscaleBy"):
             wf["10"] = {
                 "class_type": "LatentUpscaleBy",
                 "inputs": {
                     "samples": ["3", 0],
                     "upscale_method": "bilinear",
-                    "scale_by": 1.5,
+                    "scale_by": h_scale,
                 },
             }
         else:
-            up_w = max(256, min(2048, int(width * 1.5) - (int(width * 1.5) % 8)))
-            up_h = max(256, min(2048, int(height * 1.5) - (int(height * 1.5) % 8)))
+            up_w = max(256, min(2048, int(width * h_scale) - (int(width * h_scale) % 8)))
+            up_h = max(256, min(2048, int(height * h_scale) - (int(height * h_scale) % 8)))
             wf["10"] = {
                 "class_type": "LatentUpscale",
                 "inputs": {
@@ -1110,22 +1252,25 @@ def build_workflow(
             "class_type": "KSampler",
             "inputs": {
                 "seed": int(seed) + 1,
-                "steps": max(8, int(steps) // 2 * 2 or int(steps)),
+                "steps": (max(8, int(steps) // 2 * 2 or int(steps)) if hires_steps in (None, "") else max(4, min(40, int(hires_steps)))),
                 "cfg": float(cfg),
                 "sampler_name": sampler_name,
                 "scheduler": scheduler,
-                "denoise": 0.4,
+                "denoise": h_denoise,
                 "model": model_ref,
                 "positive": pos_ref,
-                "negative": ["7", 0],
+                "negative": neg_ref,
                 "latent_image": ["10", 0],
             },
         }
         latent_from = ["11", 0]
-    wf["8"] = {
-        "class_type": "VAEDecode",
-        "inputs": {"samples": latent_from, "vae": ["4", 2]},
-    }
+    if (vae_mode or "standard") in {"tiled", "cpu"} and (not object_info or _node_exists(object_info, "VAEDecodeTiled")):
+        wf["8"] = vae_decode_tiled_node(latent_from, ["4", 2], tile_size=vae_tile_size, object_info=object_info)
+    else:
+        wf["8"] = {
+            "class_type": "VAEDecode",
+            "inputs": {"samples": latent_from, "vae": ["4", 2]},
+        }
     image_from = ["8", 0]
     if face_detailer:
         from character import apply_face_detailer
@@ -1135,14 +1280,15 @@ def build_workflow(
             model_ref=model_ref,
             clip_ref=clip_ref,
             vae_ref=["4", 2],
-            positive_ref=pos_ref,
-            negative_ref=["7", 0],
+            positive_ref=fd_pos_ref,
+            negative_ref=fd_neg_ref,
             seed=int(seed),
             steps=int(steps),
             cfg=float(cfg),
             sampler_name=sampler_name,
             scheduler=scheduler,
             object_info=object_info,
+            params=face_detailer_params,
         )
     if output_width and output_height and (int(output_width), int(output_height)) != (int(width), int(height)):
         image_from = apply_output_scale(wf, image_from, int(output_width), int(output_height))

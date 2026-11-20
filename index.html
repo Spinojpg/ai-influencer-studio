@@ -772,6 +772,7 @@
     .history-block .gallery { opacity: 0.95; }
     .history-block .gallery .shot { border-radius: 14px; }
   </style>
+  <link rel="stylesheet" href="/static/v11.css" />
 </head>
 
 <body>
@@ -783,11 +784,14 @@
       </div>
       <div class="header-mid">
         <div class="tabs" role="tablist">
-          <button type="button" class="on" data-tab="slike">Slike</button>
+          <button type="button" data-tab="pregled">Pregled</button>
+          <button type="button" class="on" data-tab="slike">Generiranje</button>
+          <button type="button" data-tab="influenceri">Osobe</button>
           <button type="button" data-tab="video">Video</button>
-          <button type="button" data-tab="poruke">Poruke</button>
-          <button type="button" data-tab="influenceri">Influenceri</button>
+          <button type="button" data-tab="kalendar">Kalendar</button>
+          <button type="button" data-tab="poruke">Inbox i CRM</button>
           <button type="button" data-tab="modeli">Modeli</button>
+          <button type="button" data-tab="postavke">Postavke</button>
         </div>
         <div class="pick">
           <label for="activeProfile">Influencer</label>
@@ -936,6 +940,11 @@
             </div>
           </div>
         </details>
+        <div id="v11HwQuick" class="v11-hwquick"></div>
+        <details class="adv" id="v11GenBox">
+          <summary>Kvaliteta, LoRA stack i red čekanja</summary>
+          <div class="inner" id="v11Gen"><div class="hint">Učitavam…</div></div>
+        </details>
       </form>
 
       <section class="card stage">
@@ -954,6 +963,22 @@
         <div class="history-block">
           <h2 class="sec">Povijest</h2>
           <div class="gallery" id="history"></div>
+        </div>
+        <div class="v11-queue" id="v11Queue"></div>
+        <div class="history-block" id="v11GalleryBlock">
+          <div class="v11-row-between">
+            <h2 class="sec">Galerija</h2>
+            <div class="v11-inline">
+              <select id="v11GalFilter" aria-label="Filtar galerije">
+                <option value="">Sve slike</option>
+                <option value="1">Dobre</option>
+                <option value="-1">Loše</option>
+                <option value="sheet">Character sheet</option>
+              </select>
+            </div>
+          </div>
+          <div class="gallery" id="v11Gallery"></div>
+          <div class="actions"><button type="button" class="btn" id="v11GalMore" hidden>Učitaj još</button></div>
         </div>
       </section>
     </div>
@@ -1012,6 +1037,7 @@
     </div>
 
     <div id="tab-poruke" class="tab-panel">
+      <div id="v11SendBar" class="card pad v11-sendbar"></div>
       <div class="poruke">
         <div class="card pad">
           <label class="lbl">Simuliraj poruku fana</label>
@@ -1020,7 +1046,7 @@
           <div class="actions">
             <button class="btn primary" type="button" id="simSend">Generiraj nacrt</button>
           </div>
-          <div class="hint">Radi bez Instagrama ili Telegrama — samo za učenje stila. Treba XAI_API_KEY u .env.</div>
+          <div class="hint">Radi bez Instagrama ili Telegrama. AI odgovara preko Ollame / LM Studija / xAI-ja, a bez njih preko ugrađenih pravila.</div>
           <div class="err" id="simErr"></div>
           <h2 class="sec">Razgovori</h2>
           <div id="threadList"></div>
@@ -1033,6 +1059,7 @@
               <strong id="chatTitle">Razgovor</strong>
               <button class="btn" type="button" id="pauseThread">Pauziraj automatsko slanje</button>
             </div>
+            <div id="v11ThreadInfo" class="v11-threadinfo" hidden></div>
             <div class="chatlog" id="chatLog"></div>
             <div id="draftBox" hidden style="margin-top:14px">
               <label class="lbl" for="draftText">Nacrt odgovora</label>
@@ -1051,10 +1078,10 @@
         <div class="card pad">
           <label class="lbl">Način slanja</label>
           <div class="seg" id="sendMode">
-            <button type="button" data-mode="approve" class="on">Odobravam svaku poruku</button>
-            <button type="button" data-mode="auto">Automatski</button>
+            <button type="button" data-mode="approve" class="on">Nacrt za odobrenje</button>
+            <button type="button" data-mode="auto">Automatsko slanje odmah</button>
           </div>
-          <div class="warn danger" id="autoWarn" hidden>Automatski način šalje odgovore bez tvog pregleda. Koristi ga tek kad si zadovoljan personom. Možeš pauzirati pojedini razgovor, postaviti limit na sat i tihe sate.</div>
+          <div class="warn danger" id="autoWarn" hidden>Automatsko slanje šalje odgovore bez tvog pregleda. Možeš ga isključiti jednim klikom gore, pauzirati pojedini razgovor, postaviti limit na sat i tihe sate.</div>
           <div class="field" style="margin-top:14px">
             <label class="lbl" for="rateLimit">Maks. odgovora na sat</label>
             <input type="number" id="rateLimit" min="0" max="500" value="20" />
@@ -1085,26 +1112,13 @@
           <div class="field">
             <label class="lbl"><input type="checkbox" id="tgEnabled" /> Uključi Telegram long polling</label>
           </div>
-          <div class="field" style="margin-top:18px">
-            <label class="lbl"><input type="checkbox" id="disableCudnn" checked /> Isključi cuDNN u ComfyUI-ju</label>
-            <div class="hint">Postavlja TORCH_BACKENDS_CUDNN_ENABLED=0 u okruženje procesa (pouzdanije nego linija u comfyui-n.bat, koja se na ovom PC-u nije primijenila). Bez toga prvo pokretanje može zapeti na „Compilation is in progress”. Vrijedi pri sljedećem paljenju ComfyUI-ja preko Studija.</div>
-          </div>
-          <div class="field" style="margin-top:12px">
-            <label class="lbl"><input type="checkbox" id="lowVram" /> Low VRAM u ComfyUI-ju</label>
-            <div class="hint">Pri sljedećem paljenju ComfyUI-ja preko Studija dodaje --lowvram (manje VRAM-a, ponekad sporije). --use-split-cross-attention se ionako dodaje radi brzine na RX 6600 (8 GB). Zadani SDXL portret je 768×1152; 832×1216 ostaje kao Portret HD. Triton test na ovom PC-u pada (nema stdio.h / Visual Studio) — popravak nije ključan za brzinu; Turbo LoRA jest.</div>
-          </div>
-          <div class="field" style="margin-top:18px">
-            <label class="lbl">Ažuriranje aplikacije</label>
-            <div class="hint">Izvor se podešava u data/update.json (GitHub owner/repo). Neobavezni GITHUB_TOKEN za privatni repo ide u data/.env — nikad se ne zapisuje u logove.</div>
-            <button class="btn" type="button" id="checkUpdateSettings">Provjeri update</button>
-            <div class="hint" id="updateHintSettings" style="margin-top:8px"></div>
-          </div>
           <button class="btn primary" type="button" id="saveSettings">Spremi postavke</button>
           <div class="hint" id="platHint" style="margin-top:10px"></div>
           <div class="okline" id="setOk" hidden>Spremljeno.</div>
           <div class="err" id="setErr"></div>
         </div>
       </div>
+      <div id="v11Crm" class="v11-crm"></div>
     </div>
 
     <div id="tab-modeli" class="tab-panel">
@@ -1281,12 +1295,92 @@
           <div class="err" id="pErr"></div>
         </form>
       </div>
+      <div id="v11Persona" class="card pad v11-persona"></div>
+    </div>
+
+    <div id="tab-pregled" class="tab-panel">
+      <div class="v11-overview">
+        <div class="card pad v11-quick">
+          <h2 class="sec" style="margin-top:0">Brzi početak</h2>
+          <div class="chips v11-formats" id="v11Formats">
+            <button type="button" class="chip" data-size="ig_portrait">IG Portret 4:5</button>
+            <button type="button" class="chip" data-size="ig_square">IG Kvadrat 1:1</button>
+            <button type="button" class="chip" data-size="ig_story">IG Story 9:16</button>
+          </div>
+          <div class="actions" id="v11QuickActions">
+            <button type="button" class="btn primary" data-go="slike">Nova slika</button>
+            <button type="button" class="btn" data-go="kalendar">Zakaži objavu</button>
+            <button type="button" class="btn" data-go="poruke">Otvori inbox</button>
+            <button type="button" class="btn" data-act="sheet">Character sheet</button>
+            <button type="button" class="btn" data-act="rx6600">Primijeni preporuku za RX 6600</button>
+          </div>
+        </div>
+        <div class="v11-kpis" id="v11Kpis"><div class="hint">Učitavam pregled…</div></div>
+        <div class="v11-two">
+          <div class="card pad"><h2 class="sec" style="margin-top:0">Red čekanja</h2><div id="v11OvQueue"></div></div>
+          <div class="card pad"><h2 class="sec" style="margin-top:0">Sljedeće objave</h2><div id="v11OvPosts"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-kalendar" class="tab-panel">
+      <div class="v11-cal-wrap">
+        <div class="card pad">
+          <div class="v11-row-between">
+            <button type="button" class="btn" id="calPrev" aria-label="Prethodni mjesec">‹</button>
+            <h2 class="sec" id="calTitle" style="margin:0">Kalendar</h2>
+            <button type="button" class="btn" id="calNext" aria-label="Sljedeći mjesec">›</button>
+          </div>
+          <div class="v11-cal" id="calGrid"></div>
+          <div class="hint" id="calChannels"></div>
+          <h2 class="sec">Nadolazeće</h2>
+          <div id="calUpcoming"></div>
+        </div>
+        <form class="card form" id="postForm" autocomplete="off"></form>
+      </div>
+    </div>
+
+    <div id="tab-postavke" class="tab-panel">
+      <div class="v11-settings">
+        <section class="card pad" id="v11HwSection">
+          <h2 class="sec" style="margin-top:0">Hardver i RX 6600</h2>
+          <div id="v11Hw"><div class="hint">Učitavam hardver…</div></div>
+          <div class="field" style="margin-top:14px">
+            <label class="lbl"><input type="checkbox" id="disableCudnn" checked /> Isključi cuDNN u ComfyUI-ju</label>
+            <div class="hint">Postavlja TORCH_BACKENDS_CUDNN_ENABLED=0 u okruženje procesa (pouzdanije nego linija u comfyui-n.bat, koja se na ovom PC-u nije primijenila). Bez toga prvo pokretanje može zapeti na „Compilation is in progress”. Vrijedi pri sljedećem paljenju ComfyUI-ja preko Studija.</div>
+          </div>
+          <div class="field" style="margin-top:12px">
+            <label class="lbl"><input type="checkbox" id="lowVram" /> Low VRAM u ComfyUI-ju</label>
+            <div class="hint">Pri sljedećem paljenju ComfyUI-ja preko Studija dodaje --lowvram (manje VRAM-a, ponekad sporije). --use-split-cross-attention se ionako dodaje radi brzine na RX 6600 (8 GB). Zadani SDXL portret je 768×1152; 832×1216 ostaje kao Portret HD. Triton test na ovom PC-u pada (nema stdio.h / Visual Studio) — popravak nije ključan za brzinu; Turbo LoRA jest.</div>
+          </div>
+          <div class="actions"><button class="btn" type="button" id="v11SaveLegacyHw">Spremi cuDNN / Low VRAM</button></div>
+        </section>
+        <section class="card pad">
+          <h2 class="sec" style="margin-top:0">API ključevi i kanali</h2>
+          <p class="hint">Ključevi se spremaju u <code>data/.env</code> i ovdje se prikazuju samo maskirano. Prazno polje ostavlja postojeću vrijednost.</p>
+          <div id="v11Env"></div>
+        </section>
+        <section class="card pad">
+          <h2 class="sec" style="margin-top:0">AI chat (LLM)</h2>
+          <div id="v11Llm"></div>
+        </section>
+        <section class="card pad">
+          <div class="field" style="margin-top:0">
+            <label class="lbl">Ažuriranje aplikacije</label>
+            <div class="hint">Izvor se podešava u data/update.json (GitHub owner/repo). Neobavezni GITHUB_TOKEN za privatni repo ide u data/.env — nikad se ne zapisuje u logove.</div>
+            <button class="btn" type="button" id="checkUpdateSettings">Provjeri update</button>
+            <div class="hint" id="updateHintSettings" style="margin-top:8px"></div>
+          </div>
+        </section>
+      </div>
     </div>
   </div>
 
   <div class="lightbox" id="lb" role="dialog" aria-modal="true">
     <img id="lbImg" alt="Uvećana slika" />
     <div class="tools">
+      <button type="button" id="lbGood" class="v11-good">Dobra</button>
+      <button type="button" id="lbBad" class="v11-bad">Loša</button>
       <a id="lbDl" href="#" download>Preuzmi</a>
       <button type="button" id="lbClose">Zatvori</button>
     </div>
@@ -1378,12 +1472,14 @@
       if (name === "poruke") refreshInbox();
       if (name === "influenceri") renderProfileList();
       if (name === "modeli") refreshModelsPanel();
+      try { if (window.StudioV11 && window.StudioV11.onTab) window.StudioV11.onTab(name); } catch (e) { console.warn(e); }
     }
     document.querySelector(".tabs").addEventListener("click", (e) => {
       const b = e.target.closest("button");
       if (b) showTab(b.dataset.tab);
     });
-    if (location.hash === "#poruke" || location.hash === "#influenceri" || location.hash === "#slike" || location.hash === "#modeli") {
+    const TAB_NAMES = ["pregled", "slike", "influenceri", "video", "kalendar", "poruke", "modeli", "postavke"];
+    if (TAB_NAMES.indexOf(location.hash.slice(1)) >= 0) {
       showTab(location.hash.slice(1));
     }
 
@@ -2304,7 +2400,7 @@
       const seedVal = item.seed != null ? item.seed : "";
       const media = isVideoItem(item)
         ? '<video class="shot-img" src="' + safeUrl + '" controls playsinline loop data-full="' + safeUrl + '" data-dl="' + dl + '"></video>'
-        : '<img src="' + safeUrl + '" alt="" data-full="' + safeUrl + '" data-dl="' + dl + '" />';
+        : '<img src="' + safeUrl + '" alt="" loading="lazy" decoding="async" data-full="' + safeUrl + '" data-dl="' + dl + '" />';
       const hover = '<div class="shot-hover">'
         + '<button type="button" class="shot-act" data-act="open">Otvori</button>'
         + '<a class="shot-act" href="' + dl + '" download>Preuzmi</a>'
@@ -2427,6 +2523,13 @@
     }
 
     function payloadBase() {
+      const base = payloadBaseCore();
+      try {
+        if (window.StudioV11 && typeof window.StudioV11.genExtras === "function") Object.assign(base, window.StudioV11.genExtras(base));
+      } catch (e) { /* 1.1 dodaci su opcionalni */ }
+      return base;
+    }
+    function payloadBaseCore() {
       const prof = selectedPersona();
       return {
         prompt: promptEl.value.trim(),
@@ -3486,7 +3589,7 @@
       const box = $("curatedModels");
       if (!box) return;
       const items = list || [];
-      box.innerHTML = items.map((c) => {
+      const one = (c) => {
         const gb = c.size_bytes ? (c.size_bytes / (1024*1024*1024)).toFixed(2).replace(/\.00$/, "") + " GB" : "";
         const tag = c.arch === "krea2" ? "KREA 2" : (c.turbo ? "TURBO" : (c.kind === "lora" ? "LoRA" : (c.kind === "animatediff" ? "VIDEO" : (c.arch === "sd15" ? "SD 1.5" : "SDXL"))));
         const status = c.installed ? '<span class="mini-tag">Instalirano</span>' : (c.partial ? '<span class="mini-tag warn">Djelomično</span>' : "");
@@ -3495,9 +3598,20 @@
           + '<div class="arch-tag">' + tag + "</div>"
           + "<h3>" + escapeHtml(c.name) + (gb ? " · " + gb : "") + status + "</h3>"
           + '<div class="hint">' + escapeHtml(c.note || "") + "</div>"
+          + (c.category ? '<div class="hint">Kategorija: ' + escapeHtml(c.category) + (c.recommended_weight ? " · preporučena jačina " + c.recommended_weight : "") + "</div>" : "")
           + '<button type="button" class="btn primary dl-curated" data-id="' + c.id + '">' + btnLabel + "</button>"
           + "</div>";
-      }).join("") || '<div class="hint">Nema predloženog modela.</div>';
+      };
+      const main = items.filter((c) => !c.group);
+      const groups = {};
+      items.filter((c) => c.group).forEach((c) => { (groups[c.group] = groups[c.group] || []).push(c); });
+      let html = main.map(one).join("");
+      Object.keys(groups).forEach((g) => {
+        html += '<h2 class="sec v11-curated-group">' + escapeHtml(g) + "</h2>"
+          + '<p class="hint">Provjereni javni SDXL LoRA-i za realizam, svjetlo i detalje (bez prijave). Idu u models/loras i pojavljuju se u LoRA stacku.</p>'
+          + groups[g].map(one).join("");
+      });
+      box.innerHTML = html || '<div class="hint">Nema predloženog modela.</div>';
     }
     function renderInstalledModels(payload) {
       const el = $("installedModels");
@@ -3646,6 +3760,35 @@
     });
     if ($("refreshModels")) $("refreshModels").addEventListener("click", () => loadModels().then(refreshModelsPanel));
 
+    window.StudioCore = {
+      state: () => state,
+      selectedPersona: () => selectedPersona(),
+      payload: () => payloadBaseCore(),
+      showTab: (n) => showTab(n),
+      currentTab: () => currentTab,
+      toast: (m, bad) => showToast(m, bad),
+      escapeHtml: (t) => escapeHtml(t),
+      loadState: () => loadState(),
+      arch: () => currentArch,
+      editingId: () => editingId,
+      currentThreadId: () => (currentThread && currentThread.id) || null,
+      refreshInbox: () => refreshInbox(),
+      openLb: (src, dl) => openLb(src, dl),
+      pickSize: (id) => {
+        const b = document.querySelector('#sizes button[data-id="' + id + '"]');
+        if (b) b.click();
+        return !!b;
+      },
+      syncSendMode: (mode) => {
+        state.settings = state.settings || {};
+        state.settings.send_mode = mode;
+        document.querySelectorAll("#sendMode button").forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
+        $("autoWarn").hidden = mode !== "auto";
+      },
+      loraOptions: () => [...document.querySelectorAll("#lora option")].filter((o) => o.value).map((o) => ({ value: o.value, label: o.textContent, group: (o.parentElement && o.parentElement.label) || "" })),
+      saveSettings: () => $("saveSettings").click()
+    };
+
     loadState().then(loadModels).then(loadVideoCaps).then(() => {
       if (currentTab === "poruke") refreshInbox();
       applyAllPresets(null);
@@ -3669,5 +3812,6 @@
     })();
   })();
   </script>
+  <script src="/static/v11.js"></script>
 </body>
 </html>

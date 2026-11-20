@@ -67,6 +67,19 @@ FACE_DETAILER_DEFAULTS = {
 }
 
 
+FACE_DETAILER_LIMITS = (
+    ("denoise", 0.1, 0.8),
+    ("guide_size", 256.0, 768.0),
+    ("max_size", 512.0, 1024.0),
+    ("bbox_threshold", 0.2, 0.9),
+    ("bbox_dilation", 0.0, 64.0),
+    ("bbox_crop_factor", 1.5, 4.0),
+    ("feather", 0.0, 32.0),
+    ("steps", 4.0, 30.0),
+    ("cycle", 1.0, 2.0),
+)
+
+
 def clamp_weight(value, lo: float, hi: float, default: float) -> float:
     try:
         n = float(value)
@@ -607,9 +620,13 @@ def apply_face_detailer(
     sampler_name: str,
     scheduler: str,
     object_info: dict | None = None,
+    params: dict | None = None,
 ) -> list:
-    """FaceDetailer između VAEDecode i SaveImage. Bez SAM-a, konzervativne veličine za 8 GB."""
-    _ = object_info
+    """FaceDetailer između VAEDecode i SaveImage. Bez SAM-a, konzervativne veličine za 8 GB.
+
+    1.1.0: params može promijeniti denoise, guide_size, max_size, bbox_threshold, bbox_dilation,
+    bbox_crop_factor, feather, steps i cycle (UI kontrole), uz granice sigurne za 8 GB.
+    """
     model_name = FACE_YOLO_WIDGET
     catalog = image_gen._object_info_catalog(object_info) or {}
     node = catalog.get("UltralyticsDetectorProvider") if isinstance(catalog, dict) else None
@@ -632,6 +649,16 @@ def apply_face_detailer(
     }
     defaults = dict(FACE_DETAILER_DEFAULTS)
     steps_use = max(4, min(int(steps), 16))
+    for key, lo, hi in FACE_DETAILER_LIMITS:
+        if params and params.get(key) not in (None, ""):
+            try:
+                val = max(lo, min(hi, float(params[key])))
+            except (TypeError, ValueError):
+                continue
+            if key == "steps":
+                steps_use = int(val)
+            else:
+                defaults[key] = val
     wf["91"] = {
         "class_type": "FaceDetailer",
         "inputs": {

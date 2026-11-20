@@ -277,3 +277,24 @@ Zatim zatvori Studio i ponovo upali prečac da se ComfyUI učita s
 novim čvorovima. Log je u data\logs\video.log. Klip može ići iz
 zadnje slike (img2vid) ili iz opisa. Sprema se mp4 (ili GIF ako
 nema ffmpeg formata).
+
+Novo u 1.1.0 (ukratko)
+----------------------
+
+Detalji su u DOKUMENTACIJA.md.
+
+- Kartice: Pregled, Generiranje, Osobe, Video, Kalendar, Inbox i CRM, Modeli, Postavke.
+- Postavke -> Hardver -> "Preporuči za RX 6600": postavi ZLUDA, tiled VAE,
+  8 GB siguran način i rezervu VRAM-a, pa restartaj ComfyUI.
+  Isključi cuDNN (TORCH_BACKENDS_CUDNN_ENABLED=0) MORA ostati uključen,
+  inače ComfyUI zna zapeti na "Compilation is in progress".
+- Generiranje: predlošci (Javni teaser / Premium sadržaj), red čekanja s batchom,
+  galerija s ocjenama Dobra/Loša i "Učitaj još".
+- Osobe: LoRA stack (do 5), IP-Adapter ili InstantID, Character Sheet 2×2,
+  izvoz LoRA dataseta (Kohya / OneTrainer, 8 GB).
+- Modeli: "Preporučene SDXL LoRA-e (realizam i detalji)".
+- Kalendar: objave na Instagram, Facebook, Telegram i Premium API.
+  Ključevi idu u Postavke -> Ključevi (spremaju se u data\.env).
+- Inbox i CRM: traka na vrhu mijenja jednim klikom "Automatsko slanje odmah"
+  ili "Nacrt za odobrenje", globalno, po kanalu i po influenceru.
+  AI chat radi i bez xAI ključa (Ollama, LM Studio ili pravila).

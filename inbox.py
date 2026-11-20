@@ -325,6 +325,12 @@ def init_db() -> None:
         _migrate_reference_images(conn)
         conn.commit()
         conn.close()
+    # 1.1.0: tablice servisa (predlošci, red čekanja, galerija, objave, CRM).
+    try:
+        import services
+        services.init_schema()
+    except Exception as exc:  # ne ruši pokretanje zbog novih tablica
+        print("UPOZORENJE: services.init_schema:", exc)
     export_profiles_json()
 
 
@@ -503,6 +509,11 @@ def _row_profile(row: sqlite3.Row) -> dict:
         "face_detailer": _bool_field(row["face_detailer"] if "face_detailer" in keys else 0, False),
         "lock_seed": _bool_field(row["lock_seed"] if "lock_seed" in keys else 0, False),
         "locked_seed": (row["locked_seed"] if "locked_seed" in keys else "") or "",
+        "lora_stack": _parse_json_list(row["lora_stack"]) if "lora_stack" in keys else [],
+        "ref_mode": (row["ref_mode"] if "ref_mode" in keys else "auto") or "auto",
+        "instantid_weight": _float_field(row["instantid_weight"] if "instantid_weight" in keys else 0.8, 0.8),
+        "send_mode": (row["send_mode"] if "send_mode" in keys else "") or "",
+        "bio": (row["bio"] if "bio" in keys else "") or "",
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -634,6 +645,11 @@ def upsert_profile(payload: dict, pid: int | None = None) -> dict:
                 )
         conn.commit()
         conn.close()
+    extra_keys = {"lora_stack", "ref_mode", "instantid_weight", "send_mode", "bio"}
+    if extra_keys & set(payload):
+        # 1.1.0: LoRA stack, IP-Adapter/InstantID način, način slanja i bio
+        from services import generation_service
+        generation_service.save_profile_extras(new_id, {k: payload[k] for k in extra_keys if k in payload})
     export_profiles_json()
     return get_profile(new_id)
 
@@ -1214,7 +1230,19 @@ def call_grok(messages: list[dict], model: str | None = None) -> str:
     return str(msg).strip()
 
 
-def generate_reply(profile: dict, thread_messages: list[dict], fan_text: str) -> str:
+def generate_reply(profile: dict, thread_messages: list[dict], fan_text: str, *, contact: dict | None = None, thread_id=None) -> str:
+    """1.1.0: ide kroz services.crm_service (Ollama / LM Studio / xAI / pravila + memorija fana)."""
+    try:
+        from services import crm_service
+        res = crm_service.generate_reply(profile, thread_messages, fan_text, contact=contact, thread_id=thread_id)
+        if res.get("text"):
+            return res["text"]
+    except Exception:
+        pass
+    return _generate_reply_grok(profile, thread_messages, fan_text)
+
+
+def _generate_reply_grok(profile: dict, thread_messages: list[dict], fan_text: str) -> str:
     sys_prompt = build_system_prompt(profile)
     history: list[dict] = [{"role": "system", "content": sys_prompt}]
     for item in thread_messages[-HISTORY_LIMIT:]:
@@ -1415,9 +1443,20 @@ def in_quiet_hours() -> bool:
     return cur >= start or cur < end
 
 
+def effective_send_mode(profile_id: int, platform: str) -> tuple[str, str]:
+    """Influencer > kanal > globalno (1.1.0)."""
+    try:
+        from services import crm_service
+        return crm_service.effective_send_mode(profile_id, platform)
+    except Exception:
+        mode = get_setting("send_mode") or "approve"
+        return (mode if mode in {"auto", "approve"} else "approve"), "globalno"
+
+
 def can_auto_send(profile_id: int, thread: dict) -> tuple[bool, str]:
-    if get_setting("send_mode") != "auto":
-        return False, "Način je 'Odobravam svaku poruku'."
+    mode, source = effective_send_mode(profile_id, thread.get("platform") or "simulate")
+    if mode != "auto":
+        return False, f"Način je „Nacrt za odobrenje” ({source})."
     if thread.get("paused"):
         return False, "Ovaj razgovor je pauziran."
     if in_quiet_hours():
@@ -1471,11 +1510,19 @@ def handle_incoming(
         conn.commit()
         conn.close()
 
+    contact = None
+    interest = None
+    try:
+        from services import crm_service
+        contact = crm_service.on_incoming(profile_id, thread, text, display_name=display_name)
+        interest = contact.pop("interest_info", None)
+    except Exception:
+        contact = None
     history = thread_messages(thread["id"])
     error = ""
     draft_body = ""
     try:
-        draft_body = generate_reply(profile, history, text)
+        draft_body = generate_reply(profile, history, text, contact=contact, thread_id=thread["id"])
     except Exception as exc:
         error = str(exc)
         draft_body = ""
@@ -1515,6 +1562,9 @@ def handle_incoming(
         "auto_sent": sent,
         "auto_reason": auto_reason,
         "send_error": send_error,
+        "contact_id": (contact or {}).get("id"),
+        "interest": interest,
+        "send_mode": effective_send_mode(profile_id, thread.get("platform") or "simulate")[0],
     }
 
 
@@ -1572,7 +1622,7 @@ def regenerate_draft(draft_id: int) -> dict:
         raise ValueError("Nema poruke fana na koju bih odgovorio.")
     history = [m for m in thread_messages(msg["thread_id"]) if m["id"] != msg["id"]]
     try:
-        body = generate_reply(profile, history, fan_text)
+        body = generate_reply(profile, history, fan_text, thread_id=msg["thread_id"])
         with _lock:
             conn = db()
             conn.execute(
@@ -1734,10 +1784,79 @@ class TelegramAdapter(PlatformAdapter):
         return {"ok": True, "platform": "telegram", "response": data}
 
 
+class _CommentAdapter(PlatformAdapter):
+    """Odgovor na zadnji komentar fana (Meta Graph API) — 1.1.0."""
+    name = "comment"
+    endpoint = "replies"
+
+    def is_configured(self) -> bool:
+        return bool(secret("META_ACCESS_TOKEN") or secret("IG_ACCESS_TOKEN"))
+
+    def send(self, external_user_id: str, text: str) -> dict:
+        token = secret("META_ACCESS_TOKEN") or secret("IG_ACCESS_TOKEN")
+        if not token:
+            raise AdapterError("Meta nije podešena: u Postavkama upiši META_ACCESS_TOKEN.")
+        from services import crm_service
+        comment_id = crm_service.latest_inbound_external_id(self.name, external_user_id)
+        if not comment_id:
+            raise AdapterError("Ne znam na koji komentar odgovoriti (nema ID komentara).")
+        version = secret("GRAPH_API_VERSION") or GRAPH_VERSION
+        url = f"https://graph.facebook.com/{version}/{comment_id}/{self.endpoint}"
+        try:
+            data, status = _http_json(url, data={"message": text, "access_token": token}, timeout=30)
+        except RuntimeError as exc:
+            raise AdapterError(f"Odgovor na komentar nije uspio: {str(exc).replace(token, _redact(token))}") from None
+        return {"ok": True, "platform": self.name, "status": status, "response": data}
+
+
+class InstagramCommentAdapter(_CommentAdapter):
+    name = "instagram_comment"
+    endpoint = "replies"
+
+
+class FacebookCommentAdapter(_CommentAdapter):
+    name = "facebook_comment"
+    endpoint = "comments"
+
+
+class PremiumAdapter(PlatformAdapter):
+    """Odgovor fanu na premium platformi preko PREMIUM_MESSAGE_URL (ili PREMIUM_API_URL + /messages)."""
+    name = "premium"
+
+    def _url(self) -> str:
+        url = secret("PREMIUM_MESSAGE_URL")
+        if url:
+            return url
+        base = secret("PREMIUM_API_URL")
+        return (base.rstrip("/") + "/messages") if base else ""
+
+    def is_configured(self) -> bool:
+        return bool(self._url())
+
+    def send(self, external_user_id: str, text: str) -> dict:
+        url = self._url()
+        if not url:
+            raise AdapterError("Premium platforma nije podešena: upiši PREMIUM_API_URL ili PREMIUM_MESSAGE_URL.")
+        headers = {}
+        key = secret("PREMIUM_API_KEY")
+        if key:
+            hdr = secret("PREMIUM_AUTH_HEADER") or "Authorization"
+            headers[hdr] = ("Bearer " + key) if hdr.lower() == "authorization" and not key.lower().startswith(("bearer ", "basic ")) else key
+        try:
+            data, status = _http_json(url, data={"user_id": external_user_id, "text": text, "source": "ai-influencer-studio"}, headers=headers, timeout=30)
+        except RuntimeError as exc:
+            msg = str(exc).replace(key, _redact(key)) if key else str(exc)
+            raise AdapterError(f"Premium slanje nije uspjelo: {msg}") from None
+        return {"ok": True, "platform": "premium", "status": status, "response": data}
+
+
 ADAPTERS = {
     "simulate": SimulateAdapter(),
     "instagram": InstagramAdapter(),
     "telegram": TelegramAdapter(),
+    "instagram_comment": InstagramCommentAdapter(),
+    "facebook_comment": FacebookCommentAdapter(),
+    "premium": PremiumAdapter(),
 }
 
 
@@ -1973,6 +2092,13 @@ def update_settings(payload: dict) -> dict:
     for key in allowed:
         if key in payload and payload[key] is not None:
             set_setting(key, str(payload[key]))
+    if "low_vram" in payload:
+        # 1.1.0: stara kvačica Low VRAM i izbornik "VRAM način" (Postavke -> Hardver) ostaju u sinkronu.
+        cur_mode = get_setting("hw_vram_mode", "auto")
+        if payload["low_vram"] == "1":
+            set_setting("hw_vram_mode", "lowvram")
+        elif cur_mode == "lowvram":
+            set_setting("hw_vram_mode", "auto")
     if payload.get("telegram_enabled") in {"1", True, 1, "true"}:
         start_telegram_worker()
     return public_settings()
