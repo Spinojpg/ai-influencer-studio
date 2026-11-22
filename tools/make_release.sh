@@ -135,6 +135,7 @@ exclude_dirs = {
 exclude_files = {
     ".env", "studio.db", "studio.pid", "update-result.json",
     "profiles.json", "persona.json",
+    "HANDOFF.md",
 }
 exclude_suffixes = {".pyc", ".pyo"}
 exclude_prefixes = {"screenshot"}
