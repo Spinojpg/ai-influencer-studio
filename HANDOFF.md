@@ -2,13 +2,16 @@
 
 **Datum:** 22. studenoga 2026. (Europa/Zagreb, UTC+1)  
 **Repo:** privatni GitHub `Spinojpg/ai-influencer-studio` (grana `main`)  
-**Trenutna verzija:** **v1.1.0** (commit `ee901068357a73f2a1ff4ed22f3fb20cee8dbab9`, tag `v1.1.0`)  
-**studio.zip sha256:** `a19fee2ca5de4549965c0e86b3cdbacd888adda6a6c93c7179d039c652c85804` (579 003 bajtova)  
-**Izdanje:** https://github.com/Spinojpg/ai-influencer-studio/releases/tag/v1.1.0
+**Objavljena verzija aplikacije:** **v1.1.0** (commit `ee901068357a73f2a1ff4ed22f3fb20cee8dbab9`, tag `v1.1.0`) — **nije bilo bumpa verzije ni novog releasea od tada.**  
+**studio.zip sha256 (v1.1.0):** `a19fee2ca5de4549965c0e86b3cdbacd888adda6a6c93c7179d039c652c85804` (579 003 bajtova)  
+**Izdanje:** https://github.com/Spinojpg/ai-influencer-studio/releases/tag/v1.1.0  
+**main nakon dokumentacijskih commita:** vidi poglavlje 10 (suradnja) i zadnji commit na `origin/main`. Na mainu su nakon taga v1.1.0 samo dokumentacija i priprema okruženja (`HANDOFF.md`, `tools/setup_dev_windows.ps1`), bez izmjena koda aplikacije.
 
 Ovaj dokument je sastavljen da Claude može privremeno preuzeti posao na aplikaciji dok Sven nema usage na Grok Botu. **Kod u repou ima prednost nad ovim sažetkom.** Ako se nešto ne slaže, vjeruj kodu (`DOKUMENTACIJA.md`, `services/`, `api_v11.py`, `image_gen.py`, `video.py`, `static/v11.js`).
 
-Ovaj `HANDOFF.md` živi u korijenu repoa, ali **ne ide u `studio.zip`** (`tools/make_release.sh` ga isključuje). Ne mijenja rad aplikacije. Nikad ne commitaj `data/.env`, tokene, ključeve ni tajne; Sven ih nikad ne lijepi u chat.
+Ovaj `HANDOFF.md` živi u korijenu repoa, ali **ne ide u `studio.zip`** (`tools/make_release.sh` ga isključuje). Isto vrijedi za `tools/setup_dev_windows.ps1`. To ne mijenja rad aplikacije. Nikad ne commitaj `data/.env`, tokene, ključeve ni tajne; Sven ih nikad ne lijepi u chat.
+
+Kako Grok i Claude rade na istom repou, tko smije raditi release i koje su razvojne putanje, vidi **poglavlje 10. Suradnja Grok + Claude**.
 
 ---
 
@@ -20,7 +23,7 @@ Kopiraj sve između crta i zalijepi kao prvu poruku.
 
 Ti preuzimaš razvoj i održavanje aplikacije **AI Influencer Studio**, lokalnog Windows studija za fiktivne odrasle AI influencere. Vlasnik je **Sven Benko**. Do sada je posao radio Grok Bot; Sven je ostao bez usagea pa te privremeno koristi. Imaš isti pristup: privatni GitHub repo `Spinojpg/ai-influencer-studio` i njegov PC.
 
-Najprije pročitaj `HANDOFF.md` u korijenu repoa (ovaj dokument), zatim `DOKUMENTACIJA.md`, `.env.example`, `CHANGELOG.md`, `version.json` i `tools/make_release.sh`. Kod ima prednost nad handoffom. Trenutna verzija je **v1.1.0** na `main` (commit `ee90106`).
+Najprije pročitaj `HANDOFF.md` u korijenu repoa (ovaj dokument, uključujući **poglavlje 10. Suradnja Grok + Claude**), zatim `DOKUMENTACIJA.md`, `.env.example`, `CHANGELOG.md`, `version.json` i `tools/make_release.sh`. Kod ima prednost nad handoffom. Objavljena verzija aplikacije je **v1.1.0** (tag/commit `ee90106`). Na `main` mogu biti noviji dokumentacijski commiti bez bumpa verzije — provjeri `git log` i poglavlje 10.
 
 **Tko je Sven i kako komuniciraš**
 - Odgovaraj na **hrvatskom**, ležernim tonom, na „ti“.
@@ -33,7 +36,9 @@ Najprije pročitaj `HANDOFF.md` u korijenu repoa (ovaj dokument), zatim `DOKUMEN
 - Instalirana aplikacija: `%LOCALAPPDATA%\AIInfluencerStudio\` (kod u `app\`, podaci u `data\`). Logovi: `data\logs\comfyui.log`, `studio.log`, `launcher.log`, `updater.log`.
 - Tajne stoje samo u `data\.env` na njegovom PC-u. Nikad ne traži da ih lijepi u chat.
 - Studio se sam ažurira s GitHub Releases pri paljenju ili preko gumba „Provjeri update“.
-- Rad na kodu (ako radiš na istoj box mašini): `/workspace/simple-studio`. `gh` je prijavljen kao Spinojpg.
+- Razvojni checkout na Svenovom Windowsu: `C:\Users\svenb\dev\ai-influencer-studio` (nije instalacijska mapa). Priprema: `tools/setup_dev_windows.ps1`, zatim po potrebi `gh auth login` (on sam, bez lijepljenja tokena).
+- Rad na kodu na Grokovom računalu (box): `/workspace/simple-studio`. `gh` je tamo prijavljen kao Spinojpg.
+- Na jednom zadatku radi samo jedan agent; prije rada `git pull`, nakon rada `push`. Release radi samo agent koji je napravio izmjenu. Detalji: poglavlje 10.
 
 **Što je gotovo**
 v1.1.0 je objavljen 20. 11. 2026. (modularni `services/`, kartice, hardver/RX 6600, predlošci, red čekanja, galerija s ocjenama, osobe, Character Sheet, izvoz LoRA dataseta, Kalendar/objave, Inbox i CRM). v1.0.20 pokriva SDXL AnimateDiff motion module. To **nije** još potvrđeno na njegovom Windowsu — čekamo feedback i logove ako nešto pukne.
@@ -100,7 +105,12 @@ Prije rada na novom promptu/zadatku kratko reci koliko bi to otprilike bilo posl
   - `profiles/`, `outputs/`, `uploads/`, `lora_datasets/`
   - `logs\` — **comfyui.log**, **studio.log**, **launcher.log**, **updater.log**
 - Auto-update: pri paljenju ili gumb „Provjeri update“. Skida `studio.zip` + `studio.zip.sha256` s GitHub Releases, primjenjuje iz helper procesa, s backupom i rollbackom. Korisnički `data` ostaje netaknut.
-- Radni checkout na boxu (za razvoj/release): `/workspace/simple-studio`. Nakon releasea obično se osvježi i `/workspace/simple-studio.zip`.
+
+**Tri putanje — ne miješaj ih**
+
+- **Instalirana aplikacija** (to **nije** git checkout): `%LOCALAPPDATA%\AIInfluencerStudio\app`. Odatle se ne radi razvoj, commit ni release. Ne kloniraj repo u tu mapu.
+- **Razvojni checkout na Svenovom Windowsu:** `C:\Users\svenb\dev\ai-influencer-studio`, grana `main`. Priprema jednom preko `tools/setup_dev_windows.ps1` (skripta sama klonira ili napravi `git pull --ff-only`, provjeri alate, testove i ovisnosti za `make_release.sh`, i piše izvještaj u `C:\Users\svenb\dev\setup_report.txt`). Ako `gh` nije prijavljen, Sven sam pokrene `gh auth login`.
+- **Checkout na Grokovom računalu (box):** `/workspace/simple-studio`. Nakon releasea obično se osvježi i `/workspace/simple-studio.zip`.
 
 Ako nešto na Windowsu ne radi, prvo traži te logove — ne nagađaj.
 
@@ -113,7 +123,7 @@ Ovo je cijeli posao koji je Grok Bot radio na ovom projektu, i koji sada preuzim
 ### 4.1 Odgovornosti (stalni posao)
 
 1. **Održavanje aplikacije**  
-   Kod je u privatnom repou `Spinojpg/ai-influencer-studio`, grana `main`. Lokalni rad (na boxu): `/workspace/simple-studio`. Ne commitaj korisničke podatke, `.env`, bazu ni `dist/`. `HANDOFF.md` ostaje u repou, ali ne u `studio.zip`.
+   Kod je u privatnom repou `Spinojpg/ai-influencer-studio`, grana `main`. Lokalni rad: na boxu `/workspace/simple-studio`, na Svenovom PC-u `C:\Users\svenb\dev\ai-influencer-studio`. Ne commitaj korisničke podatke, `.env`, bazu ni `dist/`. `HANDOFF.md` i `tools/setup_dev_windows.ps1` ostaju u repou, ali ne u `studio.zip`. Pravila suradnje: poglavlje 10.
 
 2. **Izrada značajki**  
    Kad Sven potvrdi zadatak: implementiraj, uskladi UI (`index.html`, `static/v11.js`, `static/v11.css`) i backend (`studio.py`, `api_v11.py`, `services/`, postojeći moduli), dopuni `DOKUMENTACIJA.md` / `CHANGELOG.md` po potrebi, napiši ili proširi testove, pa idi na tok izdanja (poglavlje 6).
@@ -132,6 +142,11 @@ Ovo je cijeli posao koji je Grok Bot radio na ovom projektu, i koji sada preuzim
 
 7. **Odgovaranje na pitanja**  
    Objašnjavaj arhitekturu, modele, hardver, prompt/encoder, video, CRM itd. na hrvatskom. Nedavno je pitano: koji encoder pretvara prompt u ono što model vidi (CLIP / ConditioningConcat / Krea CLIPLoader); što je Qwen3.8-Flash-Next i stane li na laptop 64 GB + RTX 4070 — realno ne (preporuka za CRM: lokalni 14–32B Qwen preko Ollame ili LM Studija). Ta Q&A pitanja su odgovorena; nisu otvoreni zadaci za kod.
+
+### 4.1a Što je napravljeno nakon prvog handoffa (bez releasea)
+
+- 22. 11. 2026.: u repo dodani ovaj dokument (prvi `HANDOFF.md`) i kasnije **poglavlje 10** plus `tools/setup_dev_windows.ps1`. Nema bumpa verzije, nema `gh release create`, kod aplikacije nije diran. Objavljena verzija i dalje je v1.1.0.
+- Cilj te pripreme: Claude na Svenovom PC-u dobije isti razvojni tok (checkout izvan instalacijske mape, git/gh, testovi, `make_release.sh` pod Git Bashom) i da oba agenta objavljuju izdanja preko GitHub Releases, ali **ne istovremeno** i uz obavezan `git pull` + `gh release list` prije releasea.
 
 ### 4.2 Otvorene i čekajuće stavke — status i kako nastaviti
 
@@ -360,17 +375,18 @@ Ključevi i varijable okoline navedeni su u `.env.example` i `DOKUMENTACIJA.md` 
 
 ## 6. Tok izdanja (točno ovako)
 
-Radi iz `/workspace/simple-studio` (ili svježeg checkouta `main`).
+Radi iz svježeg checkouta `main`: na boxu `/workspace/simple-studio`, na Svenovom PC-u `C:\Users\svenb\dev\ai-influencer-studio`. **Release radi samo agent koji je napravio izmjenu.** Prije bilo kakvog rada: `git pull`. Prije `make_release.sh` još jednom `git pull` i `gh release list`, da nitko u međuvremenu nije objavio istu (ili noviju) verziju. Nakon posla dopuni ovo poglavlje i poglavlje 10 (što je napravljeno, trenutna verzija/commit, što je otvoreno), pa `git push`.
 
 1. Napravi izmjene i dopuni dokumentaciju po potrebi.
 2. **Testovi** (prilagodi skup onome što si dirao; za puni release vrti relevantne):
    - `python3 tools/check_ui_js.py` — obavezno (provjerava inline JS u `index.html` **i** `static/*.js` preko `node --check`). `make_release.sh` ovo sam pokrene ako postoji `node`.
    - `python3 tools/test_v109.py` … `python3 tools/test_v120.py` (uključujući `test_v110.py` za 1.1.0 i `test_v120.py` za video/motion module)
    - `python3 tools/test_updater.py`
-   - Playwright: `PW_PYTHON=/tmp/pwenv/bin/python` (npr. unutar `tools/test_v110.py` za headless UI)
+   - Playwright: na boxu `PW_PYTHON=/tmp/pwenv/bin/python` (npr. unutar `tools/test_v110.py` za headless UI). Na Windowsu taj path ne postoji; testovi sami preskoče Playwright ako nije instaliran.
 3. `bash tools/make_release.sh patch|minor "bilješke"`  
    (`patch` = 1.1.0 → 1.1.1, `minor` = 1.1.0 → 1.2.0; može i točan broj `1.2.3`). To bumpa `version.json`, dopisuje `CHANGELOG.md`, piše `dist/RELEASE_NOTES.md` i pakira `dist/studio.zip` + `dist/studio.zip.sha256`.  
-   **`HANDOFF.md` se ne pakira u zip.** U zip ne idu ni `data/`, `.git`, `dist/`, `.env`, baze, screenshotovi, `__pycache__`.
+   Na Windowsu skriptu pokreni iz **Git Basha**. Treba naredba `python3` (ne samo `python`).  
+   **`HANDOFF.md` i `tools/setup_dev_windows.ps1` se ne pakiraju u zip.** U zip ne idu ni `data/`, `.git`, `dist/`, `.env`, baze, screenshotovi, `__pycache__`.
 4. Pregledaj `dist/RELEASE_NOTES.md` i `CHANGELOG.md`.
 5. Commit (poruke u repou su na hrvatskom).
 6. `git push origin HEAD:main`
@@ -435,12 +451,88 @@ Sve je izašlo u kratkom rasponu (18.–20. studenoga 2026.). Detalji su u `CHAN
 
 ## 9. Što prvo otvoriti
 
-1. Ovaj `HANDOFF.md`
+1. Ovaj `HANDOFF.md` (posebno poglavlje 10 ako preuzimaš posao uz Groka)
 2. `DOKUMENTACIJA.md` — korisnički opis 1.1.0
 3. `.env.example` — imena varijabli (bez vrijednosti)
 4. `CHANGELOG.md` i `version.json`
-5. `tools/make_release.sh` i `tools/check_ui_js.py`
+5. `tools/make_release.sh`, `tools/check_ui_js.py` i `tools/setup_dev_windows.ps1`
 6. `services/`, `api_v11.py`, `static/v11.js`, `image_gen.py`, `video.py`
 
 Ako nešto u ovom dokumentu odstupa od koda, **ispravi ponašanje prema kodu** i po želji dopuni ovaj handoff u istom commitu.
+
+---
+
+## 10. Suradnja Grok + Claude
+
+Grok Bot i Claude imaju jednak pristup repou `Spinojpg/ai-influencer-studio` i smiju oboje objavljivati update preko GitHub Releases, ali **ne istovremeno** i ne jedan preko drugoga. Ovo poglavlje je dogovoreni radni režim. Pravilo potvrde od Svena, sigurnosna pravila i pravila sadržaja iz poglavlja 2 i 7 **ostaju nepromijenjena**.
+
+### 10.1 Jedan agent po zadatku
+
+- Na istom zadatku radi **samo jedan agent u isto vrijeme**. Ne dijelite jedan feature/commit/release na dva paralelna rada.
+- Prije početka rada: `git pull` (ff-only ako je moguće) i provjeri da si na `main` i da je stablo čisto.
+- Nakon rada: commit (poruke na hrvatskom), `git push origin HEAD:main`.
+- Ako `git pull --ff-only` ne prođe, stani i uskladi se; ne radi `push --force` na `main`.
+
+### 10.2 Release radi samo agent koji je napravio izmjenu
+
+- `tools/make_release.sh` bumpa `version.json` i pakira `studio.zip`. Auto-update na Svenovom PC-u hrani se GitHub Releases, zato se verzija ne bumpa „usput“.
+- Release (`make_release.sh` + `gh release create`) radi **samo agent koji je napravio tu izmjenu**, i samo kad je Sven to potvrdio (ili kad je bugfix koji je zatražio i izdanje je dogovoreni dio posla).
+- **Prije** `bash tools/make_release.sh` obavezno:
+  1. `git pull`
+  2. `gh release list` — provjeri da ta verzija (npr. v1.1.1) **nije već objavljena** i da nitko u međuvremenu nije izdao noviju.
+- Nakon uspješnog releasea dopuni ovaj dokument (tablica u poglavlju 6 i sažetak ovdje) i gurni commit ako si u handoffu još nešto dopisao. Ne ostavljaj `dist/` u gitu (mapa je u `.gitignore`).
+
+### 10.3 Nakon svakog posla dopuni ovaj dokument
+
+Agent koji je radio zadatak, u istom ili odmah sljedećem commitu, dopuni `HANDOFF.md`:
+
+- što je napravljeno
+- trenutna **objavljena** verzija i tag, plus trenutni commit na `main`
+- što je ostalo otvoreno ili čeka Svenovu potvrdu
+
+Bez toga sljedeći agent ne može pouzdano preuzeti posao.
+
+### 10.4 Putanje
+
+| Što | Putanja | Napomena |
+|---|---|---|
+| Razvojni checkout na Windowsu | `C:\Users\svenb\dev\ai-influencer-studio` | git, grana `main` |
+| Checkout na Grokovom računalu (box) | `/workspace/simple-studio` | git, grana `main`; `gh` prijavljen kao Spinojpg |
+| Instalirana aplikacija | `%LOCALAPPDATA%\AIInfluencerStudio\app` | **nije** checkout; ne raditi tu commit/release, ne klonirati repo u tu mapu |
+| Korisnički podaci na PC-u | `%LOCALAPPDATA%\AIInfluencerStudio\data` | `.env`, baza, logovi; ne commitati |
+| Izvještaj Windows setupa | `C:\Users\svenb\dev\setup_report.txt` | piše ga `setup_dev_windows.ps1`; nije dio repoa |
+
+### 10.5 Kako Claude postavlja okruženje na Svenovom PC-u
+
+1. Sven jednom pokrene `tools/setup_dev_windows.ps1` (ako checkout još ne postoji, skriptu može skinuti iz repoa ili pokrenuti nakon ručnog klona). Preporučeni način:
+   `powershell -ExecutionPolicy Bypass -File tools\setup_dev_windows.ps1`  
+   Ako ExecutionPolicy blokira skriptu: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+2. Skripta provjeri git, gh, Python (`py`/`python`), Node i Git Bash (`C:\Program Files\Git\bin\bash.exe`). Ako nešto fali, ponudi winget instalaciju i pita **d/n** prije svake. Paketi: `Git.Git`, `GitHub.cli`, `Python.Python.3.12`, `OpenJS.NodeJS.LTS`.
+3. Ako `gh` nije prijavljen, skripta **ne dira tokene**. Sven sam pokrene `gh auth login` (GitHub.com, HTTPS, prijava preko preglednika), zatim ponovo skriptu.
+4. Checkout ide isključivo u `C:\Users\svenb\dev\ai-influencer-studio`. Ako bi putanja pala unutar `%LOCALAPPDATA%\AIInfluencerStudio`, skripta odbija rad.
+5. Ako mapa ne postoji, klonira repo; ako postoji, radi `git fetch`, `checkout main` i `git pull --ff-only`.
+6. Pokreće `tools/check_ui_js.py` i testove koji su pokretljivi na Windowsu (uključujući `test_v110.py`, `test_v120.py`, `test_updater.py`). Playwright dijelove ne forsiramo (`PW_PYTHON=/tmp/pwenv` je s boxa i na Windowsu ne postoji); ti testovi sami preskoče UI korak ako Playwright nije instaliran.
+7. Ovisnosti `tools/make_release.sh` provjerava u Git Bashu naredbom `command -v` — **skriptu za release ne pokreće**.
+8. Piše i ispisuje izvještaj u `C:\Users\svenb\dev\setup_report.txt` (verzije, prolaz/pad po provjeri, što fali).
+
+**Što na Windowsu često zapne** (iz pregleda testova, ne iz pokretanja na ovom PC-u):
+
+- `tools/test_updater.py` u jednom koraku zove `bash tools/make_release.sh` u **kopiji** stabla; treba `bash` na PATH-u (setup skripta doda Git Bash ako ga nađe).
+- `make_release.sh` zove **`python3`**, ne `python`. Ako u Git Bashu postoji samo `python`, release skripta neće raditi dok ne bude i `python3`.
+- `zip` i `sha256sum` **nisu** potrebni: paket i hash rade se u Pythonu.
+- `node` je poželjan za `check_ui_js.py`; bez njega `make_release.sh` upozori i nastavi, ali UI greška može ući u zip.
+- `test_v105.py` koristi hardkodirane putanje `/tmp/fake-brave/...` samo kao lažne objekte u mocku, ne stvara te mape.
+- `test_v115.py` radi `symlink_to`; na Windowsu to često treba Developer Mode ili administratorska prava.
+
+### 10.6 Pravila koja se ne mijenjaju
+
+- **Potvrda:** prije novog zadatka procijeni opseg rada i **ne radi ništa dok Sven eksplicitno ne potvrdi.**
+- **Sigurnost:** nikad tokene ni ključeve u repo, u ovaj dokument, u chat ili u izvještaj setup skripte. Sven ih ne lijepi. `gh auth login` radi on sam.
+- **Sadržaj:** osobe samo odrasle i fiktivne; ugrađeni predlošci i kurirane LoRA-e ostaju SFW; nema filtera ključnih riječi na njegove vlastite promptove, workflowe ili lokalne LoRA-e. Detalji ostaju u poglavlju 7.
+
+### 10.7 Stanje ovog commita (22. 11. 2026., Europa/Zagreb)
+
+- Dodani `tools/setup_dev_windows.ps1` i ovo poglavlje. `make_release.sh` isključuje tu skriptu iz `studio.zip`.
+- Kod aplikacije nije mijenjan. Verzija **nije** bumpana. Release **nije** rađen. Objavljeno je i dalje **v1.1.0**.
+- Otvoreno ostaje isto kao u poglavlju 4.2: LoRA trainer + pojednostavljenje UI-ja čeka Svenovu potvrdu; feedback za v1.1.0/v1.0.20 na Windowsu; Instagram setup, face LoRA, opcijski xAI ključ, ideja „Dodatni ComfyUI“.
 
