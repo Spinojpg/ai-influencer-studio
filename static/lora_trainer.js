@@ -73,7 +73,9 @@
       + '<label>Ukupno koraka (otprilike)<input type="number" id="ltSteps" min="100" max="6000" step="50" placeholder="prema profilu" /></label>'
       + '<label>Auto-stop na temperaturi (°C)<input type="number" id="ltTempStop" min="60" max="120" step="1" /></label>'
       + '<label class="lt-check"><input type="checkbox" id="ltAutostop" checked /> Automatski zaustavi treniranje kad je GPU prevruć</label>'
-      + '</div><div class="hint">Sigurne postavke za RX 6600 su uvijek uključene: batch 1, fp16, gradient checkpointing, cache latents (na disk), SDPA bez xformersa, Adafactor.</div></details>'
+      + '<label class="lt-check"><input type="checkbox" id="ltStallAutostop" /> Automatski zaustavi ako se koraci ne pomaknu 20 min</label>'
+      + '</div><div class="hint">Sigurne postavke za RX 6600 su uvijek uključene: batch 1, fp16, gradient checkpointing, cache latents (na disk), SDPA bez xformersa, Adafactor. LoRA se sprema nakon svake epohe.</div></details>'
+      + '<label class="lt-check lt-resume" id="ltResumeWrap" hidden><input type="checkbox" id="ltResume" checked /> <span id="ltResumeLabel">Nastavi od epohe 0</span></label>'
       + '<div class="actions"><button type="button" class="btn primary lt-go" id="ltStart">Pokreni treniranje</button></div>'
       + '</div></div></div>'
       + '<div id="ltJob" class="lt-job" hidden></div>';
@@ -113,7 +115,7 @@
       renderPresets();
       renderPlan();
     });
-    ["ltBase", "ltRes", "ltRank", "ltEpochs", "ltSteps", "ltTempStop", "ltAutostop"].forEach((id) => $(id).addEventListener("change", renderPlan));
+    ["ltBase", "ltRes", "ltRank", "ltEpochs", "ltSteps", "ltTempStop", "ltAutostop", "ltStallAutostop", "ltResume"].forEach((id) => { if ($(id)) $(id).addEventListener("change", renderPlan); });
     $("ltStart").addEventListener("click", startTraining);
     $("ltJob").addEventListener("click", (e) => {
       const b = e.target.closest("button");
@@ -146,6 +148,9 @@
       $("ltBase").value = cur;
       if (!$("ltTempStop").value && st.temp_settings) $("ltTempStop").value = Math.round(st.temp_settings.stop_c);
       if (st.temp_settings) $("ltAutostop").checked = $("ltAutostop").dataset.touched ? $("ltAutostop").checked : !!st.temp_settings.autostop;
+      if (st.temp_settings && $("ltStallAutostop") && !$("ltStallAutostop").dataset.touched) {
+        $("ltStallAutostop").checked = !!st.temp_settings.stall_autostop;
+      }
     }
   }
   async function loadPersonas() {
@@ -304,12 +309,14 @@
     if (v("ltSteps")) adv.steps = Number(v("ltSteps"));
     if (v("ltTempStop")) adv.temp_stop = Number(v("ltTempStop"));
     if ($("ltAutostop")) { adv.autostop = $("ltAutostop").checked; $("ltAutostop").dataset.touched = "1"; }
+    if ($("ltStallAutostop")) { adv.stall_autostop = $("ltStallAutostop").checked; $("ltStallAutostop").dataset.touched = "1"; }
+    if ($("ltResume") && $("ltResumeWrap") && !$("ltResumeWrap").hidden) adv.resume = $("ltResume").checked;
     return adv;
   }
   async function renderPlan() {
     const el = $("ltPlan");
     if (!el) return;
-    if (!L.pid) { el.innerHTML = ""; renderStart(); return; }
+    if (!L.pid) { el.innerHTML = ""; const w = $("ltResumeWrap"); if (w) w.hidden = true; renderStart(); return; }
     const req = ++L.planReq;
     try {
       const d = await post("/api/lora-trainer/plan", { profile_id: L.pid, preset: L.preset, advanced: advanced() });
@@ -319,6 +326,14 @@
       el.innerHTML = (p.arch === "sdxl" ? "SDXL" : "SD 1.5") + " · " + esc(p.base_model) + " · " + p.resolution + " px · "
         + (p.image_count ? (p.total_steps + " koraka (" + p.epochs + " epoha) · otprilike <b>" + fmtDur(p.eta_seconds) + "</b> na RX 6600") : "dodaj slike za procjenu")
         + (p.warnings || []).map((w) => '<div class="lt-warn">' + esc(w) + "</div>").join("");
+      const r = p.resume || {};
+      const wrap = $("ltResumeWrap");
+      if (wrap) {
+        const show = !!r.available;
+        if (wrap.hidden && show && $("ltResume")) $("ltResume").checked = true;
+        wrap.hidden = !show;
+        if (show && $("ltResumeLabel")) $("ltResumeLabel").textContent = "Nastavi od epohe " + r.epoch;
+      }
     } catch (e) {
       if (req !== L.planReq) return;
       L.plan = null; L.planErr = e.message;
@@ -425,7 +440,7 @@
     } catch (e) { toast(e.message, true); renderStart(); }
   }
   async function stopJob(id) {
-    if (!window.confirm("Zaustaviti treniranje? Napredak ovog pokušaja se gubi.")) return;
+    if (!window.confirm("Zaustaviti treniranje? LoRA iz zadnje spremljene epohe ostaje, trenutna epoha se gubi.")) return;
     try { const d = await post("/api/lora-trainer/jobs/" + id + "/cancel", {}); L.job = d.job; renderJob(); toast("Treniranje je zaustavljeno."); } catch (e) { toast(e.message, true); }
   }
   async function generateWith(pid) {
@@ -488,6 +503,7 @@
       html += '<div class="lt-temp-row ' + tst + '"><span class="lt-dot"></span>' + esc(tempLabel(j.gpu_temp_c, tst))
         + (j.gpu_temp_peak_c != null ? ' <span class="hint">(najviše ' + Math.round(j.gpu_temp_peak_c) + "°C)</span>" : "") + "</div>";
       if (j.gpu_warning_message && (tst === "warn" || tst === "critical")) html += '<div class="lt-alert ' + tst + '">' + esc(j.gpu_warning_message) + "</div>";
+      if (j.stall_warning && j.stall_message) html += '<div class="lt-alert warn">' + esc(j.stall_message) + "</div>";
       html += '<div class="hint">Ne zatvaraj Studio dok traje treniranje. Generiranje slika čeka u redu dok trening ne završi.</div>';
       html += '<div class="actions"><button type="button" class="btn danger" data-act="stop" data-id="' + j.id + '">Zaustavi</button></div>';
     } else if (j.status === "completed") {

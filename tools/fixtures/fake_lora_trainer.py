@@ -41,8 +41,19 @@ time.sleep(delay)
 if mode == "fail":
     print("RuntimeError: HIP out of memory. Tried to allocate 20.00 MiB", flush=True)
     sys.exit(1)
+stop_at = int(os.environ.get("FAKE_TRAINER_STOP_AT") or 0)
 per_epoch = max(1, total // max(1, epochs))
 step = 0
+
+def write_ckpt(ep):
+    if not out:
+        return
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    stem, ext = os.path.splitext(out)
+    path = f"{stem}-{ep:06d}{ext or '.safetensors'}"
+    with open(path, "wb") as fh:
+        fh.write(b"\x08\x00\x00\x00\x00\x00\x00\x00{}      " + os.urandom(64))
+
 for ep in range(1, epochs + 1):
     sys.stdout.write(f"\nepoch {ep}/{epochs}\n")
     sys.stdout.flush()
@@ -57,7 +68,20 @@ for ep in range(1, epochs + 1):
         loss = 0.15 - step * 0.001
         sys.stderr.write(f"\rsteps: {pct:3d}%|####      | {step}/{total} [00:{step:02d}<00:{max(0, total - step):02d},  2.00it/s, avr_loss={loss:.4f}]")
         sys.stderr.flush()
+        if stop_at and step >= stop_at and (step % per_epoch) != 0:
+            sys.stderr.write("\n")
+            sys.stderr.flush()
+            if mode == "stall":
+                time.sleep(120)
+            sys.exit(1)
         time.sleep(delay)
+    write_ckpt(ep)
+    if stop_at and step >= stop_at:
+        sys.stderr.write("\n")
+        sys.stderr.flush()
+        if mode == "stall":
+            time.sleep(120)
+        sys.exit(1)
 sys.stderr.write("\n")
 if out and mode != "empty":
     os.makedirs(os.path.dirname(out), exist_ok=True)

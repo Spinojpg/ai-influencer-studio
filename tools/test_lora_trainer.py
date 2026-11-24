@@ -309,6 +309,9 @@ def test_prepare_and_config(pa, ps):
     bad = {k: cfg.get(k) for k, v in want.items() if cfg.get(k) != v}
     check(not bad, f"8 GB sigurne postavke (SDXL) {bad}")
     check(any("relative_step=False" in a for a in cfg["optimizer_args"]), "Adafactor argumenti")
+    check(cfg.get("save_every_n_epochs") == 1 and cfg.get("save_last_n_epochs") == 3, "spremanje nakon svake epohe, zadnje 3")
+    check(cfg.get("persistent_data_loader_workers") is False and cfg.get("mem_eff_attn") is False and cfg.get("max_grad_norm") == 0, "VRAM: bez persistent loadera, sdpa, max_grad_norm=0")
+    check(not plan.get("resume", {}).get("available") and not plan.get("resume_applied"), "nema nastavka na praznom izlazu")
     tom = lt.to_toml(cfg)
     check("xformers = false" in tom and "8bit" not in tom.lower() and "bitsandbytes" not in tom.lower(), "TOML: bez xformersa i bitsandbytes")
     cfg15 = lt.build_training_config(plan15, base_path=Path("/m/y.safetensors"), output_dir=Path("/o"), output_name="y", logs_dir=Path("/l"))
@@ -777,12 +780,117 @@ def browser(url: str, tmp: Path, pid: int):
     check(not real, f"nema console grešaka: {real[:3]}")
 
 
+
+def test_progress_resume_stall(pa, comfy_dir):
+    print("== tqdm \\r napredak, nastavak od epohe, upozorenje na zastoj ==")
+    from services import lora_trainer_service as lt
+
+    line = "\x1b[K\x1b[Asteps:  29%|██▉       | 336/1160 [34:31<1:24:40,  6.17s/it, avr_loss=0.106]"
+    info = lt.parse_progress_line(line)
+    check(info.get("step") == 336 and info.get("total") == 1160 and info.get("remaining") == 1 * 3600 + 24 * 60 + 40 and abs((info.get("loss") or 0) - 0.106) < 1e-6,
+          f"parse tqdm+ANSI: {info}")
+    buf, lines = lt.decode_trainer_chunks(b"", b"cache...\rsteps:  10%|##        | 10/100 [00:10<01:30,  2.00s/it, avr_loss=0.12]\rsteps:  11%|##        | 11/100 [00:11<01:28,  2.00s/it, avr_loss=0.11]\nepoch 2/8\n")
+    steps = [lt.parse_progress_line(x) for x in lines]
+    check(len(lines) == 4 and steps[1].get("step") == 10 and steps[2].get("step") == 11 and steps[3].get("epoch") == 2,
+          f"cijepanje po \\r/\\n: {lines!r} {steps}")
+    tmp = comfy_dir / "epoch_tmp"
+    tmp.mkdir(exist_ok=True)
+    (tmp / "char_x_v5-000001.safetensors").write_bytes(b"x" * 32)
+    (tmp / "char_x_v5-000002.safetensors").write_bytes(b"y" * 48)
+    (tmp / "char_x_v5.safetensors").write_bytes(b"z" * 16)
+    ck = lt.list_epoch_checkpoints(tmp, "char_x_v5")
+    check([c["epoch"] for c in ck] == [1, 2] and lt.latest_epoch_checkpoint(tmp, "char_x_v5")["epoch"] == 2, "popis epoha 00000N")
+    check(lt.partial_lora_filename("char_x_v5.safetensors", 2) == "char_x_v5-e2.safetensors", "ime djelomične LoRA-e")
+
+    # živi koraci iz tqdm \\r (prije novog retka epohe 2)
+    os.environ["FAKE_TRAINER_DELAY"] = "0.04"
+    os.environ.pop("FAKE_TRAINER_STOP_AT", None)
+    os.environ.pop("FAKE_TRAINER_MODE", None)
+    job = lt.start_training(pa, "fast", {"steps": 100, "epochs": 2, "resume": False})
+    seen = 0
+    end = time.time() + 20
+    while time.time() < end:
+        j = lt.get_job(job["id"])
+        seen = max(seen, int(j.get("current_step") or 0))
+        if seen >= 3 and j["status"] == "training":
+            break
+        if not j["active"]:
+            break
+        time.sleep(0.04)
+    check(seen >= 3, f"koraci se osvježavaju uživo iz tqdm \\r (vidio {seen})")
+    # ne čekaj kraj ovog posla — zaustavi da uštedimo vrijeme; epoha 1 možda još nije spremljena
+    if lt.get_job(job["id"])["active"]:
+        lt.cancel_job(job["id"])
+        wait_job(lt, job["id"])
+
+    # prekid nakon 1. epohe -> djelomična LoRA + nastavak
+    plan = lt.compute_plan(pa, "fast", {"steps": 100, "epochs": 2, "resume": False})
+    stop_at = max(1, int(plan["total_steps"] // max(1, plan["epochs"])))
+    os.environ["FAKE_TRAINER_STOP_AT"] = str(stop_at)
+    os.environ["FAKE_TRAINER_DELAY"] = "0.01"
+    try:
+        j1 = wait_job(lt, lt.start_training(pa, "fast", {"steps": 100, "epochs": 2, "resume": False})["id"])
+    finally:
+        os.environ.pop("FAKE_TRAINER_STOP_AT", None)
+    check(j1["status"] in {"failed", "canceled"}, f"prekid nakon epohe 1 ({j1['status']}: {j1.get('error_message')})")
+    check((j1.get("lora_filename") or "").endswith("-e1.safetensors") or (j1.get("output_path") or "").endswith("-e1.safetensors"),
+          f"djelomična LoRA spremljena kao -e1 ({j1.get('lora_filename')} {j1.get('output_path')})")
+    outp = Path(j1.get("output_path") or "")
+    check(outp.is_file() and outp.stat().st_size > 0, "djelomična LoRA postoji na disku")
+    plan_r = lt.compute_plan(pa, "fast", {"steps": 100, "epochs": 2})
+    r = plan_r.get("resume") or {}
+    check(r.get("available") and r.get("epoch") == 1 and r.get("label") == "Nastavi od epohe 1", f"plan nudi nastavak: {r}")
+    check(plan_r.get("resume_applied") and plan_r["epochs"] == 1 and plan_r.get("network_weights"), f"zadano nastavi: epohe={plan_r.get('epochs')} w={plan_r.get('network_weights')}")
+    plan_fresh = lt.compute_plan(pa, "fast", {"steps": 100, "epochs": 2, "resume": False})
+    check(not plan_fresh.get("resume_applied") and plan_fresh["epochs"] == 2, "resume=False kreće ispočetka")
+    j2 = wait_job(lt, lt.start_training(pa, "fast", {"steps": 100, "epochs": 2})["id"])
+    check(j2["status"] == "completed", f"nastavak završio ({j2['status']}: {j2.get('error_message')})")
+    train_cfg = (j2.get("config") or {}).get("training") or {}
+    check(bool(train_cfg.get("network_weights")) and int((j2.get("config") or {}).get("resume_from_epoch") or 0) == 1, f"network_weights i resume_from_epoch=1 ({train_cfg.get('network_weights')})")
+    check(j2.get("lora_filename") and not str(j2.get("lora_filename")).endswith("-e1.safetensors"), f"konačna LoRA nije -e1 ({j2.get('lora_filename')})")
+
+    # zastoj: upozorenje, bez auto-stopa (zadano)
+    lt.configure(stall_warn=0.35, stall_stop=8)
+    os.environ["FAKE_TRAINER_MODE"] = "stall"
+    os.environ["FAKE_TRAINER_STOP_AT"] = "5"
+    os.environ["FAKE_TRAINER_DELAY"] = "0.02"
+    try:
+        js = lt.start_training(pa, "fast", {"steps": 100, "epochs": 2, "resume": False, "stall_autostop": False})
+        warned = None
+        end = time.time() + 12
+        while time.time() < end:
+            j = lt.get_job(js["id"])
+            if j.get("stall_warning"):
+                warned = j
+                break
+            if not j["active"]:
+                warned = j
+                break
+            time.sleep(0.05)
+        check(warned and warned.get("stall_warning") and warned.get("stall_message") == lt.STALL_MESSAGE, f"upozorenje na zastoj: {None if not warned else warned.get('stall_message')}")
+        check(warned.get("active") or warned.get("status") == "training", f"zadano samo upozorenje, posao još traje ({warned.get('status')})")
+        lt.cancel_job(js["id"])
+        wait_job(lt, js["id"])
+
+        # opcijski auto-stop
+        lt.configure(stall_warn=0.25, stall_stop=0.5)
+        ja = lt.start_training(pa, "fast", {"steps": 100, "epochs": 2, "resume": False, "stall_autostop": True})
+        jt = wait_job(lt, ja["id"], timeout=20)
+        check(jt["status"] == "failed" and lt.STALL_MESSAGE in (jt.get("error_message") or ""), f"auto-stop na zastoj: {jt['status']} {jt.get('error_message')}")
+    finally:
+        os.environ.pop("FAKE_TRAINER_MODE", None)
+        os.environ.pop("FAKE_TRAINER_STOP_AT", None)
+        os.environ.pop("FAKE_TRAINER_DELAY", None)
+        lt.configure(stall_warn=None, stall_stop=None)
+        os.environ["STUDIO_GPU_TEMP"] = "61"
+
+
 def test_static_safety():
     print("== UI datoteke, sigurnost sadržaja, pakiranje ==")
     html = (ROOT / "index.html").read_text(encoding="utf-8")
     check('id="loraTrainer"' in html and "/static/lora_trainer.js" in html and "/static/lora_trainer.css" in html, "index.html uključuje trener")
     js = (ROOT / "static" / "lora_trainer.js").read_text(encoding="utf-8")
-    for s in ("Pripremi okruženje za treniranje", "Zaustavi", "Prikaži log", "Generiraj s ovom osobom", "Senzor temperature nedostupan", "Ne zatvaraj Studio"):
+    for s in ("Pripremi okruženje za treniranje", "Zaustavi", "Prikaži log", "Generiraj s ovom osobom", "Senzor temperature nedostupan", "Ne zatvaraj Studio", "Nastavi od epohe", "ltResume"):
         check(s in js, f"lora_trainer.js: {s}")
     for p in ("services/lora_trainer_service.py", "api_lora.py", "static/lora_trainer.js", "static/lora_trainer.css", "services/hardware_service.py"):
         txt = (ROOT / p).read_text(encoding="utf-8")
@@ -812,6 +920,7 @@ def main():
             test_generation_trigger(pa, pb, ps, trig)
             test_temperature_run(pa)
             test_cancel_and_lock(pa, pb)
+            test_progress_resume_stall(pa, comfy)
         finally:
             comfy_srv.shutdown()
         test_static_safety()

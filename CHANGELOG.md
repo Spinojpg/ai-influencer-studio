@@ -1,5 +1,12 @@
 # Promjene
 
+## 1.3.5 — 2026-11-24
+- LoRA se sada sprema nakon svake epohe (čuvaju se zadnje 3), pa zastoj više ne briše sav napredak.
+- Ako trening stane, „Pokušaj ponovno” nudi nastavak od zadnje epohe (kvačica „Nastavi od epohe N”, zadano uključena).
+- Koraci, loss i preostalo vrijeme u sučelju se osvježavaju uživo, ne samo na kraju epohe.
+- Ako se korak ne pomakne 10 minuta nakon početka treniranja, pojavi se upozorenje da je vjerojatno VRAM pun. U Napredno je opcija da se tada sam zaustavi nakon 20 minuta (zadano samo upozorenje).
+- Prekinuti trening ostavlja upotrebljivu LoRA-u (npr. char_osoba_v5-e2.safetensors) u ComfyUI models/loras i dodaje je osobi.
+
 ## 1.3.4 — 2026-11-24
 - LoRA trener se sada pokreće kroz ComfyUI-Zluda zluda.exe (kao ComfyUI), pa koristi RX 6600 umjesto procesora. Prije je pisalo 'GPU nije pronađen' i trening je išao na CPU.
 

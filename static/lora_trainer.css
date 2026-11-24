@@ -51,6 +51,7 @@
 .lt-adv .lt-check { display: flex; align-items: center; gap: 8px; grid-column: 1 / -1; }
 .lt-adv .lt-check input { width: auto; }
 .lt-go { min-width: 220px; }
+.lt-resume { display: flex; align-items: center; gap: 8px; margin: 10px 0 6px; font-size: 13px; }
 .lt-warn, .lt-warn-inline { color: #e8a34a; }
 .lt-warn { margin-top: 4px; }
 .lt-job { margin-top: 14px; padding: 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg2); }

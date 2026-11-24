@@ -93,6 +93,13 @@ DEFAULT_PRESET = "balanced"
 TEMP_DEFAULTS = {"lora_temp_warn": "80", "lora_temp_critical": "88", "lora_temp_stop": "92", "lora_temp_autostop": "1"}
 # 1.3.0: slike ocijenjene „Dobra” same idu u LoRA dataset osobe (može se isključiti u treneru).
 AUTO_SYNC_KEY = "lora_auto_sync_good"
+STALL_AUTOSTOP_KEY = "lora_stall_autostop"
+STALL_WARN_DEFAULT_S = 600
+STALL_STOP_DEFAULT_S = 1200
+STALL_MESSAGE = ("Trening se nije pomaknuo 10 min — vjerojatno je VRAM pun. "
+                 "Zaustavi i nastavi od zadnje epohe.")
+_EPOCH_FILE_RE = re.compile(r"^(.+)-(\d{6})\.safetensors$", re.I)
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]")
 
 # Paketi koje NIKAD ne instaliramo na AMD/ZLUDA (CUDA-only ili nepotrebno teški). torch ostaje ComfyUI-jev.
 SKIP_PACKAGES = {"bitsandbytes", "xformers", "tensorboard", "tensorboardx", "opencv-python", "opencv-python-headless",
@@ -187,6 +194,7 @@ def ensure_schema() -> None:
         for key, val in TEMP_DEFAULTS.items():
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES(?, ?)", (key, val))
         c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES(?, ?)", (AUTO_SYNC_KEY, "1"))
+        c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES(?, ?)", (STALL_AUTOSTOP_KEY, "0"))
         # Treniranje ne preživi gašenje Studija (proces se ugasi s njim).
         marks = ",".join("?" * len(ACTIVE_STATUSES))
         c.execute(
@@ -246,6 +254,7 @@ def temp_settings() -> dict:
         "critical_c": clamp_float(s["lora_temp_critical"], 55, 115, 88.0),
         "stop_c": clamp_float(s["lora_temp_stop"], 60, 120, 92.0),
         "autostop": truthy(s["lora_temp_autostop"], True),
+        "stall_autostop": stall_autostop_enabled(),
     }
 
 
@@ -261,7 +270,33 @@ def save_temp_settings(payload: dict) -> dict:
     inbox.set_setting("lora_temp_stop", str(stop))
     if "autostop" in payload:
         inbox.set_setting("lora_temp_autostop", "1" if truthy(payload.get("autostop"), True) else "0")
+    if "stall_autostop" in payload:
+        set_stall_autostop(payload.get("stall_autostop"))
     return temp_settings()
+
+
+def stall_autostop_enabled() -> bool:
+    return truthy(inbox.get_setting(STALL_AUTOSTOP_KEY, "0"), False)
+
+
+def set_stall_autostop(on) -> bool:
+    inbox.set_setting(STALL_AUTOSTOP_KEY, "1" if truthy(on, False) else "0")
+    return stall_autostop_enabled()
+
+
+def stall_limits() -> tuple:
+    """(upozorenje_s, auto-stop_s). Testovi: configure(stall_warn=..., stall_stop=...) ili STUDIO_LORA_STALL_*."""
+    def _sec(cfg_key, env_key, default):
+        if _cfg.get(cfg_key) not in (None, ""):
+            try:
+                return max(0.05, float(_cfg[cfg_key]))
+            except (TypeError, ValueError):
+                pass
+        try:
+            return max(0.05, float(os.environ.get(env_key) or default))
+        except ValueError:
+            return float(default)
+    return _sec("stall_warn", "STUDIO_LORA_STALL_WARN", STALL_WARN_DEFAULT_S), _sec("stall_stop", "STUDIO_LORA_STALL_STOP", STALL_STOP_DEFAULT_S)
 
 
 def classify_temp(temp_c, th: dict | None = None) -> tuple:
@@ -811,6 +846,160 @@ def checkpoint_path(name: str) -> Path:
     return comfy_launch.checkpoints_dir().joinpath(*parts)
 
 
+def strip_ansi(text: str) -> str:
+    return _ANSI_RE.sub("", text or "")
+
+
+def decode_trainer_chunks(buf: bytes, chunk: bytes) -> tuple:
+    """Dodaj komad izlaza i vrati (novi_spremnik, dovršeni retci) cijepane i po \\r i po \\n."""
+    buf += chunk or b""
+    parts = re.split(rb"[\r\n]", buf)
+    rest = parts.pop()
+    lines = [strip_ansi(p.decode("utf-8", errors="replace")) for p in parts]
+    return rest, lines
+
+
+def list_epoch_checkpoints(folder, output_name: str | None = None) -> list:
+    """Kohya sprema epohe kao output_name-00000N.safetensors."""
+    folder = Path(folder) if folder else Path()
+    if not folder.is_dir():
+        return []
+    out = []
+    try:
+        names = list(folder.iterdir())
+    except OSError:
+        return []
+    for p in names:
+        if not p.is_file():
+            continue
+        m = _EPOCH_FILE_RE.match(p.name)
+        if not m:
+            continue
+        try:
+            if p.stat().st_size <= 0:
+                continue
+        except OSError:
+            continue
+        if output_name and m.group(1) != output_name:
+            continue
+        out.append({"path": p, "output_name": m.group(1), "epoch": int(m.group(2)), "size": p.stat().st_size})
+    out.sort(key=lambda x: (x["epoch"], x["path"].stat().st_mtime if x["path"].exists() else 0))
+    return out
+
+
+def latest_epoch_checkpoint(folder, output_name: str | None = None):
+    items = list_epoch_checkpoints(folder, output_name)
+    return items[-1] if items else None
+
+
+def partial_lora_filename(output_name: str, epoch: int) -> str:
+    stem = Path(str(output_name or "lora")).stem
+    return f"{stem}-e{int(epoch)}.safetensors"
+
+
+def unique_lora_filename(name: str) -> str:
+    """Ako ime već postoji, dodaj nastavak -2, -3…"""
+    target, _ = loras_target_dir()
+    path = Path(name)
+    stem, suf = path.stem, path.suffix or ".safetensors"
+    candidate = f"{stem}{suf}"
+    n = 2
+    with conn() as c:
+        used = {str(r[0]).lower() for r in c.execute("SELECT lora_filename FROM persona_trained_loras").fetchall()}
+        used |= {str(r[0]).lower() for r in c.execute("SELECT lora_name FROM lora_training_jobs").fetchall()}
+    while candidate.lower() in used or (target / candidate).exists():
+        candidate = f"{stem}-{n}{suf}"
+        n += 1
+    return candidate
+
+
+def _job_output_dir(pid: int, jid: int) -> Path:
+    return persona_dirs(int(pid))["output"] / f"job_{int(jid)}"
+
+
+def find_resume(pid: int, plan: dict | None = None) -> dict:
+    """Najnovija spremljena epoha za osobu, iz prekinutih poslova (ne iz dovršenih)."""
+    empty = {"available": False}
+    try:
+        jobs = list_jobs(pid, limit=40)
+    except Exception:
+        return empty
+    best = None
+    for job in jobs:
+        if job.get("status") in ACTIVE_STATUSES:
+            continue
+        if job.get("status") == "completed":
+            continue
+        cfg = job.get("config") or {}
+        jplan = cfg.get("plan") or {}
+        out_dir = _job_output_dir(pid, job["id"])
+        output_name = Path(cfg.get("lora_filename") or job.get("lora_name") or "").stem
+        ckpt = latest_epoch_checkpoint(out_dir, output_name or None)
+        if not ckpt:
+            continue
+        base_epoch = int(cfg.get("resume_from_epoch") or 0)
+        abs_epoch = base_epoch + int(ckpt["epoch"])
+        planned = int(cfg.get("planned_epochs") or jplan.get("planned_epochs") or 0)
+        if not planned:
+            planned = int(jplan.get("epochs") or job.get("total_epochs") or 0) + base_epoch
+        remaining = max(0, planned - abs_epoch)
+        if remaining <= 0 or abs_epoch <= 0:
+            continue
+        rec = {
+            "available": True,
+            "epoch": abs_epoch,
+            "file_epoch": int(ckpt["epoch"]),
+            "planned_epochs": planned,
+            "remaining_epochs": remaining,
+            "weights": str(ckpt["path"]),
+            "output_name": ckpt["output_name"],
+            "job_id": int(job["id"]),
+            "repeats": int(jplan.get("repeats") or 1),
+            "resolution": int(jplan.get("resolution") or 0),
+            "rank": int(jplan.get("rank") or 0),
+            "alpha": int(jplan.get("alpha") or 0),
+            "arch": jplan.get("arch") or job.get("arch") or "",
+            "base_model": jplan.get("base_model") or job.get("base_model") or "",
+            "learning_rate": jplan.get("learning_rate"),
+            "label": f"Nastavi od epohe {abs_epoch}",
+        }
+        if best is None or rec["epoch"] > best["epoch"] or (rec["epoch"] == best["epoch"] and rec["job_id"] > best["job_id"]):
+            best = rec
+    if not best:
+        return empty
+    if plan:
+        if plan.get("arch") and best.get("arch") and plan["arch"] != best["arch"]:
+            return empty
+        if plan.get("rank") and best.get("rank") and int(plan["rank"]) != int(best["rank"]):
+            best = dict(best)
+            best["rank_mismatch"] = True
+            # LoRA težine moraju imati isti rank; nastavak i dalje koristi spremljeni rank.
+    return best
+
+
+def apply_resume_to_plan(plan: dict, resume: dict) -> dict:
+    """Smanji epohe na preostale, zadrži repeats/rank iz spremljene epohe, doda network_weights."""
+    remaining = int(resume.get("remaining_epochs") or 0)
+    if remaining <= 0:
+        return plan
+    if resume.get("repeats"):
+        plan["repeats"] = int(resume["repeats"])
+    if resume.get("rank"):
+        plan["rank"] = int(resume["rank"])
+        plan["alpha"] = int(resume.get("alpha") or max(1, plan["rank"] // 2))
+    plan["planned_epochs"] = int(resume.get("planned_epochs") or (int(plan.get("epochs") or 0)))
+    plan["epochs"] = remaining
+    n = int(plan.get("image_count") or 0)
+    plan["total_steps"] = n * int(plan["repeats"]) * remaining
+    arch = plan.get("arch") or "sdxl"
+    res = int(plan.get("resolution") or DEFAULT_RESOLUTION.get(arch) or 768)
+    sps = SEC_PER_STEP.get(arch, {}).get(res) or 2.6
+    plan["eta_seconds"] = int(plan["total_steps"] * sps + CACHE_OVERHEAD_S.get(arch, 0))
+    plan["network_weights"] = resume.get("weights") or ""
+    plan["resume_from_epoch"] = int(resume.get("epoch") or 0)
+    return plan
+
+
 def compute_plan(pid: int, preset: str = DEFAULT_PRESET, advanced: dict | None = None) -> dict:
     prof = inbox.get_profile(int(pid))
     if not prof:
@@ -845,12 +1034,24 @@ def compute_plan(pid: int, preset: str = DEFAULT_PRESET, advanced: dict | None =
         warnings.append("1024 px na 8 GB VRAM-a je na rubu; ako javi „out of memory”, vrati na 768.")
     if not th["autostop"]:
         warnings.append("Auto-stop zbog temperature je isključen.")
-    return {
+    if "stall_autostop" in adv:
+        th["stall_autostop"] = truthy(adv.get("stall_autostop"), False)
+    else:
+        th["stall_autostop"] = stall_autostop_enabled()
+    plan = {
         "profile_id": int(pid), "preset": preset, "preset_label": p["label"], "base_model": base, "arch": arch,
         "resolution": res, "rank": rank, "alpha": max(1, rank // 2), "epochs": epochs, "repeats": repeats,
         "image_count": n, "total_steps": total, "learning_rate": lr, "eta_seconds": eta,
         "temp": th, "warnings": warnings, "guidance": count_guidance(n),
     }
+    resume = find_resume(pid, plan)
+    plan["resume"] = resume
+    want_resume = bool(resume.get("available")) and truthy(adv.get("resume"), True)
+    plan["resume_applied"] = want_resume
+    if want_resume:
+        apply_resume_to_plan(plan, resume)
+        warnings.append(f"Nastavak od epohe {resume['epoch']}: preostalo {plan['epochs']} od {resume['planned_epochs']} epoha.")
+    return plan
 
 
 def build_training_config(plan: dict, *, base_path, output_dir, output_name: str, logs_dir) -> dict:
@@ -891,7 +1092,14 @@ def build_training_config(plan: dict, *, base_path, output_dir, output_name: str
         "noise_offset": 0.03,
         "logging_dir": _posix(logs_dir),
         "tokenizer_cache_dir": _posix(trainer_root() / "tokenizers"),
+        "save_every_n_epochs": 1,
+        "save_last_n_epochs": 3,
+        "persistent_data_loader_workers": False,
+        "mem_eff_attn": False,
+        "max_grad_norm": 0,
     }
+    if plan.get("network_weights"):
+        cfg["network_weights"] = _posix(plan["network_weights"])
     if arch == "sdxl":
         cfg.update({"network_train_unet_only": True, "cache_text_encoder_outputs": True, "cache_text_encoder_outputs_to_disk": True})
     else:
@@ -1299,6 +1507,9 @@ def _job_row(row) -> dict:
     d["log_lines"] = [ln for ln in (d.get("log_tail") or "").splitlines() if ln][-40:]
     d["lora_filename"] = Path(d.get("output_path") or "").name if d.get("output_path") else ""
     d["profile_name"] = ((inbox.get_profile(d.get("profile_id")) or {}).get("name") or "") if d.get("profile_id") else ""
+    cfg = d.get("config") or {}
+    d["stall_warning"] = bool(cfg.get("stall_warning"))
+    d["stall_message"] = cfg.get("stall_message") or ""
     return d
 
 
@@ -1381,7 +1592,10 @@ def start_training(pid: int, preset: str = DEFAULT_PRESET, advanced: dict | None
             raise ValueError(f"Bazni model „{plan['base_model']}” nije pronađen u {comfy_launch.checkpoints_dir()}.")
         trig = ensure_trigger(pid)
         lora_file = _next_lora_filename(pid, prof)
-        cfg = {"plan": plan, "trigger": trig, "lora_filename": lora_file, "base_path": str(base_path)}
+        cfg = {"plan": plan, "trigger": trig, "lora_filename": lora_file, "base_path": str(base_path),
+               "resume_from_epoch": int(plan.get("resume_from_epoch") or 0),
+               "planned_epochs": int(plan.get("planned_epochs") or plan.get("epochs") or 0),
+               "network_weights": plan.get("network_weights") or ""}
         with conn() as c:
             c.execute(
                 "INSERT INTO lora_training_jobs(profile_id, status, lora_name, trigger_word, base_model, arch, preset, image_count, total_steps, "
@@ -1475,11 +1689,14 @@ def _hms(text: str):
 def parse_progress_line(line: str) -> dict:
     """Iz jedne linije sd-scripts/tqdm izlaza: korak, ukupno, epoha, loss, preostalo vrijeme, caching, OOM."""
     out: dict = {}
-    m = _STEP_RE.search(line)
+    line = strip_ansi(line or "")
+    matches = list(_STEP_RE.finditer(line))
+    m = matches[-1] if matches else None
     if m:
         out.update(step=int(m.group(2)), total=int(m.group(3)), remaining=_hms(m.group(5)))
     else:
-        m2 = _STEP_LOOSE_RE.search(line)
+        loose = list(_STEP_LOOSE_RE.finditer(line))
+        m2 = loose[-1] if loose else None
         if m2:
             out.update(step=int(m2.group(1)), total=int(m2.group(2)))
     ml = _LOSS_RE.search(line)
@@ -1565,7 +1782,9 @@ def _run_job(jid: int) -> None:
     th = dict(plan.get("temp") or temp_settings())
     state = {"step": 0, "total": int(plan.get("total_steps") or 0), "epoch": 0, "epochs": int(plan.get("epochs") or 0), "loss": None,
              "remaining": None, "oom": False, "status": "preparing", "peak": None, "train_started": None, "last_write": 0.0,
-             "overheat": False}
+             "overheat": False, "last_step_at": None, "stall_warned": False, "stall_stopped": False,
+             "partial": None, "out_dir": None, "output_name": Path(lora_file).stem,
+             "resume_from": int(cfgd.get("resume_from_epoch") or plan.get("resume_from_epoch") or 0)}
     lock = threading.Lock()
 
     def log(msg: str) -> None:
@@ -1609,6 +1828,8 @@ def _run_job(jid: int) -> None:
             if state["status"] != "training":
                 state["status"] = "training"
                 state["train_started"] = time.time()
+            if int(info["step"]) != int(state.get("step") or 0):
+                state["last_step_at"] = time.time()
             state["step"] = info["step"]
             if info.get("total"):
                 state["total"] = info["total"]
@@ -1638,6 +1859,8 @@ def _run_job(jid: int) -> None:
         out_dir = dirs["output"] / f"job_{jid}"
         out_dir.mkdir(parents=True, exist_ok=True)
         output_name = Path(lora_file).stem
+        state["out_dir"] = out_dir
+        state["output_name"] = output_name
         output_file = out_dir / f"{output_name}.safetensors"
         train_cfg = build_training_config(plan, base_path=Path(cfgd.get("base_path") or checkpoint_path(plan["base_model"])),
                                           output_dir=out_dir, output_name=output_name, logs_dir=dirs["logs"])
@@ -1645,6 +1868,8 @@ def _run_job(jid: int) -> None:
         cfg_path.write_text(to_toml(train_cfg), encoding="utf-8")
         cfgd.update(training=train_cfg, dataset_toml=str(prep["dataset_toml"]), config_toml=str(cfg_path))
         _set_job(jid, config=cfgd)
+        if train_cfg.get("network_weights"):
+            log(f"Nastavljam od epohe {state['resume_from']}: {train_cfg['network_weights']}")
         if _cancel.get(jid):
             raise _Stop()
         ok, msg = free_comfy_vram()
@@ -1676,13 +1901,11 @@ def _run_job(jid: int) -> None:
                 chunk = stream.read1(4096) if hasattr(stream, "read1") else stream.read(1)
                 if not chunk:
                     break
-                buf += chunk
-                parts = re.split(rb"[\r\n]", buf)
-                buf = parts.pop()
-                for raw in parts:
-                    handle_line(raw.decode("utf-8", errors="replace"))
+                buf, lines = decode_trainer_chunks(buf, chunk)
+                for line in lines:
+                    handle_line(line)
             if buf:
-                handle_line(buf.decode("utf-8", errors="replace"))
+                handle_line(strip_ansi(buf.decode("utf-8", errors="replace")))
 
         rt = threading.Thread(target=reader, daemon=True, name=f"lora-read-{jid}")
         rt.start()
@@ -1692,21 +1915,47 @@ def _run_job(jid: int) -> None:
             if time.time() >= next_temp:
                 next_temp = time.time() + interval
                 _check_temp(jid, state, th, log, proc)
+            _check_stall(jid, state, cfgd, th, log, proc)
             time.sleep(min(0.2, interval))
         rt.join(timeout=10)
         code = proc.returncode
         _procs.pop(jid, None)
         log(f"[izlaz procesa: {code}]")
         reason = _cancel.get(jid)
+
+        def _keep_partial(prefix: str) -> tuple:
+            final = _finalize_latest_epoch(jid, pid, state.get("out_dir"), state.get("output_name"), state.get("resume_from") or 0, trig, plan, log)
+            if final:
+                extra = f" Spremljena LoRA iz zadnje epohe: {final.name}."
+                return prefix + extra, str(final)
+            return prefix, ""
+
         if state["overheat"]:
             state["status"] = "paused_overheat"
-            flush(True, finished_at=now(), error_message=(
+            msg, op = _keep_partial(
                 f"Treniranje je automatski zaustavljeno jer je GPU dosegao {state['peak']:.0f}°C (granica {th['stop_c']:.0f}°C). "
-                "Tvoj RX 6600 je zaštićen. Pusti ga da se ohladi, provjeri ventilatore i prašinu, pa pokreni treniranje ponovno."))
+                "Tvoj RX 6600 je zaštićen. Pusti ga da se ohladi, provjeri ventilatore i prašinu, pa pokreni treniranje ponovno.")
+            extra = {"finished_at": now(), "error_message": msg}
+            if op:
+                extra["output_path"] = op
+            flush(True, **extra)
+            return
+        if state.get("stall_stopped") or reason == "stall":
+            state["status"] = "failed"
+            msg, op = _keep_partial(STALL_MESSAGE + " Treniranje je automatski zaustavljeno.")
+            extra = {"finished_at": now(), "error_message": msg}
+            if op:
+                extra["output_path"] = op
+            flush(True, **extra)
             return
         if reason:
             state["status"] = "canceled"
-            flush(True, finished_at=now(), error_message="Zaustavio korisnik." if reason == "user" else "Studio se gasi; treniranje je prekinuto.")
+            prefix = "Zaustavio korisnik." if reason == "user" else "Studio se gasi; treniranje je prekinuto."
+            msg, op = _keep_partial(prefix)
+            extra = {"finished_at": now(), "error_message": msg}
+            if op:
+                extra["output_path"] = op
+            flush(True, **extra)
             return
         if code == 0 and output_file.is_file() and output_file.stat().st_size > 0:
             final = finalize_lora(jid, pid, output_file, lora_file, trig, plan)
@@ -1723,18 +1972,81 @@ def _run_job(jid: int) -> None:
             last = [ln for ln in tail if ln.strip() and not ln.startswith("[izlaz")][-3:]
             msg = f"Treniranje je prekinuto greškom (izlaz {code}). " + " | ".join(last)[-500:]
         state["status"] = "failed"
-        flush(True, finished_at=now(), error_message=msg)
+        msg, op = _keep_partial(msg)
+        extra = {"finished_at": now(), "error_message": msg}
+        if op:
+            extra["output_path"] = op
+        flush(True, **extra)
     except _Stop:
         state["status"] = "canceled"
-        flush(True, finished_at=now(), error_message="Zaustavio korisnik.")
+        final = _finalize_latest_epoch(jid, pid, state.get("out_dir"), state.get("output_name"), state.get("resume_from") or 0, trig, plan, log)
+        extra = {"finished_at": now(), "error_message": "Zaustavio korisnik." + (f" Spremljena LoRA iz zadnje epohe: {final.name}." if final else "")}
+        if final:
+            extra["output_path"] = str(final)
+        flush(True, **extra)
     except Exception as exc:
         log("GREŠKA: " + str(exc))
         state["status"] = "failed"
-        flush(True, finished_at=now(), error_message=str(exc)[:800])
+        final = _finalize_latest_epoch(jid, pid, state.get("out_dir"), state.get("output_name"), state.get("resume_from") or 0, trig, plan, log)
+        extra = {"finished_at": now(), "error_message": (str(exc)[:800] + (f" Spremljena LoRA iz zadnje epohe: {final.name}." if final else ""))}
+        if final:
+            extra["output_path"] = str(final)
+        flush(True, **extra)
     finally:
         _procs.pop(jid, None)
         _cancel.pop(jid, None)
         _threads.pop(jid, None)
+
+
+
+def _finalize_latest_epoch(jid, pid, out_dir, output_name, resume_from, trig, plan, log):
+    """Na prekidu kopiraj zadnju epohu u ComfyUI loras kao output_name-eN.safetensors."""
+    if not out_dir:
+        return None
+    try:
+        ckpt = latest_epoch_checkpoint(out_dir, output_name)
+        if not ckpt:
+            return None
+        abs_epoch = int(resume_from or 0) + int(ckpt["epoch"])
+        name = unique_lora_filename(partial_lora_filename(output_name or ckpt["output_name"], abs_epoch))
+        final = finalize_lora(int(jid), int(pid), ckpt["path"], name, trig, plan or {})
+        if log:
+            log(f"Spremljena LoRA iz epohe {abs_epoch}: {final.name} je dodana osobi (jačina 0.8, okidač {trig}).")
+        return final
+    except Exception as exc:
+        if log:
+            log("Nisam uspio spremiti djelomičnu LoRA-u: " + str(exc)[:300])
+        return None
+
+
+def _check_stall(jid: int, state: dict, cfgd: dict, th: dict, log, proc) -> None:
+    """Upozori (zadano) ili zaustavi ako se korak ne pomakne 10/20 min nakon početka treniranja."""
+    if state.get("stall_stopped") or state.get("overheat"):
+        return
+    if state.get("status") != "training" or int(state.get("step") or 0) < 1:
+        return  # ne tijekom keširanja/kompilacije prije 1. koraka
+    t0 = state.get("last_step_at")
+    if not t0:
+        return
+    dt = time.time() - t0
+    warn_s, stop_s = stall_limits()
+    if dt < warn_s:
+        return
+    if not state.get("stall_warned"):
+        state["stall_warned"] = True
+        cfgd["stall_warning"] = True
+        cfgd["stall_message"] = STALL_MESSAGE
+        log("UPOZORENJE: " + STALL_MESSAGE)
+        _set_job(jid, config=cfgd, status=state.get("status") or "training")
+    if not truthy((th or {}).get("stall_autostop"), False):
+        return
+    if dt < max(stop_s, warn_s):
+        return
+    if proc is not None and proc.poll() is None:
+        state["stall_stopped"] = True
+        log("AUTO-STOP: koraci se nisu pomaknuli 20 min (VRAM).")
+        _cancel[int(jid)] = "stall"
+        kill_process_tree(proc)
 
 
 def _check_temp(jid: int, state: dict, th: dict, log, proc) -> None:
