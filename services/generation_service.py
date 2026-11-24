@@ -659,6 +659,15 @@ def _claim_next() -> dict | None:
     return get_job(row["id"])
 
 
+def gpu_busy_training() -> bool:
+    """True dok LoRA trener radi: na RX 6600 (8 GB) generiranje i treniranje ne smiju ići istodobno."""
+    try:
+        from . import lora_trainer_service
+        return lora_trainer_service.training_active()
+    except Exception:
+        return False
+
+
 def _job_cancelled(jid: int) -> bool:
     with conn() as c:
         row = c.execute("SELECT status FROM generation_queue WHERE id=?", (int(jid),)).fetchone()
@@ -682,6 +691,8 @@ def process_next(*, poll_interval: float = 1.5, timeout_s: float = JOB_TIMEOUT_S
             ok = False
         if not ok:
             return None
+    if gpu_busy_training():
+        return None  # LoRA treniranje drži GPU (8 GB) — poslovi čekaju u redu
     job = _claim_next()
     if not job:
         return None

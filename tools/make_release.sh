@@ -165,7 +165,8 @@ for p in sorted(root.rglob("*")):
 # 1.1.0: obavezni dijelovi paketa (services/, static/, DOKUMENTACIJA.md) — bez njih nema izdanja
 rels = {p.relative_to(root).as_posix() for p in files}
 required = ["services/__init__.py", "services/common.py", "services/hardware_service.py", "services/generation_service.py",
-            "services/posting_service.py", "services/crm_service.py", "static/v11.js", "static/v11.css", "DOKUMENTACIJA.md", "api_v11.py"]
+            "services/posting_service.py", "services/crm_service.py", "static/v11.js", "static/v11.css", "DOKUMENTACIJA.md", "api_v11.py",
+            "services/lora_trainer_service.py", "api_lora.py", "static/lora_trainer.js", "static/lora_trainer.css"]
 missing = [r for r in required if r not in rels]
 if missing:
     raise SystemExit("GRESKA: u paketu nedostaje: " + ", ".join(missing))

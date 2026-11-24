@@ -1,5 +1,11 @@
 # Promjene
 
+## Neobjavljeno (za v1.2.0)
+- LoRA trener u kartici Osobe: odaberi osobu, dodaj 15–40 slika (povuci, odaberi ili uvezi iz galerije osobe), jedan klik za treniranje. Automatska priprema slika (EXIF, RGB, izrez 768/512, opisi s okidačem i „adult woman”), Kohya struktura i sigurne 8 GB postavke za RX 6600 (batch 1, fp16, gradient checkpointing, cache na disk, Adafactor, SDPA bez xformersa i bitsandbytes, cuDNN isključen).
+- Praćenje uživo: korak X/Y, epoha, preostalo vrijeme, loss, log i temperatura GPU-a (ADL / LibreHardwareMonitor / smi alati, bez lažnih brojeva). Upozorenje na 80°C, auto-stop na 92°C (podesivo), gumb Zaustavi gasi cijelo stablo procesa.
+- Gotova LoRA (`char_<osoba>_vN.safetensors` u ComfyUI/models/loras) automatski se dodaje osobi (jačina 0.8), a okidač ide u prompt kad generiraš s tom osobom. ComfyUI `/free` prije treninga; generiranje čeka dok trening traje.
+- Jednokratna priprema okruženja (kohya sd-scripts v0.13.1 u data/trainer) koja koristi PyTorch iz ComfyUI-Zlude i ne dira ComfyUI pakete.
+
 ## 1.1.0 — 2026-11-20
 - Nova struktura: modularni servisi (services/: hardver, generiranje, objave, CRM) i novo sučelje s karticama Pregled, Generiranje, Osobe, Video, Kalendar, Inbox i CRM, Modeli, Postavke.
 - Hardver: detekcija GPU-a i VRAM-a, izbor backenda (ZLUDA/CUDA/ROCm/DirectML/CPU), VAE i VRAM način, 8 GB siguran način, gumb „Preporuči za RX 6600” uz restart ComfyUI-ja. TORCH_BACKENDS_CUDNN_ENABLED=0 i dalje ostaje za RX 6600.

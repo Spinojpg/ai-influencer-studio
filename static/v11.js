@@ -472,7 +472,9 @@
       + "</div><div>"
       + '<div class="field"><label class="lbl">Character sheet</label><div class="hint">4 kadra iste osobe (lice sprijeda, profil, poluplan, cijela figura) spojena u 2×2 PNG. Ide kroz red čekanja.</div>'
       + '<div class="actions"><button type="button" class="btn" id="pSheet">Generiraj Character Sheet</button></div></div>'
-      + '<div class="field"><label class="lbl">LoRA dataset</label><div class="hint">Slike označene kao „Dobra” (' + good + " među zadnjih 12) izvoze se u data/lora_datasets/&lt;osoba&gt;/ s captionima i 8 GB Kohya / OneTrainer configom.</div>"
+      + '<div class="field"><label class="lbl">LoRA trener</label><div class="hint">Istreniraj vlastitu LoRA-u lica ove osobe izravno u Studiju (15–40 slika, jedan klik, sigurno za 8 GB).</div>'
+      + '<div class="actions"><button type="button" class="btn primary" id="pLoraTrainer">LoRA trener</button></div></div>'
+      + '<div class="field"><label class="lbl">LoRA dataset (izvoz)</label><div class="hint">Slike označene kao „Dobra” (' + good + " među zadnjih 12) izvoze se u data/lora_datasets/&lt;osoba&gt;/ s captionima i 8 GB Kohya / OneTrainer configom.</div>"
       + '<div class="v11-grid2"><label>Trigger riječ <input type="text" id="pTrigger" placeholder="npr. lunamaric" maxlength="40" /></label><label>Ponavljanja <input type="number" id="pRepeats" min="1" max="100" value="10" /></label></div>'
       + '<div class="actions"><button type="button" class="btn" id="pDataset">Izvezi LoRA dataset</button></div><div class="hint" id="pDatasetOut"></div></div>'
       + '<div class="field"><label class="lbl">Zadnje slike osobe (klikni pa ocijeni Dobra / Loša)</label><div class="gallery v11-gal">' + (rated.items || []).map(galCard).join("") + "</div>"
@@ -493,6 +495,8 @@
         toast("Spremljeno za " + p.name + ".");
       } catch (e) { toast(e.message, true); }
     };
+    $("pLoraTrainer").onclick = () => { if (window.StudioLoraTrainer) window.StudioLoraTrainer.open(p.id); };
+    try { if (window.StudioLoraTrainer && window.StudioLoraTrainer.follow) window.StudioLoraTrainer.follow(p.id); } catch (e) { /* */ }
     $("pSheet").onclick = async () => {
       try { const d = await post("/api/character-sheet", { persona_id: p.id }); toast("Character sheet je u redu čekanja (" + d.jobs.length + " kadra)."); refreshQueue(); } catch (e) { toast(e.message, true); }
     };
@@ -867,7 +871,10 @@
     clearInterval(crmTimer);
     if (name === "pregled") { renderOverview(); V.ovTimer = setInterval(renderOverview, 10000); }
     if (name === "slike") { syncStackFromPersona(false); refreshQueue(); }
-    if (name === "influenceri") renderPersona();
+    if (name === "influenceri") {
+      renderPersona();
+      try { if (window.StudioLoraTrainer) window.StudioLoraTrainer.render(); } catch (e) { console.warn(e); }
+    }
     if (name === "kalendar") renderCalendar();
     if (name === "poruke") {
       renderSendBar(true);

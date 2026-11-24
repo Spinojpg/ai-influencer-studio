@@ -514,6 +514,7 @@ def _row_profile(row: sqlite3.Row) -> dict:
         "instantid_weight": _float_field(row["instantid_weight"] if "instantid_weight" in keys else 0.8, 0.8),
         "send_mode": (row["send_mode"] if "send_mode" in keys else "") or "",
         "bio": (row["bio"] if "bio" in keys else "") or "",
+        "lora_trigger": (row["lora_trigger"] if "lora_trigger" in keys else "") or "",
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -604,6 +605,8 @@ def upsert_profile(payload: dict, pid: int | None = None) -> dict:
         fields["preferred_lora_strength"] = str(_float_field(payload.get("preferred_lora_strength"), 0.8))[:16]
     if "face_detailer" in payload:
         fields["face_detailer"] = 1 if _bool_field(payload.get("face_detailer"), False) else 0
+    if "lora_trigger" in payload:
+        fields["lora_trigger"] = re.sub(r"[^A-Za-z0-9_]+", "", str(payload.get("lora_trigger") or ""))[:40]
     if "lock_seed" in payload:
         fields["lock_seed"] = 1 if _bool_field(payload.get("lock_seed"), False) else 0
     if "locked_seed" in payload:

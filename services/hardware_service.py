@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import comfy_launch
@@ -576,3 +577,276 @@ def public_state(system_stats: dict | None = None) -> dict:
         "restart": restart_status(),
         "options": {"backends": list(BACKENDS), "vae_modes": list(VAE_MODES), "vram_modes": list(VRAM_MODES)},
     }
+
+
+# ---------- temperatura GPU-a (LoRA trener, zaštita RX 6600) ----------
+#
+# Redoslijed na Windowsu: AMD ADL (atiadlxx.dll, ctypes) -> LibreHardwareMonitor / OpenHardwareMonitor WMI
+# -> amd-smi / rocm-smi -> nvidia-smi. Na Linuxu: /sys/class/drm/card*/device/hwmon/hwmon*/temp1_input
+# -> rocm-smi / amd-smi -> nvidia-smi. Nikad ne izmišljamo broj: ako senzor nije čitljiv, vraćamo
+# available=False ("Senzor temperature nedostupan").
+#
+# Testni hookovi (deterministički): STUDIO_GPU_TEMP=<broj>|none, STUDIO_GPU_TEMP_FILE=<datoteka s brojem>.
+
+_TEMP_LOCK = threading.Lock()
+_TEMP_STATE: dict = {"method": None, "fail_until": 0.0, "adl": None, "adl_probe": None}
+_TEMP_RETRY_S = 60.0
+
+
+def _plausible_temp(value) -> float | None:
+    try:
+        t = float(value)
+    except (TypeError, ValueError):
+        return None
+    if t != t or t <= 0 or t >= 150:
+        return None
+    return round(t, 1)
+
+
+def _temp_from_test_hook() -> dict | None:
+    path = (os.environ.get("STUDIO_GPU_TEMP_FILE") or "").strip()
+    if path:
+        try:
+            raw = Path(path).read_text(encoding="utf-8").strip()
+        except OSError:
+            raw = ""
+        t = _plausible_temp(raw)
+        return _temp_result(t, "test-file")
+    fixed = (os.environ.get("STUDIO_GPU_TEMP") or "").strip()
+    if fixed:
+        t = None if fixed.lower() in {"none", "off", "-"} else _plausible_temp(fixed)
+        return _temp_result(t, "test-env")
+    return None
+
+
+def _temp_result(t, source: str) -> dict:
+    if t is None:
+        return {"available": False, "temp_c": None, "source": "", "message": "Senzor temperature nedostupan"}
+    return {"available": True, "temp_c": t, "source": source}
+
+
+def _read_linux_sysfs(root: str = "/sys/class/drm") -> float | None:
+    import glob
+    best = None
+    for path in sorted(glob.glob(os.path.join(root, "card*", "device", "hwmon", "hwmon*", "temp1_input"))):
+        try:
+            with open(path, "r", encoding="ascii") as fh:
+                raw = fh.read().strip()
+            t = _plausible_temp(int(raw) / 1000.0)
+        except (OSError, ValueError):
+            t = None
+        if t is not None and (best is None or t > best):
+            best = t
+    return best
+
+
+def parse_nvidia_smi_temp(text: str) -> float | None:
+    for line in (text or "").splitlines():
+        t = _plausible_temp(line.strip().split(",")[0])
+        if t is not None:
+            return t
+    return None
+
+
+def parse_rocm_smi_temp(text: str) -> float | None:
+    """rocm-smi --showtemp --json ili amd-smi metric -t --json; uzmi rubnu (edge) temperaturu."""
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        data = None
+    found: list[float] = []
+
+    def walk(obj, key=""):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                walk(v, str(k).lower())
+        elif isinstance(obj, list):
+            for v in obj:
+                walk(v, key)
+        else:
+            if "edge" in key or ("temperature" in key and "junction" not in key and "mem" not in key and "hotspot" not in key):
+                t = _plausible_temp(obj.get("value") if isinstance(obj, dict) else obj)
+                if t is not None:
+                    found.append(t)
+
+    if data is not None:
+        walk(data)
+    else:
+        for m in re.finditer(r"(?i)edge\)?\s*\(?C?\)?\s*[:=]\s*([\d.]+)", text or ""):
+            t = _plausible_temp(m.group(1))
+            if t is not None:
+                found.append(t)
+    return max(found) if found else None
+
+
+def parse_lhm_json(text: str) -> float | None:
+    """PowerShell (LibreHardwareMonitor/OpenHardwareMonitor WMI) Sensor lista -> GPU temperatura (Core/Edge)."""
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    if isinstance(data, dict):
+        data = [data]
+    best = None
+    for s in data or []:
+        if not isinstance(s, dict):
+            continue
+        ident = str(s.get("Identifier") or "").lower()
+        name = str(s.get("Name") or "").lower()
+        if "gpu" not in ident or "hot" in name or "junction" in name or "memory" in name:
+            continue
+        t = _plausible_temp(s.get("Value"))
+        if t is not None and (best is None or t > best):
+            best = t
+    return best
+
+
+def _adl_read() -> float | None:
+    """AMD ADL preko ctypes. Sve je u try/except; vraća None kad ADL nije dostupan.
+
+    1) ADL2_OverdriveN_Temperature_Get (milistupnjevi) 2) ADL2_New_QueryPMLogData_Get (Overdrive8 / RDNA2,
+    senzor PMLOG_TEMPERATURE_EDGE). Prolazi kroz indekse adaptera i uzima prvu uvjerljivu vrijednost.
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        st = _TEMP_STATE
+        if st.get("adl") is None:
+            lib = None
+            for dll in ("atiadlxx.dll", "atiadlxy.dll"):
+                try:
+                    lib = ctypes.WinDLL(dll)
+                    break
+                except OSError:
+                    continue
+            if lib is None:
+                st["adl"] = False
+                return None
+            keep: list = []
+            alloc_t = ctypes.WINFUNCTYPE(ctypes.c_void_p, ctypes.c_int)
+
+            def _alloc(size):
+                buf = ctypes.create_string_buffer(max(1, int(size)))
+                keep.append(buf)
+                return ctypes.addressof(buf)
+
+            cb = alloc_t(_alloc)
+            ctx = ctypes.c_void_p()
+            if lib.ADL2_Main_Control_Create(cb, 1, ctypes.byref(ctx)) != 0:
+                st["adl"] = False
+                return None
+            n = ctypes.c_int(0)
+            try:
+                lib.ADL2_Adapter_NumberOfAdapters_Get(ctx, ctypes.byref(n))
+            except Exception:
+                n = ctypes.c_int(1)
+            st["adl"] = {"lib": lib, "ctx": ctx, "cb": cb, "keep": keep, "count": max(1, min(16, int(n.value or 1)))}
+        adl = st.get("adl")
+        if not adl:
+            return None
+        lib, ctx = adl["lib"], adl["ctx"]
+        for idx in range(adl["count"]):
+            try:
+                temp = ctypes.c_int(0)
+                if lib.ADL2_OverdriveN_Temperature_Get(ctx, idx, 1, ctypes.byref(temp)) == 0:
+                    t = _plausible_temp(temp.value / 1000.0) or _plausible_temp(temp.value)
+                    if t is not None:
+                        return t
+            except Exception:
+                pass
+            try:
+                # ADLPMLogDataOutput { int size; ADLSingleSensorData sensors[256]; } — veći buffer radi sigurnosti.
+                buf = (ctypes.c_int * 4096)()
+                buf[0] = 4 + 256 * 8
+                if lib.ADL2_New_QueryPMLogData_Get(ctx, idx, ctypes.byref(buf)) == 0:
+                    edge = 8  # PMLOG_TEMPERATURE_EDGE
+                    supported, value = buf[1 + edge * 2], buf[1 + edge * 2 + 1]
+                    if supported:
+                        t = _plausible_temp(value)
+                        if t is not None:
+                            return t
+            except Exception:
+                pass
+    except Exception:
+        _TEMP_STATE["adl"] = False
+    return None
+
+
+def _adl_safe() -> float | None:
+    """ADL se prvo jednom isproba u zasebnom procesu (ako DLL sruši proces, Studio ostaje živ)."""
+    if sys.platform != "win32":
+        return None
+    st = _TEMP_STATE
+    if st.get("adl_probe") is None:
+        code = ("import sys; sys.path.insert(0, %r); from services import hardware_service as h; "
+                "t = h._adl_read(); print('ADL=' + ('' if t is None else str(t)))") % str(Path(__file__).resolve().parents[1])
+        exe = Path(sys.executable)
+        if exe.name.lower() == "pythonw.exe" and exe.with_name("python.exe").is_file():
+            exe = exe.with_name("python.exe")
+        out = _run([str(exe), "-c", code], timeout=20)
+        st["adl_probe"] = "ADL=" in out and bool(out.strip().split("ADL=")[-1].strip())
+    if not st["adl_probe"]:
+        return None
+    return _adl_read()
+
+
+def _read_windows_wmi() -> float | None:
+    for ns in ("root/LibreHardwareMonitor", "root/OpenHardwareMonitor"):
+        text = _run([
+            "powershell", "-NoProfile", "-NonInteractive", "-Command",
+            f"Get-CimInstance -Namespace {ns} -ClassName Sensor -ErrorAction SilentlyContinue | "
+            "Where-Object { $_.SensorType -eq 'Temperature' } | Select-Object Name,Identifier,Value | ConvertTo-Json -Compress",
+        ], timeout=12)
+        t = parse_lhm_json(text)
+        if t is not None:
+            return t
+    return None
+
+
+def _read_smi_tools() -> float | None:
+    import shutil as _sh
+    if _sh.which("amd-smi"):
+        t = parse_rocm_smi_temp(_run(["amd-smi", "metric", "-t", "--json"], timeout=8))
+        if t is not None:
+            return t
+    if _sh.which("rocm-smi"):
+        t = parse_rocm_smi_temp(_run(["rocm-smi", "--showtemp", "--json"], timeout=8))
+        if t is not None:
+            return t
+    if _sh.which("nvidia-smi"):
+        t = parse_nvidia_smi_temp(_run(["nvidia-smi", "--query-gpu=temperature.gpu", "--format=csv,noheader,nounits"], timeout=8))
+        if t is not None:
+            return t
+    return None
+
+
+def _temp_methods() -> list[tuple[str, object]]:
+    if sys.platform == "win32":
+        return [("adl", _adl_safe), ("wmi", _read_windows_wmi), ("smi", _read_smi_tools)]
+    return [("sysfs", _read_linux_sysfs), ("smi", _read_smi_tools)]
+
+
+def read_gpu_temperature() -> dict:
+    """{available, temp_c, source}. Ne baca iznimke; ako ništa ne radi, available=False (bez lažnih brojeva)."""
+    hook = _temp_from_test_hook()
+    if hook is not None:
+        return hook
+    with _TEMP_LOCK:
+        st = _TEMP_STATE
+        methods = _temp_methods()
+        if st.get("method"):
+            methods = [m for m in methods if m[0] == st["method"]] + [m for m in methods if m[0] != st["method"]]
+        elif time.time() < st.get("fail_until", 0):
+            return {"available": False, "temp_c": None, "source": "", "message": "Senzor temperature nedostupan"}
+        for name, fn in methods:
+            try:
+                t = fn()
+            except Exception:
+                t = None
+            if t is not None:
+                st["method"] = name
+                return {"available": True, "temp_c": t, "source": name}
+        st["method"] = None
+        st["fail_until"] = time.time() + _TEMP_RETRY_S
+    return {"available": False, "temp_c": None, "source": "", "message": "Senzor temperature nedostupan"}

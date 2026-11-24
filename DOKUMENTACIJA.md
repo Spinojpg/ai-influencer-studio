@@ -80,6 +80,23 @@ Galerija prikazuje sve slike iz reda, filtrira ih po osobi, ocjeni i izvoru, a s
 - **Character Sheet 2×2**: četiri kadra (sprijeda, tri četvrtine, profil, vani candid) s istim seedom, spojeno u jednu PNG sliku (Pillow, ili čisti Python ako Pillow nije dostupan).
 - **Izvoz LoRA dataseta**: slike ocijenjene kao „Dobra” idu u `data/lora_datasets/<osoba>_<vrijeme>/` s caption .txt datotekama, `UPUTE.txt` i konfiguracijama `kohya_sdxl_lora_8gb.json` i `onetrainer_sdxl_lora_8gb.json`, prilagođenima za 8 GB (batch 1, gradient checkpointing, mixed precision).
 
+
+### 4a. LoRA trener (Osobe → LoRA trener)
+
+Vlastita LoRA lica osobe, istrenirana izravno u Studiju i prilagođena za **RX 6600 (8 GB) + ComfyUI-Zluda**.
+
+1. **Odaberi osobu**: vidi se trenutna LoRA, okidač (npr. `chr_ana`) i istrenirane verzije (gumb „Koristi ovu”).
+2. **Dodaj 15–40 slika**: povuci slike, „Odaberi slike” ili „Uvezi iz galerije osobe” (referentne slike + slike ocijenjene „Dobra”). Brojač je zelen kod 15–40 („Idealno”), žut ispod 15 ili iznad 40, a ispod 5 ili iznad 60 treniranje nije moguće. Studio sam ispravi EXIF rotaciju, pretvori u RGB, odbaci slike manje od 256 px i duplikate, izreže kvadrat (SDXL 768, SD 1.5 512, SDXL 1024 opcionalno) i napiše opis za svaku sliku (`<okidač>, adult woman, <dob> years old, izgled, kadar, svjetlo`). Opisi se mogu urediti pod „Pregled opisa”.
+3. **Pokreni treniranje**: profili *Brzi test*, *Preporučeno za RX 6600* (zadano) i *Detaljnije*. Pod „Napredno”: bazni model, rezolucija, rank, epohe, koraci i temperatura auto-stopa.
+
+**Sigurne postavke za 8 GB (uvijek uključene):** batch 1, fp16, gradient checkpointing, cache latents na disk (SDXL i izlazi text encodera na disk, trenira se samo UNet), network dim 16 / alpha 8, Adafactor (`scale_parameter=False, relative_step=False, warmup_init=False`), `constant_with_warmup`, SDPA (nikad xformers), `no_half_vae`, bez bitsandbytes. Okruženje treninga: `TORCH_BACKENDS_CUDNN_ENABLED=0`, `PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128`, `PYTHONUTF8=1`. Prije starta Studio pozove ComfyUI `/free` (istovari modele), a dok trening traje generiranje slika i videa čeka (HTTP 409 / red čekanja stoji). Istovremeno može raditi samo jedno treniranje.
+
+**Temperatura GPU-a:** čita se preko AMD ADL-a (atiadlxx.dll), zatim LibreHardwareMonitor / OpenHardwareMonitor WMI (ako je pokrenut), pa amd-smi / rocm-smi / nvidia-smi; na Linuxu sysfs. Ako se ne može pročitati, piše „Senzor temperature nedostupan” (bez izmišljenih brojeva). Na 80°C upozorenje, na 88°C kritično, na 92°C (podesivo) treniranje se automatski zaustavlja sa statusom „Zaustavljeno zbog temperature”.
+
+**Okruženje:** gumb „Pripremi okruženje za treniranje” jednom preuzme kohya-ss/sd-scripts (v0.13.1) u `data/trainer/sd-scripts` i napravi zaseban venv `data/trainer/venv` koji koristi PyTorch (ZLUDA) iz ComfyUI-ja, tako da se ComfyUI paketi ne mijenjaju. bitsandbytes i xformers se preskaču.
+
+**Rezultat:** `ComfyUI/models/loras/char_<osoba>_vN.safetensors` (ako ComfyUI mapa ne postoji: `data/trained_loras`). LoRA se automatski postavi kao LoRA osobe (jačina 0.8) i okidač se sam dodaje u prompt kad generiraš s tom osobom. Svaka osoba ima svoju mapu (`data/lora_training/persona_<id>/`), svoj okidač i svoje verzije. „Zaustavi” gasi cijelo stablo procesa (Windows `taskkill /F /T`). Ne zatvaraj Studio dok traje treniranje: gašenje Studija zaustavlja trening.
+
 ---
 
 ## 5. Preporučene SDXL LoRA-e (realizam i detalji)
@@ -156,11 +173,13 @@ Unose se u **Postavke → Ključevi** ili ručno u `data/.env` (predložak `.env
 - **Out of memory**: uključi 8 GB siguran način, tiled VAE, smanji hires na 1,4 ili isključi Face Detailer.
 - **Instagram javlja grešku s URL-om**: `PUBLIC_MEDIA_BASE_URL` mora biti javni HTTPS tunel koji radi.
 - **InstantID / Face Detailer bedž je siv**: čvorovi nisu učitani; instaliraj ih u kartici Modeli i restartaj ComfyUI.
+- **LoRA trener javi out of memory**: zatvori druge programe koji koriste GPU, ostavi 768 (SDXL) / 512 (SD 1.5), probaj „Brzi test” ili rank 8.
+- **LoRA trener: „Zaustavljeno zbog temperature”**: provjeri ventilatore i protok zraka; prag auto-stopa je pod „Napredno”.
 
 ---
 
 ## 10. Za razvoj
 
-- Struktura: `studio.py` (HTTP server), `api_v11.py` (1.1 API), `services/` (hardware, generation, posting, crm), `static/v11.js` i `static/v11.css`.
-- Testovi: `python3 tools/test_v110.py` (uz `PW_PYTHON=/tmp/pwenv/bin/python` za headless UI), te `python3 tools/check_ui_js.py`.
+- Struktura: `studio.py` (HTTP server), `api_v11.py` (1.1 API), `api_lora.py` (`/api/lora-trainer/*`), `services/` (hardware, generation, posting, crm, lora_trainer), `static/v11.js`, `static/v11.css`, `static/lora_trainer.js` i `static/lora_trainer.css`.
+- Testovi: `python3 tools/test_v110.py` i `python3 tools/test_lora_trainer.py` (uz `PW_PYTHON=/tmp/pwenv/bin/python` za headless UI), te `python3 tools/check_ui_js.py`. LoRA trener se testira bez GPU-a: `STUDIO_LORA_TRAINER_CMD` (lažni trener `tools/fixtures/fake_lora_trainer.py`), `STUDIO_GPU_TEMP` / `STUDIO_GPU_TEMP_FILE` za temperaturu.
 - Izdanje: `bash tools/make_release.sh minor "opis"`.

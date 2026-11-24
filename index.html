@@ -773,6 +773,7 @@
     .history-block .gallery .shot { border-radius: 14px; }
   </style>
   <link rel="stylesheet" href="/static/v11.css" />
+  <link rel="stylesheet" href="/static/lora_trainer.css" />
 </head>
 
 <body>
@@ -1296,6 +1297,7 @@
         </form>
       </div>
       <div id="v11Persona" class="card pad v11-persona"></div>
+      <section id="loraTrainer" class="card pad lt-card" aria-label="LoRA trener"></section>
     </div>
 
     <div id="tab-pregled" class="tab-panel">
@@ -1638,7 +1640,14 @@
       applyArchFromModel();
       fillLoraSelect();
       if (prof.preferred_lora && loraEl && currentArch !== "krea2") {
-        const exists = Array.from(loraEl.options).some((o) => o.value === prof.preferred_lora);
+        let exists = Array.from(loraEl.options).some((o) => o.value === prof.preferred_lora);
+        if (!exists && prof.lora_trigger) {
+          const o = document.createElement("option");
+          o.value = prof.preferred_lora;
+          o.textContent = prof.preferred_lora + " (trenirana)";
+          loraEl.appendChild(o);
+          exists = true;
+        }
         if (exists) {
           loraEl.value = prof.preferred_lora;
           if (loraStrengthEl && prof.preferred_lora_strength != null) loraStrengthEl.value = String(prof.preferred_lora_strength);
@@ -3046,7 +3055,16 @@
       fillProfileModelSelects();
       if ($("pModel")) $("pModel").value = p.preferred_model || "";
       if ($("pModelType")) $("pModelType").value = p.model_type || "auto";
-      if ($("pLora")) $("pLora").value = p.preferred_lora || "";
+      if ($("pLora")) {
+        const pl = $("pLora");
+        if (p.preferred_lora && !Array.from(pl.options).some((o) => o.value === p.preferred_lora)) {
+          const o = document.createElement("option");
+          o.value = p.preferred_lora;
+          o.textContent = p.preferred_lora;
+          pl.appendChild(o);
+        }
+        pl.value = p.preferred_lora || "";
+      }
       if ($("pLoraStrength") && p.preferred_lora_strength != null) $("pLoraStrength").value = String(p.preferred_lora_strength);
       syncPLoraUi();
       $("pStyle").value = p.style || "";
@@ -3786,7 +3804,16 @@
         $("autoWarn").hidden = mode !== "auto";
       },
       loraOptions: () => [...document.querySelectorAll("#lora option")].filter((o) => o.value).map((o) => ({ value: o.value, label: o.textContent, group: (o.parentElement && o.parentElement.label) || "" })),
-      saveSettings: () => $("saveSettings").click()
+      saveSettings: () => $("saveSettings").click(),
+      refreshLoras: () => refreshLoras(false),
+      selectPersonaForGeneration: (id) => {
+        if (osobaEl && Array.from(osobaEl.options).some((o) => o.value === String(id))) {
+          osobaEl.value = String(id);
+          applyProfileToImageForm(selectedPersona());
+          return true;
+        }
+        return false;
+      }
     };
 
     loadState().then(loadModels).then(loadVideoCaps).then(() => {
@@ -3813,5 +3840,6 @@
   })();
   </script>
   <script src="/static/v11.js"></script>
+  <script src="/static/lora_trainer.js"></script>
 </body>
 </html>

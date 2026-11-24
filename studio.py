@@ -31,6 +31,7 @@ import comfy_ws
 import image_gen
 import inbox
 import api_v11
+import api_lora
 import installed_models
 import model_download
 import updater
@@ -39,7 +40,7 @@ import video_install
 import character
 import character_install
 import subprocess
-from services import crm_service, generation_service, hardware_service, posting_service
+from services import crm_service, generation_service, hardware_service, lora_trainer_service, posting_service
 import services
 
 ROOT = Path(__file__).resolve().parent
@@ -686,6 +687,9 @@ def plan_image_generation(
     if quality_on is None:
         quality_on = inbox.get_setting("quality_prefix", "1") != "0"
     adult_term = image_gen.adult_term_for_profile(prof, appearance=appearance, scene=scene)
+    # Trenirana LoRA osobe: okidač (chr_ime) ide u prompt ako generiranje koristi njezinu LoRA-u.
+    lora_trigger = lora_trainer_service.trigger_for_generation(prof, body, arch)
+    scene = lora_trainer_service.apply_trigger(scene, lora_trigger)
     if "appearance_weight" in body and body.get("appearance_weight") not in (None, ""):
         appearance_weight = character.clamp_appearance_weight(body.get("appearance_weight"))
     elif prof and prof.get("appearance_weight") not in (None, ""):
@@ -999,6 +1003,7 @@ def plan_image_generation(
             "sampler": sampler_name,
             "scheduler": scheduler,
             "loras": lora_stack,
+            "lora_trigger": lora_trigger or "",
             "freeu": bool(freeu) and arch != "krea2" and (not object_info or "FreeU_V2" in (object_info or {})),
             "vae_mode": vae_mode,
             "safe_mode": bool(canvas.get("safe_mode")),
@@ -1223,6 +1228,8 @@ class StudioHandler(BaseHTTPRequestHandler):
         path = parsed.path
         query = urllib.parse.parse_qs(parsed.query)
 
+        if path.startswith(api_lora.PREFIX) and api_lora.handle(self, "GET", path, query, None, V11_CTX):
+            return
         if (path.startswith("/static/") or path.startswith("/public/media/") or path.startswith("/api/")) and api_v11.handle(self, "GET", path, query, None, V11_CTX):
             return
 
@@ -1480,6 +1487,10 @@ class StudioHandler(BaseHTTPRequestHandler):
             _schedule_studio_exit()
             return
 
+        if path.startswith(api_lora.PREFIX) and "multipart/form-data" in (self.headers.get("Content-Type") or "").lower():
+            api_lora.handle_multipart(self, path, raw, self.headers.get("Content-Type") or "")
+            return
+
         try:
             body = self._read_json_from(raw) if raw else {}
         except Exception:
@@ -1489,6 +1500,8 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._json(400, {"ok": False, "error": "Tijelo zahtjeva nije objekt."})
             return
 
+        if path.startswith(api_lora.PREFIX) and api_lora.handle(self, "POST", path, urllib.parse.parse_qs(parsed.query), body, V11_CTX):
+            return
         if api_v11.handle(self, "POST", path, urllib.parse.parse_qs(parsed.query), body, V11_CTX):
             return
 
@@ -1684,6 +1697,8 @@ class StudioHandler(BaseHTTPRequestHandler):
         except Exception:
             self._json(400, {"ok": False, "error": "Tijelo zahtjeva nije valjani JSON."})
             return
+        if isinstance(body, dict) and parsed.path.startswith(api_lora.PREFIX) and api_lora.handle(self, "PUT", parsed.path, urllib.parse.parse_qs(parsed.query), body, V11_CTX):
+            return
         if isinstance(body, dict) and api_v11.handle(self, "PUT", parsed.path, urllib.parse.parse_qs(parsed.query), body, V11_CTX):
             return
         mref = re.fullmatch(r"/api/profiles/(\d+)/refs", parsed.path)
@@ -1736,6 +1751,8 @@ class StudioHandler(BaseHTTPRequestHandler):
 
     def _handle_delete(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
+        if parsed.path.startswith(api_lora.PREFIX) and api_lora.handle(self, "DELETE", parsed.path, urllib.parse.parse_qs(parsed.query), {}, V11_CTX):
+            return
         if api_v11.handle(self, "DELETE", parsed.path, urllib.parse.parse_qs(parsed.query), {}, V11_CTX):
             return
         if parsed.path == "/api/models/installed":
@@ -1910,7 +1927,17 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
         self._json(200, result)
 
+    def _training_busy(self) -> bool:
+        """Na 8 GB VRAM-a generiranje i LoRA treniranje ne smiju ići istodobno."""
+        if lora_trainer_service.training_active():
+            self._json(409, {"ok": False, "need": "lora-training",
+                             "error": "LoRA treniranje je u tijeku i koristi GPU (8 GB). Pričekaj da završi ili ga zaustavi u kartici Osobe → LoRA trener."})
+            return True
+        return False
+
     def _generate_image(self, body: dict) -> None:
+        if self._training_busy():
+            return
         ok, msg = comfy_up()
         if not ok:
             self._json(503, {"ok": False, "error": msg})
@@ -1952,6 +1979,8 @@ class StudioHandler(BaseHTTPRequestHandler):
         )
 
     def _generate_video(self, body: dict) -> None:
+        if self._training_busy():
+            return
         caps = video_capabilities()
         if not caps.get("comfy_ok"):
             self._json(503, {"ok": False, "error": caps.get("comfy_message") or caps.get("message")})
@@ -2283,6 +2312,7 @@ def main() -> int:
         return 1
     generation_service.configure(planner=plan_for_queue, comfy_request=comfy_request, job_status=job_status,
                                  comfy_up=comfy_up, remember_job=remember_job)
+    lora_trainer_service.configure(comfy_url=COMFY_BASE)
     services.start_workers()
 
     httpd = ThreadingHTTPServer((HOST, PORT), StudioHandler)
@@ -2296,7 +2326,7 @@ def main() -> int:
     print(f"  ComfyUI:  {COMFY_BASE}")
     print(f"  Podaci:   {inbox.DATA_DIR}")
     print(f"  Log:      {inbox.DATA_DIR / 'logs' / 'studio.log'}")
-    print("  Kartice: Pregled, Generiranje, Osobe, Video, Kalendar, Inbox i CRM, Modeli, Postavke")
+    print("  Kartice: Pregled, Generiranje, Osobe (+ LoRA trener), Video, Kalendar, Inbox i CRM, Modeli, Postavke")
     print("============================================")
     print("Zaustavi sa Ctrl+C.")
     ok, msg = comfy_up()
