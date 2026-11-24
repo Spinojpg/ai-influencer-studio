@@ -1,5 +1,8 @@
 # Promjene
 
+## 1.3.3 — 2026-11-24
+- Popravak LoRA treniranja na AMD/ZLUDA: kad fp16 autocast ne radi, slojevi sami usklade preciznost ulaza i težina (više nema 'Half != float' na koraku 0).
+
 ## 1.3.2 — 2026-11-24
 - Popravak LoRA treniranja na AMD/ZLUDA: accelerate nije uključivao fp16 način (greške 'Half != float' i 'scaler _unscale_grads_'). Pokretač ga sada prisilno uključuje i osvježava se kod svakog treninga.
 

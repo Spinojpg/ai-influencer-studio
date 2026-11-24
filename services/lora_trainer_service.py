@@ -1227,6 +1227,26 @@ try:
     accelerate.Accelerator.__init__ = _studio_init
 except Exception as exc:
     print("STUDIO: accelerate upozorenje:", exc, flush=True)
+# Sigurnosna mreža: ako autocast na ZLUDA-i ipak ne radi, Linear/Conv sami usklade dtype ulaza
+# s težinama (fp16 UNet + fp32 LoRA) umjesto rušenja "Half != float".
+try:
+    import torch
+    import torch.nn.functional as _F
+    def _studio_linear(self, input):
+        w = self.weight
+        if input.dtype != w.dtype and input.is_floating_point() and not torch.is_autocast_enabled():
+            return _F.linear(input.to(w.dtype), w, self.bias).to(input.dtype)
+        return _F.linear(input, w, self.bias)
+    torch.nn.Linear.forward = _studio_linear
+    _orig_conv = torch.nn.Conv2d._conv_forward
+    def _studio_conv(self, input, weight, bias):
+        if input.dtype != weight.dtype and input.is_floating_point() and not torch.is_autocast_enabled():
+            return _orig_conv(self, input.to(weight.dtype), weight, bias).to(input.dtype)
+        return _orig_conv(self, input, weight, bias)
+    torch.nn.Conv2d._conv_forward = _studio_conv
+    print("STUDIO: dtype usklađivanje slojeva uključeno (ZLUDA)", flush=True)
+except Exception as exc:
+    print("STUDIO: dtype upozorenje:", exc, flush=True)
 script = os.path.abspath(sys.argv[1])
 sys.argv = sys.argv[1:]
 sys.path.insert(0, os.path.dirname(script))
