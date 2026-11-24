@@ -875,6 +875,9 @@ def build_training_config(plan: dict, *, base_path, output_dir, output_name: str
         "train_batch_size": 1,
         "gradient_checkpointing": True,
         "mixed_precision": "fp16",
+        # full_fp16: i LoRA težine u fp16. Na ZLUDA-i autocast ne pokrije uvijek LoRA sloj,
+        # pa bez ovoga trening pukne na koraku 0 ("expected m1 and m2 ... Half != float").
+        "full_fp16": True,
         "cache_latents": True,
         "cache_latents_to_disk": True,
         "optimizer_type": "Adafactor",

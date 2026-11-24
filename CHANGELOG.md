@@ -1,5 +1,8 @@
 # Promjene
 
+## 1.3.1 — 2026-11-24
+- Popravak LoRA treniranja: greška 'expected m1 and m2 to have the same dtype (Half != float)' na koraku 0 na AMD/ZLUDA. Trener sada koristi full_fp16.
+
 ## 1.3.0 — 2026-11-24
 - RX 6600 kvaliteta i brzina: tri profila na glavnom ekranu Generiranja — **Realizam** (zadano: manja baza 768×960 za IG 4:5 + brzi hires 1,33×, denoise 0,35, 8 koraka; CFG 4,3; dpmpp_2m_sde + karras), **Brzo** (20 koraka, jedan prolaz, dpmpp_2m) i **Turbo 1024** (Hyper-SDXL 8 koraka, CFG 2,2, euler + sgm_uniform, baza 1024 px, bez hiresa; cilj ispod 3 min po slici na RX 6600). Profil popuni samo ono što nisi ručno postavio u Napredno.
 - Prirodniji izgled: uz profile se na kraj prompta dodaju foto oznake (candid photo, natural skin texture, visible pores, soft natural light, subtle film grain, 35mm) umjesto „best quality”, a zadani negativni prompt dobiva zaštitu od plastične kože (plastic skin, airbrushed, waxy skin, doll-like, cgi, 3d render, oversaturated…). „child, teen” uvijek ostaju u negativnom promptu. Tvoj vlastiti negativni prompt, promptovi, workflowi i lokalne LoRA-e se ne mijenjaju i ne filtriraju.
