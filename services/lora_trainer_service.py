@@ -916,6 +916,19 @@ def comfy_python() -> tuple:
     return exe, "Python Studija"
 
 
+def zluda_exe():
+    """ComfyUI-Zluda pokreće Python kroz zluda\\zluda.exe; bez toga torch ne vidi RX 6600 (trening ide na CPU)."""
+    if os.environ.get("STUDIO_NO_ZLUDA_EXE") == "1":
+        return None
+    p = comfy_launch.comfy_dir() / "zluda" / "zluda.exe"
+    return p if p.is_file() else None
+
+
+def _zluda_prefix() -> list:
+    z = zluda_exe()
+    return [str(z), "--"] if z else []
+
+
 def trainer_python():
     v = trainer_venv_dir()
     for rel in (("Scripts", "python.exe"), ("bin", "python")):
@@ -955,7 +968,8 @@ def _probe_torch_now(py) -> dict:
             "    print('TORCH=' + json.dumps({'ok': False, 'error': str(e)[:300]}))\n")
     env = dict(os.environ, TORCH_BACKENDS_CUDNN_ENABLED="0", PYTHONUTF8="1")
     try:
-        r = subprocess.run([str(py), "-c", code], capture_output=True, text=True, timeout=180, env=env, creationflags=_no_window())
+        env.update(DISABLE_ADDMM_CUDA_LT="1", ZLUDA_COMGR_LOG_LEVEL="1")
+        r = subprocess.run([*_zluda_prefix(), str(py), "-c", code], capture_output=True, text=True, timeout=180, env=env, creationflags=_no_window())
         line = [ln for ln in (r.stdout or "").splitlines() if ln.startswith("TORCH=")]
         if line:
             return json.loads(line[-1][6:])
@@ -1507,7 +1521,7 @@ def _build_command(cfg_path, ds_path, output_file, arch: str) -> list:
         (trainer_root() / "launch_trainer.py").write_text(LAUNCHER_SOURCE, encoding="utf-8")
     except Exception:
         pass
-    return [str(trainer_python()), str(trainer_root() / "launch_trainer.py"), str(script), "--config_file", str(cfg_path), "--dataset_config", str(ds_path)]
+    return [*_zluda_prefix(), str(trainer_python()), str(trainer_root() / "launch_trainer.py"), str(script), "--config_file", str(cfg_path), "--dataset_config", str(ds_path)]
 
 
 def training_env(extra: dict | None = None) -> dict:
@@ -1522,6 +1536,8 @@ def training_env(extra: dict | None = None) -> dict:
         "PYTHONUTF8": "1",
         "PYTHONIOENCODING": "utf-8",
         "PYTHONUNBUFFERED": "1",
+        "DISABLE_ADDMM_CUDA_LT": "1",
+        "ZLUDA_COMGR_LOG_LEVEL": "1",
     })
     try:
         if hardware_service.effective_backend() == "zluda":

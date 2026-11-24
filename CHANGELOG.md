@@ -1,5 +1,8 @@
 # Promjene
 
+## 1.3.4 — 2026-11-24
+- LoRA trener se sada pokreće kroz ComfyUI-Zluda zluda.exe (kao ComfyUI), pa koristi RX 6600 umjesto procesora. Prije je pisalo 'GPU nije pronađen' i trening je išao na CPU.
+
 ## 1.3.3 — 2026-11-24
 - Popravak LoRA treniranja na AMD/ZLUDA: kad fp16 autocast ne radi, slojevi sami usklade preciznost ulaza i težina (više nema 'Half != float' na koraku 0).
 
