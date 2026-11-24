@@ -1,6 +1,10 @@
 # Promjene
 
-## Neobjavljeno (za v1.2.0)
+## 1.2.0 — 2026-11-24
+- Character LoRA trener za RX 6600 (8 GB) i pojednostavljeno, modernizirano sučelje.
+- Novo sučelje: tamna minimalistička tema s jednim indigo naglaskom, više prostora, čista gornja traka s karticama i kompaktnim statusima. Sve postojeće funkcije, prečaci i API-ji ostaju isti.
+- Generiranje: glavni ekran je samo odabir osobe (avatari s oznakom LoRA-e), opis scene, format / brzina i Generiraj. Sve tehničke postavke (model, LoRA, seed, negativni prompt, sampler, CFG, Hires fix, FreeU, IP-Adapter / InstantID jačina, Face Detailer, predlošci, LoRA stack, red čekanja) su u zatvorenom dijelu „Napredno”, grupirane i sa sažetkom kad je zatvoreno.
+- Osobe: preglednije kartice (avatar, ime, dob, kratki opis, oznake „LoRA aktivna” i broj referentnih slika) s brzim radnjama Generiraj / Uredi / LoRA trener. U uređivanju profila osnovna polja su na vrhu, a model / LoRA / tehničke postavke i stil poruka su sklopivi.
 - LoRA trener u kartici Osobe: odaberi osobu, dodaj 15–40 slika (povuci, odaberi ili uvezi iz galerije osobe), jedan klik za treniranje. Automatska priprema slika (EXIF, RGB, izrez 768/512, opisi s okidačem i „adult woman”), Kohya struktura i sigurne 8 GB postavke za RX 6600 (batch 1, fp16, gradient checkpointing, cache na disk, Adafactor, SDPA bez xformersa i bitsandbytes, cuDNN isključen).
 - Praćenje uživo: korak X/Y, epoha, preostalo vrijeme, loss, log i temperatura GPU-a (ADL / LibreHardwareMonitor / smi alati, bez lažnih brojeva). Upozorenje na 80°C, auto-stop na 92°C (podesivo), gumb Zaustavi gasi cijelo stablo procesa.
 - Gotova LoRA (`char_<osoba>_vN.safetensors` u ComfyUI/models/loras) automatski se dodaje osobi (jačina 0.8), a okidač ide u prompt kad generiraš s tom osobom. ComfyUI `/free` prije treninga; generiranje čeka dok trening traje.

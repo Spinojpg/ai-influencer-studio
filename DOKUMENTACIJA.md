@@ -1,4 +1,4 @@
-# AI Influencer Studio 1.1.0 — dokumentacija
+# AI Influencer Studio 1.2.0 — dokumentacija
 
 Lokalni studio za fiktivne odrasle AI influencere: generiranje slika preko ComfyUI-ja, osobe (persone), red čekanja, galerija, kalendar objava i Inbox i CRM. Sve radi na tvom računalu na `http://127.0.0.1:7860`. Ključevi i tokeni stoje samo u `data/.env`.
 
@@ -11,13 +11,32 @@ Ciljani setup: Windows, AMD RX 6600 (8 GB), Ryzen 7 5700X, 16 GB RAM-a, ComfyUI-
 | Kartica | Što radi |
 |---|---|
 | **Pregled** | Brzi formati (IG Portret 4:5, IG Kvadrat 1:1, IG Story 9:16), brze radnje, brojke (red čekanja, galerija, objave, poruke), sljedeće objave. |
-| **Generiranje** | Prompt, osoba, format, napredne postavke, predlošci, red čekanja (batch) i galerija s ocjenama i gumbom „Učitaj još”. |
-| **Osobe** | Profili fiktivnih odraslih osoba, referentne slike, LoRA stack, način rada referenci (IP-Adapter / InstantID), Character Sheet, izvoz LoRA dataseta. |
+| **Generiranje** | Jednostavan ekran: odabir osobe (avatari), opis scene, format i Generiraj. Sve tehničke postavke, predlošci i red čekanja su u zatvorenom dijelu „Napredno”. Desno su nove slike i galerija s ocjenama. |
+| **Osobe** | Kartice osoba (avatar, ime, dob, kratki opis, oznake LoRA i referentnih slika, brze radnje Generiraj / Uredi / LoRA trener), uređivanje profila, LoRA stack, način rada referenci (IP-Adapter / InstantID), Character Sheet, izvoz LoRA dataseta i LoRA trener. |
 | **Video** | AnimateDiff video (kao u 1.0.20). |
 | **Kalendar** | Mjesečni prikaz objava; nacrt, zakazivanje i objava na Instagram, Facebook, Telegram i Premium API. |
 | **Inbox i CRM** | Jedinstveni inbox, način slanja (Automatsko slanje odmah / Nacrt za odobrenje), kontakti i memorija, narudžbe, analitika, izvori i webhook. |
 | **Modeli** | Preuzimanje checkpointa, LoRA-a i čvorova; sekcija „Preporučene SDXL LoRA-e (realizam i detalji)”. |
 | **Postavke** | Hardver i ComfyUI zastavice, ključevi (`data/.env`, maskirano), AI chat (LLM), ažuriranje. |
+
+---
+
+## 1a. Sučelje 1.2.0 (jednostavnije i modernije)
+
+Izgled je prerađen, a funkcije su ostale iste: sve kontrole, prečaci i API-ji rade kao prije, samo su drugačije raspoređeni.
+
+- **Tamna minimalistička tema**: mirna tamna podloga, kartice s tankim rubovima, jedan indigo naglasak, a zelena, narančasta i crvena samo za stvarna stanja (spojeno, upozorenje, greška). Gornja traka ima kartice s podcrtom, kompaktne statuse i izbornik influencera.
+- **Generiranje – glavni ekran**: samo ono što treba za sliku.
+  1. **Osoba**: avatari svih osoba; odabrana ima obrub, zelena točka znači da osoba ima LoRA-u. Ispod piše „LoRA aktivna” / „Bez LoRA-e”, broj referentnih slika i kratki opis izgleda. „Uredi profil” vodi u karticu Osobe, a „+ Nova” otvara novi profil.
+  2. **Opis scene**: veliko polje (Ctrl+Enter pokreće) i brzi stilovi.
+  3. **Format** i **Brzina** (Turbo / Kvaliteta) kao mali gumbi, uz naziv aktivnog modela.
+  4. **Generiraj**. Ispod je kratki red s 8 GB sigurnim modom, VAE načinom i GPU-om.
+- **„Napredno”** je po zadanom zatvoreno. Kad je zatvoreno, u naslovu se vidi sažetak (model, predložak, sampler). Unutra su grupe:
+  - **Model i stil**: model, LoRA i jačina, „Dodatno uz izgled”, težina opisa izgleda, broj slika, seed, negativni prompt, oznake kvalitete i napomene o formatu / Turbu / Krea 2.
+  - **Dosljednost i detalji**: jačina referentne slike lica (IP-Adapter), Face Detailer, Hires fix.
+  - **Parametri, predlošci, LoRA stack i red čekanja**: predložak sadržaja, sampler, scheduler, CFG, postavke Hires fixa, FreeU_V2, konzistentnost lica (InstantID / IP-Adapter i jačina InstantID-a), postavke Face Detailera, LoRA stack i serija u redu čekanja.
+- **Osobe**: na vrhu su kartice osoba s brzim radnjama. Ispod lijevo je **Uređivanje profila** (ime, dob / vibe, izgled, referentne slike i osobnost na vrhu; „Model, LoRA i tehničke postavke” i „Stil poruka i chat” su sklopivi), desno LoRA stack, konzistentnost lica, Character Sheet i dataset, a na dnu **LoRA trener** u istom stilu.
+- Ostale kartice (Pregled, Video, Kalendar, Inbox i CRM, Modeli, Postavke) imaju iste razmake, kartice, gumbe i polja.
 
 ---
 
@@ -180,6 +199,6 @@ Unose se u **Postavke → Ključevi** ili ručno u `data/.env` (predložak `.env
 
 ## 10. Za razvoj
 
-- Struktura: `studio.py` (HTTP server), `api_v11.py` (1.1 API), `api_lora.py` (`/api/lora-trainer/*`), `services/` (hardware, generation, posting, crm, lora_trainer), `static/v11.js`, `static/v11.css`, `static/lora_trainer.js` i `static/lora_trainer.css`.
-- Testovi: `python3 tools/test_v110.py` i `python3 tools/test_lora_trainer.py` (uz `PW_PYTHON=/tmp/pwenv/bin/python` za headless UI), te `python3 tools/check_ui_js.py`. LoRA trener se testira bez GPU-a: `STUDIO_LORA_TRAINER_CMD` (lažni trener `tools/fixtures/fake_lora_trainer.py`), `STUDIO_GPU_TEMP` / `STUDIO_GPU_TEMP_FILE` za temperaturu.
+- Struktura: `studio.py` (HTTP server), `api_v11.py` (1.1 API), `api_lora.py` (`/api/lora-trainer/*`), `services/` (hardware, generation, posting, crm, lora_trainer), `static/v11.js`, `static/v11.css`, `static/lora_trainer.js`, `static/lora_trainer.css` te `static/ui_v120.css` i `static/ui_v120.js` (izgled 1.2.0: tema, avatari osoba, kartice osoba, sažetak „Napredno”).
+- Testovi: `python3 tools/test_v110.py`, `python3 tools/test_lora_trainer.py` i `python3 tools/test_ui_v120.py` (uz `PW_PYTHON=/tmp/pwenv/bin/python` za headless UI), te `python3 tools/check_ui_js.py`. LoRA trener se testira bez GPU-a: `STUDIO_LORA_TRAINER_CMD` (lažni trener `tools/fixtures/fake_lora_trainer.py`), `STUDIO_GPU_TEMP` / `STUDIO_GPU_TEMP_FILE` za temperaturu.
 - Izdanje: `bash tools/make_release.sh minor "opis"`.

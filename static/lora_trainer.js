@@ -495,7 +495,7 @@
     selectPersona(pid);
   }
 
-  window.StudioLoraTrainer = { render: render, open: open, follow: follow, state: () => L, version: "1.2.0-dev" };
+  window.StudioLoraTrainer = { render: render, open: open, follow: follow, state: () => L, version: "1.2.0" };
   function boot() {
     const c = C();
     if (c && c.currentTab && c.currentTab() === "influenceri") render();

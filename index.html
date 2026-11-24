@@ -30,7 +30,7 @@
       font-family: var(--sans);
       color: var(--text);
       background:
-        radial-gradient(1200px 600px at 10% -10%, rgba(228, 181, 106, 0.08), transparent 55%),
+        radial-gradient(1200px 600px at 10% -10%, rgba(124, 140, 255, 0.08), transparent 55%),
         radial-gradient(900px 500px at 100% 0%, rgba(217, 137, 122, 0.12), transparent 50%),
         radial-gradient(800px 400px at 80% 100%, rgba(90, 120, 180, 0.10), transparent 50%),
         var(--bg0);
@@ -54,7 +54,7 @@
     .mark {
       width: 46px; height: 46px; border-radius: 14px;
       background: linear-gradient(145deg, #f0cf93, #c4844a 55%, #9a4e3e);
-      box-shadow: 0 8px 20px rgba(200, 130, 60, 0.28);
+      box-shadow: 0 8px 20px rgba(108, 124, 255, 0.28);
       position: relative;
     }
     .mark::after {
@@ -143,8 +143,8 @@
     }
     textarea { min-height: 128px; resize: vertical; line-height: 1.45; }
     textarea:focus, input:focus, select:focus {
-      border-color: rgba(228, 181, 106, 0.55);
-      box-shadow: 0 0 0 3px rgba(228, 181, 106, 0.15);
+      border-color: rgba(124, 140, 255, 0.55);
+      box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.15);
     }
     .hint { color: var(--muted); font-size: 0.8rem; margin-top: 6px; }
 
@@ -171,8 +171,8 @@
       font-size: 0.72rem;
       letter-spacing: 0.02em;
       color: var(--gold);
-      border: 1px solid rgba(228,181,106,0.28);
-      background: rgba(228,181,106,0.08);
+      border: 1px solid rgba(124, 140, 255,0.28);
+      background: rgba(124, 140, 255,0.08);
       border-radius: 999px;
       padding: 3px 8px;
     }
@@ -184,7 +184,7 @@
     }
     .ref-drop.dragover {
       border-color: var(--gold);
-      background: rgba(228,181,106,0.08);
+      background: rgba(124, 140, 255,0.08);
     }
     .ref-list {
       display: grid;
@@ -222,7 +222,7 @@
     }
     .range-row input[type="range"] {
       flex: 1;
-      accent-color: #d7a15a;
+      accent-color: #7c8cff;
     }
     .range-row .range-val {
       min-width: 2.4em;
@@ -252,7 +252,7 @@
     }
     .seg button:hover { color: var(--text); }
     .seg button.on {
-      background: linear-gradient(180deg, rgba(228,181,106,0.22), rgba(228,181,106,0.10));
+      background: linear-gradient(180deg, rgba(124, 140, 255,0.22), rgba(124, 140, 255,0.10));
       color: var(--gold);
       font-weight: 600;
     }
@@ -269,7 +269,7 @@
       cursor: pointer;
       white-space: nowrap;
     }
-    .ghost:hover { border-color: rgba(228, 181, 106, 0.4); }
+    .ghost:hover { border-color: rgba(124, 140, 255, 0.4); }
 
     details.adv {
       border-top: 1px solid var(--line);
@@ -298,8 +298,8 @@
       letter-spacing: 0.02em;
       cursor: pointer;
       color: #1a140c;
-      background: linear-gradient(180deg, #f3d190, #d7a15a);
-      box-shadow: 0 10px 24px rgba(215, 161, 90, 0.28);
+      background: linear-gradient(180deg, #f3d190, #7c8cff);
+      box-shadow: 0 10px 24px rgba(108, 124, 255, 0.28);
     }
     .go:hover { filter: brightness(1.05); }
     .go:disabled {
@@ -421,7 +421,7 @@
       text-decoration: none;
       backdrop-filter: blur(8px);
     }
-    .shot-act:hover { border-color: rgba(228,181,106,0.55); color: var(--gold); }
+    .shot-act:hover { border-color: rgba(124, 140, 255,0.55); color: var(--gold); }
     .shot-act.danger:hover { color: var(--bad); border-color: rgba(224,122,122,0.45); }
     figure.shot figcaption {
       display: flex;
@@ -457,7 +457,7 @@
       cursor: pointer;
       font-size: 0.82rem;
     }
-    .chip:hover, .chip.on { border-color: rgba(228,181,106,0.55); color: var(--gold); }
+    .chip:hover, .chip.on { border-color: rgba(124, 140, 255,0.55); color: var(--gold); }
     .preset-box .chips { margin-top: 6px; }
     .preset-box .preset-custom { margin-top: 8px; width: 100%; }
     .preset-box .preset-custom[hidden] { display: none; }
@@ -538,7 +538,7 @@
       cursor: pointer;
       font-size: 0.9rem;
     }
-    .tabs button.on { color: var(--gold); border-color: rgba(228,181,106,0.45); background: rgba(228,181,106,0.12); font-weight: 600; }
+    .tabs button.on { color: var(--gold); border-color: rgba(124, 140, 255,0.45); background: rgba(124, 140, 255,0.12); font-weight: 600; }
     .pick {
       display: flex; align-items: center; gap: 8px;
       max-width: 360px;
@@ -553,8 +553,8 @@
       margin: 0 0 14px;
       padding: 10px 12px;
       border-radius: 10px;
-      background: rgba(228,181,106,0.08);
-      border: 1px solid rgba(228,181,106,0.25);
+      background: rgba(124, 140, 255,0.08);
+      border: 1px solid rgba(124, 140, 255,0.25);
       color: #ead7ae;
       font-size: 0.86rem;
     }
@@ -584,11 +584,11 @@
       cursor: pointer;
       margin-bottom: 8px;
     }
-    .thread-item.on { border-color: rgba(228,181,106,0.5); }
+    .thread-item.on { border-color: rgba(124, 140, 255,0.5); }
     .thread-item .meta { color: var(--muted); font-size: 0.75rem; display: flex; justify-content: space-between; }
     .badge {
       display: inline-block;
-      background: rgba(228,181,106,0.2);
+      background: rgba(124, 140, 255,0.2);
       color: var(--gold);
       border-radius: 99px;
       padding: 1px 7px;
@@ -604,8 +604,8 @@
       white-space: pre-wrap;
     }
     .bubble.in { background: var(--bg2); align-self: flex-start; }
-    .bubble.out { background: rgba(228,181,106,0.16); align-self: flex-end; }
-    .bubble.draft { border: 1px dashed rgba(228,181,106,0.5); }
+    .bubble.out { background: rgba(124, 140, 255,0.16); align-self: flex-end; }
+    .bubble.draft { border: 1px dashed rgba(124, 140, 255,0.5); }
     .bubble .tag { display: block; font-size: 0.7rem; color: var(--muted); margin-bottom: 4px; }
     .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
     .btn {
@@ -617,9 +617,9 @@
       cursor: pointer;
       font-size: 0.88rem;
     }
-    .btn:hover { border-color: rgba(228,181,106,0.4); }
+    .btn:hover { border-color: rgba(124, 140, 255,0.4); }
     .btn.primary {
-      background: linear-gradient(180deg, #f3d190, #d7a15a);
+      background: linear-gradient(180deg, #f3d190, #7c8cff);
       color: #1a140c;
       border: 0;
       font-weight: 700;
@@ -632,7 +632,7 @@
       padding: 10px; border: 1px solid var(--line); border-radius: 12px;
       cursor: pointer; background: var(--bg0);
     }
-    .profile-row.on { border-color: rgba(228,181,106,0.5); }
+    .profile-row.on { border-color: rgba(124, 140, 255,0.5); }
     .thumb {
       width: 48px; height: 48px; border-radius: 10px;
       object-fit: cover; background: var(--bg2); flex: 0 0 auto;
@@ -692,9 +692,9 @@
     .turbo-badge {
       display: inline-flex;
       align-items: center;
-      border: 1px solid rgba(228, 181, 106, 0.45);
+      border: 1px solid rgba(124, 140, 255, 0.45);
       color: var(--gold);
-      background: rgba(228, 181, 106, 0.12);
+      background: rgba(124, 140, 255, 0.12);
       border-radius: 999px;
       padding: 2px 9px;
       font-size: 0.7rem;
@@ -745,7 +745,7 @@
     .installed-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
     .mini-tag {
       font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase;
-      color: var(--gold); border: 1px solid rgba(228,181,106,0.35);
+      color: var(--gold); border: 1px solid rgba(124, 140, 255,0.35);
       border-radius: 999px; padding: 1px 7px;
     }
     .mini-tag.warn { color: var(--rose); border-color: rgba(217,137,122,0.4); }
@@ -774,6 +774,7 @@
   </style>
   <link rel="stylesheet" href="/static/v11.css" />
   <link rel="stylesheet" href="/static/lora_trainer.css" />
+  <link rel="stylesheet" href="/static/ui_v120.css" />
 </head>
 
 <body>
@@ -810,141 +811,162 @@
     </header>
 
     <div id="tab-slike" class="tab-panel on grid">
-      <form class="card form create-form" id="form" autocomplete="off">
+      <form class="card form create-form composer" id="form" autocomplete="off">
+        <div class="composer-head">
+          <h2 class="composer-title">Nova slika</h2>
+          <span class="composer-sub">Osoba · scena · Generiraj</span>
+        </div>
+
         <div class="field person-field">
-          <label class="lbl" for="osoba">Osoba</label>
-          <select id="osoba"></select>
+          <div class="field-head">
+            <label class="lbl" for="osoba">Osoba</label>
+            <button type="button" class="link-btn" id="uiEditPersona" title="Otvori profil u kartici Osobe">Uredi profil</button>
+          </div>
+          <div class="persona-picker" id="personaPicker" role="radiogroup" aria-label="Odabir osobe"></div>
+          <select id="osoba" class="persona-select"></select>
+          <div class="persona-status" id="personaStatus" aria-live="polite"></div>
           <div class="appear-summary" id="appearSummary">
             <div class="appear-text" id="appearText"></div>
             <div class="appear-meta" id="appearMeta"></div>
           </div>
-          <label class="lbl" for="appearExtra" style="margin-top:12px">Dodatno</label>
-          <input type="text" id="appearExtra" placeholder="Privremeno, samo za ovu sliku (npr. crvena haljina)…" />
         </div>
 
         <div class="field prompt-field">
           <label class="lbl" for="prompt">Opis scene</label>
-          <textarea id="prompt" placeholder="Npr. leži na krevetu, uslikana mobitelom, jutarnje svjetlo, nered na posteljini" required></textarea>
+          <textarea id="prompt" placeholder="Opiši scenu, lokaciju, raspoloženje… npr. jutarnja kava na balkonu, mekano svjetlo, uslikano mobitelom" required></textarea>
           <div class="token-row" id="tokenRow"><span id="tokenCount">≈ 0 / 75 tokena</span><span id="tokenWarn" hidden>Predugačak opis — scena ostaje prva, višak se spaja.</span></div>
-          <div class="hint">Odaberi osobu, zatim upiši samo što radi. Prvo ide tvoja scena, zatim izgled s profila, pa oznake kvalitete. „Portrait of” se skida s izgleda da CLIP ne odreže scenu (limit ~75 tokena). Ctrl+Enter pokreće.</div>
           <div class="chips" id="styleChips" aria-label="Brzi stilovi"></div>
         </div>
 
-        <div class="field">
+        <div class="field quick-field">
           <label class="lbl">Format</label>
           <div class="seg" id="sizes">
             <button type="button" data-w="512" data-h="768" class="on">Portret<br>512×768</button>
             <button type="button" data-w="512" data-h="512">Kvadrat<br>512×512</button>
             <button type="button" data-w="768" data-h="512">Pejzaž<br>768×512</button>
           </div>
-          <div class="hint" id="sizeHint">IG formati (4:5, 1:1, 9:16) generiraju se na manjem platnu pa se povećaju na točnih 1080 piksela, da stanu u 8 GB VRAM-a.</div>
         </div>
 
-        <div class="field">
-          <label class="lbl">Brzina</label>
-          <div class="seg" id="quality">
-            <button type="button" data-mode="turbo" data-steps="8">Turbo<br>8 koraka</button>
-            <button type="button" data-mode="quality" data-steps="30" class="on">Kvaliteta<br>30 koraka</button>
+        <div class="go-bar">
+          <div class="field speed-field">
+            <label class="lbl">Brzina</label>
+            <div class="seg" id="quality">
+              <button type="button" data-mode="turbo" data-steps="8">Turbo<br>8 koraka</button>
+              <button type="button" data-mode="quality" data-steps="30" class="on">Kvaliteta<br>30 koraka</button>
+            </div>
           </div>
-          <div class="hint" id="turboHint">Turbo (Hyper-SDXL LoRA) na RX 6600 skraćuje sliku s ~8–9 min na ~2–2,5 min. Preuzmi LoRA u kartici Modeli. Samo za SDXL.</div>
-          <div class="hint hint-warn" id="kreaHint" hidden>Krea 2 Turbo: 8 koraka, cfg 1, euler/simple (bez Hyper-SDXL LoRA i bez hires fixa). Paket je ~18,6 GB. Na RX 6600 (8 GB) vjerojatno nije izvedivo — fp8 na ZLUDA/RDNA2 često ide u fp16.</div>
-        </div>
-
-        <div class="active-model" id="activeModelLine" aria-live="polite">
-          <span>Model</span>
-          <span class="active-model-name" id="activeModelName">—</span>
-          <span class="turbo-badge" id="activeTurboBadge" hidden>Turbo</span>
+          <div class="active-model" id="activeModelLine" aria-live="polite">
+            <span>Model</span>
+            <span class="active-model-name" id="activeModelName">—</span>
+            <span class="turbo-badge" id="activeTurboBadge" hidden>Turbo</span>
+          </div>
         </div>
         <button class="go" id="go" type="submit">Generiraj</button>
-        <div class="hint" id="firstRunHint">Prvo pokretanje može trajati dulje (kompilacija u ComfyUI-ju, posebno na AMD).</div>
+        <div class="hint go-hint" id="firstRunHint">Prvo pokretanje može trajati dulje (kompilacija u ComfyUI-ju, posebno na AMD). Ctrl+Enter pokreće.</div>
         <div class="err" id="err"></div>
+        <div id="v11HwQuick" class="v11-hwquick"></div>
 
         <details class="adv">
-          <summary>Napredno</summary>
+          <summary><span class="adv-title">Napredno</span><span class="adv-summary" id="advSummary"></span></summary>
           <div class="inner">
-            <div class="field">
-              <label class="lbl" for="model">Model</label>
-              <select id="model">
-                <option value="Realistic_Vision_V6.0_NV_B1_fp16.safetensors">Realistic_Vision_V6.0_NV_B1_fp16.safetensors</option>
-              </select>
-            </div>
-            <div class="field" id="loraField">
-              <label class="lbl" for="lora">LoRA</label>
-              <div class="lora-pick">
-                <select id="lora">
-                  <option value="">Bez LoRA-e</option>
+            <section class="adv-group" aria-labelledby="advGModel">
+              <h3 class="adv-group-title" id="advGModel">Model i stil</h3>
+              <div class="field">
+                <label class="lbl" for="model">Model</label>
+                <select id="model">
+                  <option value="Realistic_Vision_V6.0_NV_B1_fp16.safetensors">Realistic_Vision_V6.0_NV_B1_fp16.safetensors</option>
                 </select>
-                <button type="button" class="ghost" id="loraRefresh" title="Ponovno pročitaj models/loras">↻ Osvježi</button>
+                <div class="hint" id="archHint">Model: SD 1.5 · formati 512×768 / 512×512 / 768×512.</div>
               </div>
-              <div class="range-row" id="loraStrengthRow">
-                <input type="range" id="loraStrength" min="0" max="1.5" step="0.05" value="0.8" />
-                <span class="range-val" id="loraStrengthVal">0.8</span>
+              <div class="field" id="loraField">
+                <label class="lbl" for="lora">LoRA</label>
+                <div class="lora-pick">
+                  <select id="lora">
+                    <option value="">Bez LoRA-e</option>
+                  </select>
+                  <button type="button" class="ghost" id="loraRefresh" title="Ponovno pročitaj models/loras">↻ Osvježi</button>
+                </div>
+                <div class="range-row" id="loraStrengthRow">
+                  <input type="range" id="loraStrength" min="0" max="1.5" step="0.05" value="0.8" />
+                  <span class="range-val" id="loraStrengthVal">0.8</span>
+                </div>
+                <div class="hint" id="loraHint">LoRA-e iz models/loras (i podmapa). Prvo su one za odabrani model, ostale su pod "Ostalo / možda nekompatibilno". Turbo LoRA se dodaje zasebno kad uključiš Turbo.</div>
               </div>
-              <div class="hint" id="loraHint">LoRA-e iz models/loras (i podmapa). Prvo su one za odabrani model, ostale su pod "Ostalo / možda nekompatibilno". Turbo LoRA se dodaje zasebno kad uključiš Turbo.</div>
-            </div>
-            <div class="field" id="appearWeightField">
-              <label class="lbl" for="appearWeight">Težina opisa izgleda</label>
-              <div class="range-row">
-                <input type="range" id="appearWeight" min="1.0" max="1.5" step="0.05" value="1.3" />
-                <span class="range-val" id="appearWeightVal">1.30</span>
+              <div class="field">
+                <label class="lbl" for="appearExtra">Dodatno uz izgled</label>
+                <input type="text" id="appearExtra" placeholder="Privremeno, samo za ovu sliku (npr. crvena haljina)…" />
               </div>
-              <div class="hint">Jači broj više prati izgled s profila (kosa, oči, tetovaže). Zadano 1,3.</div>
-            </div>
-            <div class="field" id="ipaField">
-              <label class="lbl" for="ipaWeight">Jačina referentne slike lica</label>
-              <div class="range-row">
-                <input type="range" id="ipaWeight" min="0.6" max="1.0" step="0.05" value="0.8" />
-                <span class="range-val" id="ipaWeightVal">0.80</span>
+              <div class="field" id="appearWeightField">
+                <label class="lbl" for="appearWeight">Težina opisa izgleda</label>
+                <div class="range-row">
+                  <input type="range" id="appearWeight" min="1.0" max="1.5" step="0.05" value="1.3" />
+                  <span class="range-val" id="appearWeightVal">1.30</span>
+                </div>
+                <div class="hint">Jači broj više prati izgled s profila (kosa, oči, tetovaže). Zadano 1,3.</div>
               </div>
-              <div class="hint" id="ipaHint">IP-Adapter Plus Face primjenjuje do 8 slika lica s profila osobe. Nije dostupno uz Krea 2. Ako paket ili čvor nedostaje, pojavi se gumb za instalaciju.</div>
-              <div class="actions" id="ipaInstallRow" hidden style="margin-top:8px">
-                <button type="button" class="btn primary" id="installIpaAdv">Instaliraj IP-Adapter</button>
-                <button type="button" class="btn" id="repairIpaAdv" hidden>Popravi</button>
+              <div class="field">
+                <label class="lbl">Broj slika</label>
+                <div class="seg" id="batch">
+                  <button type="button" data-n="1" class="on">1</button>
+                  <button type="button" data-n="2">2</button>
+                  <button type="button" data-n="3">3</button>
+                  <button type="button" data-n="4">4</button>
+                </div>
               </div>
-            </div>
-            <div class="field" id="faceDetailerField" hidden>
-              <label class="lbl"><input type="checkbox" id="faceDetailer" /> Face Detailer (dodatni prolaz po licu)</label>
-              <div class="hint" id="faceHint">Po zadanom isključeno. Na RX 6600 (8 GB) može biti sporo i tijesno s memorijom.</div>
-              <div class="actions" id="faceInstallRow" hidden style="margin-top:8px">
-                <button type="button" class="btn" id="installFaceAdv">Instaliraj Face Detailer</button>
-                <button type="button" class="btn" id="repairFaceAdv" hidden>Popravi</button>
+              <div class="field">
+                <label class="lbl" for="seed">Seed</label>
+                <div class="seed-row">
+                  <input type="number" id="seed" value="-1" min="-1" max="2147483647" />
+                  <button type="button" class="ghost" id="randSeed">Nasumično</button>
+                </div>
+                <div class="hint" id="seedHint">−1 znači nasumični seed pri svakom pokretanju. Ako je na osobi uključeno „Zaključaj seed”, koristi se spremljeni seed.</div>
               </div>
-            </div>
-            <div class="field">
-              <label class="lbl">Broj slika</label>
-              <div class="seg" id="batch">
-                <button type="button" data-n="1" class="on">1</button>
-                <button type="button" data-n="2">2</button>
-                <button type="button" data-n="3">3</button>
-                <button type="button" data-n="4">4</button>
+              <div class="field">
+                <label class="lbl" for="negative">Negativni prompt</label>
+                <textarea id="negative" style="min-height:90px"></textarea>
               </div>
-            </div>
-            <div class="field">
-              <label class="lbl"><input type="checkbox" id="qualityPrefix" checked /> Bolja kvaliteta (RAW photo, detaljna koža) — ide na kraj prompta</label>
-            </div>
-            <div class="field">
-              <label class="lbl"><input type="checkbox" id="hiresFix" /> Hires fix (latent 1,5×, denoise 0.4)</label>
-              <div class="hint" id="hiresHint">Samo za SD 1.5 po zadanom. Na 8 GB VRAM-a može biti tijesno.</div>
-            </div>
-            <div class="hint" id="archHint">Model: SD 1.5 · formati 512×768 / 512×512 / 768×512.</div>
-            <div class="field">
-              <label class="lbl" for="seed">Seed</label>
-              <div class="seed-row">
-                <input type="number" id="seed" value="-1" min="-1" max="2147483647" />
-                <button type="button" class="ghost" id="randSeed">Nasumično</button>
+              <div class="field">
+                <label class="lbl check"><input type="checkbox" id="qualityPrefix" checked /> Bolja kvaliteta (RAW photo, detaljna koža) — ide na kraj prompta</label>
               </div>
-              <div class="hint" id="seedHint">−1 znači nasumični seed pri svakom pokretanju. Ako je na osobi uključeno „Zaključaj seed”, koristi se spremljeni seed.</div>
-            </div>
-            <div class="field">
-              <label class="lbl" for="negative">Negativni prompt</label>
-              <textarea id="negative" style="min-height:90px"></textarea>
-            </div>
+              <div class="hint">Prvo ide tvoja scena, zatim izgled s profila, pa oznake kvalitete. „Portrait of” se skida s izgleda da CLIP ne odreže scenu (limit ~75 tokena).</div>
+              <div class="hint" id="sizeHint">IG formati (4:5, 1:1, 9:16) generiraju se na manjem platnu pa se povećaju na točnih 1080 piksela, da stanu u 8 GB VRAM-a.</div>
+              <div class="hint" id="turboHint">Turbo (Hyper-SDXL LoRA) na RX 6600 skraćuje sliku s ~8–9 min na ~2–2,5 min. Preuzmi LoRA u kartici Modeli. Samo za SDXL.</div>
+              <div class="hint hint-warn" id="kreaHint" hidden>Krea 2 Turbo: 8 koraka, cfg 1, euler/simple (bez Hyper-SDXL LoRA i bez hires fixa). Paket je ~18,6 GB. Na RX 6600 (8 GB) vjerojatno nije izvedivo — fp8 na ZLUDA/RDNA2 često ide u fp16.</div>
+            </section>
+
+            <section class="adv-group" aria-labelledby="advGFace">
+              <h3 class="adv-group-title" id="advGFace">Dosljednost i detalji</h3>
+              <div class="field" id="ipaField">
+                <label class="lbl" for="ipaWeight">Jačina referentne slike lica</label>
+                <div class="range-row">
+                  <input type="range" id="ipaWeight" min="0.6" max="1.0" step="0.05" value="0.8" />
+                  <span class="range-val" id="ipaWeightVal">0.80</span>
+                </div>
+                <div class="hint" id="ipaHint">IP-Adapter Plus Face primjenjuje do 8 slika lica s profila osobe. Nije dostupno uz Krea 2. Ako paket ili čvor nedostaje, pojavi se gumb za instalaciju.</div>
+                <div class="actions" id="ipaInstallRow" hidden style="margin-top:8px">
+                  <button type="button" class="btn primary" id="installIpaAdv">Instaliraj IP-Adapter</button>
+                  <button type="button" class="btn" id="repairIpaAdv" hidden>Popravi</button>
+                </div>
+              </div>
+              <div class="field" id="faceDetailerField" hidden>
+                <label class="lbl check"><input type="checkbox" id="faceDetailer" /> Face Detailer (dodatni prolaz po licu)</label>
+                <div class="hint" id="faceHint">Po zadanom isključeno. Na RX 6600 (8 GB) može biti sporo i tijesno s memorijom.</div>
+                <div class="actions" id="faceInstallRow" hidden style="margin-top:8px">
+                  <button type="button" class="btn" id="installFaceAdv">Instaliraj Face Detailer</button>
+                  <button type="button" class="btn" id="repairFaceAdv" hidden>Popravi</button>
+                </div>
+              </div>
+              <div class="field">
+                <label class="lbl check"><input type="checkbox" id="hiresFix" /> Hires fix (latent 1,5×, denoise 0.4)</label>
+                <div class="hint" id="hiresHint">Samo za SD 1.5 po zadanom. Na 8 GB VRAM-a može biti tijesno.</div>
+              </div>
+            </section>
+
+            <details class="adv adv-sub" id="v11GenBox" open>
+              <summary>Parametri, predlošci, LoRA stack i red čekanja</summary>
+              <div class="inner" id="v11Gen"><div class="hint">Učitavam…</div></div>
+            </details>
           </div>
-        </details>
-        <div id="v11HwQuick" class="v11-hwquick"></div>
-        <details class="adv" id="v11GenBox">
-          <summary>Kvaliteta, LoRA stack i red čekanja</summary>
-          <div class="inner" id="v11Gen"><div class="hint">Učitavam…</div></div>
         </details>
       </form>
 
@@ -1169,99 +1191,39 @@
     </div>
 
     <div id="tab-influenceri" class="tab-panel">
-      <div class="grid">
-        <div class="card pad">
-          <h2 class="sec" style="margin-top:0">Profili</h2>
-          <div class="profile-list" id="profileList"></div>
-          <div class="actions">
-            <button class="btn primary" type="button" id="newProfile">Novi profil</button>
-          </div>
+      <div class="page-head">
+        <div>
+          <h2 class="page-title">Osobe</h2>
+          <p class="page-sub">Profili tvojih fiktivnih odraslih influencera. Klikni osobu za uređivanje, generiranje ili LoRA trener.</p>
         </div>
-        <form class="card form" id="profileForm">
+        <div class="page-actions">
+          <button class="btn primary" type="button" id="newProfile">Novi profil</button>
+        </div>
+      </div>
+      <div class="persona-cards" id="personaCards" aria-label="Popis osoba"></div>
+      <div class="profile-list-legacy" aria-hidden="true">
+        <div class="profile-list" id="profileList"></div>
+      </div>
+      <div class="persona-edit">
+        <form class="card form profile-form" id="profileForm">
           <input type="hidden" id="pId" />
+          <div class="section-head">
+            <h2 class="section-title">Uređivanje profila</h2>
+            <span class="section-note" id="pEditTitle"></span>
+          </div>
+          <div class="pf-basic">
           <div class="field">
             <label class="lbl" for="pName">Ime</label>
             <input type="text" id="pName" required maxlength="80" />
           </div>
           <div class="field">
+            <label class="lbl" for="pVibe">Dob / vibe</label>
+            <input type="text" id="pVibe" placeholder="npr. 26, opuštena, urbana" />
+          </div>
+          </div>
+          <div class="field">
             <label class="lbl" for="pAppear">Izgled (prefix za slike)</label>
             <textarea id="pAppear" style="min-height:80px" placeholder="boja kose, oči, stil odjeće, rasvjeta…"></textarea>
-          </div>
-          <div class="field">
-            <label class="lbl" for="pNeg">Negativni prompt za slike</label>
-            <textarea id="pNeg" style="min-height:70px"></textarea>
-          </div>
-          <div class="field">
-            <label class="lbl" for="pModel">Preferirani model</label>
-            <select id="pModel">
-              <option value="">Nije zadano (biraj u Slikama)</option>
-            </select>
-          </div>
-          <div class="field" id="pLoraField">
-            <label class="lbl" for="pLora">Preferirana LoRA</label>
-            <select id="pLora">
-              <option value="">Bez LoRA-e</option>
-            </select>
-            <div class="range-row" id="pLoraStrengthRow" hidden>
-              <input type="range" id="pLoraStrength" min="0" max="1.5" step="0.05" value="0.8" />
-              <span class="range-val" id="pLoraStrengthVal">0.80</span>
-            </div>
-            <div class="hint">Kad odabereš ovu osobu u Slikama, model i LoRA se unaprijed postave. Možeš ih i dalje promijeniti za tu sliku.</div>
-          </div>
-          <div class="field">
-            <label class="lbl" for="pModelType">Tip modela</label>
-            <select id="pModelType">
-              <option value="auto">Automatski</option>
-              <option value="sd15">SD 1.5</option>
-              <option value="sdxl">SDXL</option>
-              <option value="krea2">Krea 2</option>
-            </select>
-            <div class="hint">Automatski prepoznaje XL / RealVisXL / Juggernaut. Realistic Vision ostaje SD 1.5.</div>
-          </div>
-          <div class="field">
-            <label class="lbl" for="pStyle">Osobnost / stil</label>
-            <textarea id="pStyle" style="min-height:70px" placeholder="kako se ponaša, humor, energija…"></textarea>
-          </div>
-          <div class="field">
-            <label class="lbl" for="pVibe">Dob / vibe</label>
-            <input type="text" id="pVibe" />
-          </div>
-          <div class="field preset-box" data-preset="writing_style">
-            <label class="lbl">Duljina poruka</label>
-            <div class="chips" id="pWriteChips" role="group" aria-label="Duljina poruka"></div>
-            <input type="text" class="preset-custom" id="pWriteCustom" hidden maxlength="400" placeholder="Opisi svoju duljinu poruka…" />
-          </div>
-          <div class="field preset-box" data-preset="slang">
-            <label class="lbl">Slang</label>
-            <div class="chips" id="pSlangChips" role="group" aria-label="Slang"></div>
-            <input type="text" class="preset-custom" id="pSlangCustom" hidden maxlength="400" placeholder="Opisi slang ili dijalekt…" />
-          </div>
-          <div class="field preset-box" data-preset="emoji_use">
-            <label class="lbl">Emoji</label>
-            <div class="chips" id="pEmojiChips" role="group" aria-label="Emoji"></div>
-            <input type="text" class="preset-custom" id="pEmojiCustom" hidden maxlength="400" placeholder="Npr. 😍😘✨ ili opis kako koristi emoji…" />
-          </div>
-          <div class="field preset-box" data-preset="language">
-            <label class="lbl">Jezik</label>
-            <div class="chips" id="pLangChips" role="group" aria-label="Jezik"></div>
-            <input type="text" class="preset-custom" id="pLangCustom" hidden maxlength="80" placeholder="Npr. francuski, ili mješavina…" />
-          </div>
-          <div class="field">
-            <label class="lbl" for="pAvoid">Teme koje izbjegava</label>
-            <textarea id="pAvoid" style="min-height:70px"></textarea>
-          </div>
-          <div class="field">
-            <label class="lbl">Primjeri poruka</label>
-            <div class="hint">Format: Fan: … / Luna: … — prvo što fan napiše, zatim kako želiš da influencer odgovori. 2–4 primjera nisu obavezna, ali jako pomažu da stil ostane prepoznatljiv.</div>
-            <div id="pExamples"></div>
-            <button class="btn" type="button" id="addExample">Dodaj primjer</button>
-          </div>
-          <div class="field">
-            <label class="lbl" for="pAppearWeight">Težina opisa izgleda</label>
-            <div class="range-row">
-              <input type="range" id="pAppearWeight" min="1.0" max="1.5" step="0.05" value="1.3" />
-              <span class="range-val" id="pAppearWeightVal">1.30</span>
-            </div>
           </div>
           <div class="field">
             <label class="lbl">Referentne slike lica (do 8)</label>
@@ -1270,24 +1232,108 @@
             <div class="ref-list" id="pRefList"></div>
             <input type="file" id="pRef" accept="image/png,image/jpeg,image/webp" multiple />
             </div>
-            <div class="range-row" style="margin-top:10px">
-              <label class="lbl" for="pIpaWeight" style="margin:0;min-width:8em">Jačina reference</label>
-              <input type="range" id="pIpaWeight" min="0.6" max="1.0" step="0.05" value="0.8" />
-              <span class="range-val" id="pIpaWeightVal">0.80</span>
-            </div>
           </div>
           <div class="field">
-            <label class="lbl"><input type="checkbox" id="pFaceDetailer" /> Face Detailer za ovu osobu</label>
-            <div class="hint">Po zadanom isključeno. Na 8 GB VRAM-a ostavi isključeno osim kad želiš dodatni prolaz po licu.</div>
+            <label class="lbl" for="pStyle">Osobnost / stil</label>
+            <textarea id="pStyle" style="min-height:70px" placeholder="kako se ponaša, humor, energija…"></textarea>
           </div>
-          <div class="field">
-            <label class="lbl"><input type="checkbox" id="pLockSeed" /> Zaključaj seed</label>
-            <div class="seed-row" id="pLockedSeedRow" hidden style="margin-top:8px">
-              <input type="number" id="pLockedSeed" min="0" max="2147483647" placeholder="Seed" />
-              <button type="button" class="ghost" id="pRandSeed">Nasumični</button>
+          <details class="pf-more" id="pfTech">
+            <summary>Model, LoRA i tehničke postavke</summary>
+            <div class="pf-more-inner">
+            <div class="field">
+              <label class="lbl" for="pModel">Preferirani model</label>
+              <select id="pModel">
+                <option value="">Nije zadano (biraj u Slikama)</option>
+              </select>
             </div>
-            <div class="hint">Isti seed pomaže da serije slika ostanu sličnije. Scena i dalje može mijenjati pozu.</div>
-          </div>
+            <div class="field" id="pLoraField">
+              <label class="lbl" for="pLora">Preferirana LoRA</label>
+              <select id="pLora">
+                <option value="">Bez LoRA-e</option>
+              </select>
+              <div class="range-row" id="pLoraStrengthRow" hidden>
+                <input type="range" id="pLoraStrength" min="0" max="1.5" step="0.05" value="0.8" />
+                <span class="range-val" id="pLoraStrengthVal">0.80</span>
+              </div>
+              <div class="hint">Kad odabereš ovu osobu u Slikama, model i LoRA se unaprijed postave. Možeš ih i dalje promijeniti za tu sliku.</div>
+            </div>
+            <div class="field">
+              <label class="lbl" for="pModelType">Tip modela</label>
+              <select id="pModelType">
+                <option value="auto">Automatski</option>
+                <option value="sd15">SD 1.5</option>
+                <option value="sdxl">SDXL</option>
+                <option value="krea2">Krea 2</option>
+              </select>
+              <div class="hint">Automatski prepoznaje XL / RealVisXL / Juggernaut. Realistic Vision ostaje SD 1.5.</div>
+            </div>
+            <div class="field">
+              <label class="lbl" for="pNeg">Negativni prompt za slike</label>
+              <textarea id="pNeg" style="min-height:70px"></textarea>
+            </div>
+            <div class="field">
+              <label class="lbl" for="pAppearWeight">Težina opisa izgleda</label>
+              <div class="range-row">
+                <input type="range" id="pAppearWeight" min="1.0" max="1.5" step="0.05" value="1.3" />
+                <span class="range-val" id="pAppearWeightVal">1.30</span>
+              </div>
+            </div>
+            <div class="field">
+              <label class="lbl" for="pIpaWeight">Jačina referentnih slika lica</label>
+              <div class="range-row">
+                <input type="range" id="pIpaWeight" min="0.6" max="1.0" step="0.05" value="0.8" />
+                <span class="range-val" id="pIpaWeightVal">0.80</span>
+              </div>
+            </div>
+            <div class="field">
+              <label class="lbl check"><input type="checkbox" id="pFaceDetailer" /> Face Detailer za ovu osobu</label>
+              <div class="hint">Po zadanom isključeno. Na 8 GB VRAM-a ostavi isključeno osim kad želiš dodatni prolaz po licu.</div>
+            </div>
+            <div class="field">
+              <label class="lbl check"><input type="checkbox" id="pLockSeed" /> Zaključaj seed</label>
+              <div class="seed-row" id="pLockedSeedRow" hidden style="margin-top:8px">
+                <input type="number" id="pLockedSeed" min="0" max="2147483647" placeholder="Seed" />
+                <button type="button" class="ghost" id="pRandSeed">Nasumični</button>
+              </div>
+              <div class="hint">Isti seed pomaže da serije slika ostanu sličnije. Scena i dalje može mijenjati pozu.</div>
+            </div>
+            </div>
+          </details>
+          <details class="pf-more" id="pfChat">
+            <summary>Stil poruka i chat</summary>
+            <div class="pf-more-inner">
+            <div class="field preset-box" data-preset="writing_style">
+              <label class="lbl">Duljina poruka</label>
+              <div class="chips" id="pWriteChips" role="group" aria-label="Duljina poruka"></div>
+              <input type="text" class="preset-custom" id="pWriteCustom" hidden maxlength="400" placeholder="Opisi svoju duljinu poruka…" />
+            </div>
+            <div class="field preset-box" data-preset="slang">
+              <label class="lbl">Slang</label>
+              <div class="chips" id="pSlangChips" role="group" aria-label="Slang"></div>
+              <input type="text" class="preset-custom" id="pSlangCustom" hidden maxlength="400" placeholder="Opisi slang ili dijalekt…" />
+            </div>
+            <div class="field preset-box" data-preset="emoji_use">
+              <label class="lbl">Emoji</label>
+              <div class="chips" id="pEmojiChips" role="group" aria-label="Emoji"></div>
+              <input type="text" class="preset-custom" id="pEmojiCustom" hidden maxlength="400" placeholder="Npr. 😍😘✨ ili opis kako koristi emoji…" />
+            </div>
+            <div class="field preset-box" data-preset="language">
+              <label class="lbl">Jezik</label>
+              <div class="chips" id="pLangChips" role="group" aria-label="Jezik"></div>
+              <input type="text" class="preset-custom" id="pLangCustom" hidden maxlength="80" placeholder="Npr. francuski, ili mješavina…" />
+            </div>
+            <div class="field">
+              <label class="lbl" for="pAvoid">Teme koje izbjegava</label>
+              <textarea id="pAvoid" style="min-height:70px"></textarea>
+            </div>
+            <div class="field">
+              <label class="lbl">Primjeri poruka</label>
+              <div class="hint">Format: Fan: … / Luna: … — prvo što fan napiše, zatim kako želiš da influencer odgovori. 2–4 primjera nisu obavezna, ali jako pomažu da stil ostane prepoznatljiv.</div>
+              <div id="pExamples"></div>
+              <button class="btn" type="button" id="addExample">Dodaj primjer</button>
+            </div>
+            </div>
+          </details>
           <div class="actions">
             <button class="btn primary" type="submit">Spremi profil</button>
             <button class="btn danger" type="button" id="delProfile">Obriši</button>
@@ -1295,8 +1341,8 @@
           <div class="okline" id="pOk" hidden>Profil je spremljen.</div>
           <div class="err" id="pErr"></div>
         </form>
+        <div id="v11Persona" class="card pad v11-persona"></div>
       </div>
-      <div id="v11Persona" class="card pad v11-persona"></div>
       <section id="loraTrainer" class="card pad lt-card" aria-label="LoRA trener"></section>
     </div>
 
@@ -3841,5 +3887,6 @@
   </script>
   <script src="/static/v11.js"></script>
   <script src="/static/lora_trainer.js"></script>
+  <script src="/static/ui_v120.js"></script>
 </body>
 </html>
