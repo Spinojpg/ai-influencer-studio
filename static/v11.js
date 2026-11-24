@@ -44,31 +44,52 @@
     return html;
   }
   function stackEditorHtml(prefix, stack) {
-    const rows = (stack || []).map((it, i) => '<div class="v11-lora-row" data-i="' + i + '">'
-      + '<select class="' + prefix + '-name">' + loraOptionsHtml(it.name) + "</select>"
-      + '<input type="range" class="' + prefix + '-str" min="-1" max="1.5" step="0.05" value="' + num(it.strength_model, 0.8) + '" />'
-      + '<span class="range-val">' + num(it.strength_model, 0.8).toFixed(2) + "</span>"
-      + '<button type="button" class="btn ' + prefix + '-del" title="Ukloni">×</button></div>').join("");
-    return rows + '<button type="button" class="btn ' + prefix + '-add"' + ((stack || []).length >= 5 ? " disabled" : "") + ">+ Dodaj LoRA-u</button>";
+    const rows = (stack || []).map((it, i) => {
+      const s = num(it.strength_model, 0.8);
+      return '<div class="v11-lora-row" data-i="' + i + '">'
+        + '<select class="' + prefix + '-name" aria-label="LoRA">' + loraOptionsHtml(it.name) + "</select>"
+        + '<input type="range" class="' + prefix + '-str" min="-2" max="2" step="0.05" value="' + s + '" aria-label="Jačina" />'
+        + '<input type="number" class="' + prefix + '-str-num" min="-2" max="2" step="0.05" value="' + s.toFixed(2) + '" aria-label="Jačina (broj)" />'
+        + '<button type="button" class="btn ' + prefix + '-del" title="Ukloni">×</button></div>';
+    }).join("");
+    return rows + '<button type="button" class="btn ' + prefix + '-add"' + ((stack || []).length >= 5 ? " disabled" : "") + ">+ Dodaj LoRA</button>";
   }
   function readRows(root, prefix, keepEmpty) {
     const out = [];
     root.querySelectorAll(".v11-lora-row").forEach((row) => {
-      const name = row.querySelector("." + prefix + "-name").value;
-      const s = num(row.querySelector("." + prefix + "-str").value, 0.8);
+      const nameEl = row.querySelector("." + prefix + "-name");
+      const strEl = row.querySelector("." + prefix + "-str") || row.querySelector("." + prefix + "-str-num");
+      const name = nameEl ? nameEl.value : "";
+      const s = Math.max(-2, Math.min(2, num(strEl ? strEl.value : 0.8, 0.8)));
       if (name || keepEmpty) out.push({ name: name, strength_model: s, strength_clip: s });
     });
     return out;
   }
+  function stackMounts() {
+    return [...document.querySelectorAll(".js-lora-stack")];
+  }
+  function syncStrInputs(row, prefix, value) {
+    const s = Math.max(-2, Math.min(2, num(value, 0)));
+    const range = row.querySelector("." + prefix + "-str");
+    const numEl = row.querySelector("." + prefix + "-str-num");
+    if (range) range.value = String(s);
+    if (numEl) numEl.value = s.toFixed(2);
+    return s;
+  }
   function bindStack(root, prefix, setStack) {
+    if (!root || root.dataset.loraBound === "1") return;
+    root.dataset.loraBound = "1";
     root.addEventListener("input", (e) => {
-      if (e.target.classList.contains(prefix + "-str")) {
-        const v = e.target.parentElement.querySelector(".range-val");
-        if (v) v.textContent = num(e.target.value, 0).toFixed(2);
+      if (e.target.classList.contains(prefix + "-str") || e.target.classList.contains(prefix + "-str-num")) {
+        const row = e.target.closest(".v11-lora-row");
+        if (row) syncStrInputs(row, prefix, e.target.value);
+        setStack(readRows(root, prefix, true), false);
       }
     });
     root.addEventListener("change", (e) => {
-      if (e.target.classList.contains(prefix + "-name") || e.target.classList.contains(prefix + "-str")) setStack(readRows(root, prefix, true), false);
+      if (e.target.classList.contains(prefix + "-name") || e.target.classList.contains(prefix + "-str") || e.target.classList.contains(prefix + "-str-num")) {
+        setStack(readRows(root, prefix, true), false);
+      }
     });
     root.addEventListener("click", (e) => {
       if (e.target.classList.contains(prefix + "-add")) {
@@ -77,7 +98,9 @@
         all.push({ name: "", strength_model: 0.6, strength_clip: 0.6 });
         setStack(all, true);
       } else if (e.target.classList.contains(prefix + "-del")) {
-        const i = Number(e.target.closest(".v11-lora-row").dataset.i);
+        const row = e.target.closest(".v11-lora-row");
+        if (!row) return;
+        const i = Number(row.dataset.i);
         const all = readRows(root, prefix, true);
         all.splice(i, 1);
         setStack(all, true);
@@ -139,7 +162,7 @@
     fdBbox: "Koliko siguran mora biti detektor da je to lice. Niže hvata i manja/profilna lica, ali i lažne pogotke.",
     guard: "Automatski sprječava „out of memory” na RX 6600: smanji hires skalu, uz InstantID + Face Detailer isključi hires, uz SDXL + hires generira 1 sliku, prebaci VAE na tiled. Ništa ne briše iz tvojih postavki.",
     detail: "Kurirane SFW LoRA-e za realizam (preuzimaju se u kartici Modeli). Dodaju se na kraj LoRA stacka s umjerenom jačinom; uz Turbo najviše dvije.",
-    stack: "Do 5 LoRA-a odjednom, svaka s vlastitom jačinom. Popunjava se iz profila osobe; više LoRA-a = sporije i veći rizik od „AI” izgleda.",
+    stack: "Do 5 LoRA-a odjednom, svaka s vlastitom jačinom od −2 do 2. Ista lista je i na glavnom ekranu Generiranja. Popunjava se iz profila osobe; LoRA osobe i dalje ide zasebno. Više LoRA-a = sporije i veći rizik od „AI” izgleda i od popunjenog VRAM-a (8 GB).",
     series: "Dodaje više poslova u red čekanja. Red radi jedan po jedan posao (sigurno za 8 GB) i preživi restart Studija.",
     seedMode: "Nasumični: svaka slika nova. Uzastopni: seed, seed+1… — dobro za varijacije iste scene.",
     multiTpl: "Isti opis scene kroz više predložaka odjednom (npr. kafić, ulica, studio) — po jedan posao za svaki."
@@ -184,8 +207,8 @@
       + '<div class="detail-toggles" id="v11DetailLoras">' + (dl.length ? dl.map((x) => '<label class="dtoggle' + (x.available ? "" : " missing") + '" title="' + esc(x.hint || "") + '">'
         + '<input type="checkbox" value="' + esc(x.key) + '" /><span class="dt-name">' + esc(x.label) + '</span><span class="dt-meta">' + (x.available ? "jačina " + num(x.weight, 0.4).toFixed(2) : "nije preuzeta") + "</span></label>").join("") : '<span class="hint">Nema kuriranih detail LoRA-a.</span>') + "</div>"
       + '<div class="hint">Preuzimanje: Modeli → „Preporučene SDXL LoRA-e”. Ako datoteka nedostaje, preskače se uz poruku (ne ruši generiranje).</div></div>'
-      + '<div class="field"><label class="lbl">LoRA stack (do ' + (o.max_loras || 5) + ") " + tip(TIPS.stack, "LoRA stack") + '</label><div id="v11Stack"></div>'
-      + '<div class="hint">Popunjava se iz profila osobe. Jedna LoRA iz Napredno i dalje radi kao prije.</div></div>';
+      + '<div class="field"><label class="lbl">LoRA stack (do ' + (o.max_loras || 5) + ") " + tip(TIPS.stack, "LoRA stack") + '</label><div id="v11Stack" class="js-lora-stack"></div>'
+      + '<div class="hint">Ista lista kao odjeljak LoRA na glavnom ekranu. Popunjava se iz profila osobe. LoRA osobe i dalje ide zasebno.</div></div>';
     const miscHtml = '<div class="field"><label class="lbl" for="v11Tpl">Predložak sadržaja ' + tip(TIPS.tpl, "Predložak") + "</label>"
       + '<div class="v11-inline"><select id="v11Tpl">' + tplOptions("") + '</select><button type="button" class="btn" id="v11TplManage">Uredi predloške</button></div>'
       + '<div class="hint" id="v11TplHint">Javni teaser (lifestyle, moda, BTS) i Premium sadržaj (studio glamour, editorial, putovanja, personalizirani portreti). Predložak dopunjuje prompt, format i postavke.</div>'
@@ -205,8 +228,24 @@
     try { document.dispatchEvent(new CustomEvent("studio:gen-rendered", { detail: { options: o } })); } catch (e) { /* stari preglednik */ }
   }
   function renderStackUi() {
-    const el = $("v11Stack");
-    if (el) el.innerHTML = stackEditorHtml("gst", V.stack);
+    const html = stackEditorHtml("gst", V.stack);
+    stackMounts().forEach((el) => { el.innerHTML = html; });
+    const field = $("genLoraField");
+    if (field) {
+      const krea = !!(window.StudioCore && typeof window.StudioCore.arch === "function" && window.StudioCore.arch() === "krea2");
+      field.hidden = krea;
+    }
+  }
+  function applyGenStack(st, rerender) {
+    V.stack = st;
+    V.stackTouched = true;
+    if (rerender) renderStackUi();
+    else {
+      const src = document.activeElement && document.activeElement.closest && document.activeElement.closest(".js-lora-stack");
+      stackMounts().forEach((el) => {
+        if (el !== src) el.innerHTML = stackEditorHtml("gst", V.stack);
+      });
+    }
   }
   function syncStackFromPersona(force) {
     const c = C();
@@ -236,10 +275,11 @@
     });
     if (!genBound) {
       genBound = true;
-      bindStack($("v11GenLora") || $("v11Gen"), "gst", (st, rerender) => { V.stack = st; V.stackTouched = true; if (rerender) renderStackUi(); });
+      stackMounts().forEach((el) => bindStack(el, "gst", applyGenStack));
       const osoba = $("osoba");
       if (osoba) osoba.addEventListener("change", () => setTimeout(() => syncStackFromPersona(false), 0));
     }
+    stackMounts().forEach((el) => bindStack(el, "gst", applyGenStack));
   }
   function renderTplEditor(selId) {
     const ed = $("v11TplEditor");
@@ -1064,7 +1104,7 @@
     if (c && c.currentTab() !== "slike") onTab(c.currentTab());
   }
 
-  window.StudioV11 = { genExtras: genExtras, onTab: onTab, refreshQueue: refreshQueue, loadGallery: loadGallery, ratingOf: ratingOf, version: "1.3.0" };
+  window.StudioV11 = { genExtras: genExtras, onTab: onTab, refreshQueue: refreshQueue, loadGallery: loadGallery, ratingOf: ratingOf, renderStackUi: renderStackUi, version: "1.3.0" };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
   else boot();
 })();

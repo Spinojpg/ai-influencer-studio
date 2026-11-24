@@ -253,7 +253,7 @@ CURATED = [
     },
     {
         "id": "lora-detail-tweaker-xl",
-        "name": "Detail Tweaker XL (add-detail-xl)",
+        "name": "Detail Tweaker XL",
         "filename": "add_detail_xl.safetensors",
         "url": "https://huggingface.co/AiWise/Detail-Tweaker-XL_v1/resolve/main/add-detail-xl.safetensors",
         "arch": "sdxl",
@@ -262,7 +262,22 @@ CURATED = [
         "category": "Detalji i stabilnost lica",
         "recommended_weight": 0.5,
         "size_bytes": 228452344,
-        "note": "Dodaje ili smanjuje razinu detalja (creativeml-openrail-m). Pozitivno 0,3–1,0 za oštrije lice i kosu, negativno za glađi izgled. Oko 218 MB.",
+        "sha256": "0D9BD1B873A7863E128B4672E3E245838858F71469A3CEC58123C16C06F83BD7",
+        "note": "Slider za detalje (Detail Tweaker XL v1.0, creativeml-openrail-m). Pozitivna jačina povećava detalje, negativna ih smanjuje. Preporuka: počni od 0,5–1,5 (autor predlaže 1,5 pa prilagodi; raspon do ±3). Oko 218 MB, s Hugging Facea, bez prijave.",
+    },
+    {
+        "id": "lora-skin-realism-xl",
+        "name": "Realistična koža (Skin Realism)",
+        "filename": "skin_realism_xl.safetensors",
+        "url": "https://civitai.com/api/download/models/340833?fileId=270833",
+        "arch": "sdxl",
+        "kind": "lora",
+        "group": "Preporučene SDXL LoRA-e (realizam i detalji)",
+        "category": "Realizam kože i fotografije",
+        "recommended_weight": 0.5,
+        "size_bytes": 228459148,
+        "sha256": "275FAB00CB4458DD916BA760C5C37E339D0D5DB5F3E245838858F71469A3CEC1",
+        "note": "Prirodna tekstura kože i nesavršenosti (Skin Realism REWORKED, SDXL). Preporučena jačina 0,3–0,7 (zadano 0,5); izbjegavaj 1,0 jer deformira lice. Okidač: Detailed natural skin and blemishes without-makeup and acne. Oko 218 MB, s Civitaija. Ako preuzimanje zatraži prijavu, upiši CIVITAI_TOKEN u data\\.env.",
     },
 ]
 
@@ -316,12 +331,110 @@ _thread: threading.Thread | None = None
 _cancel = threading.Event()
 
 
+
+_TOKEN_QUERY_RE = re.compile(r"([?&](?:token|key)=)[^&\s#]+", re.I)
+
+
+def _is_civitai_url(url: str) -> bool:
+    host = (urllib.parse.urlparse(url or "").hostname or "").lower()
+    return host == "civitai.com" or host.endswith(".civitai.com")
+
+
+def _data_env_file() -> Path | None:
+    data = (os.environ.get("STUDIO_DATA_DIR") or "").strip()
+    candidates = []
+    if data:
+        candidates.append(Path(data) / ".env")
+    candidates.append(Path(__file__).resolve().parent / "data" / ".env")
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
+
+
+def civitai_token() -> str:
+    """Pročitaj CIVITAI_TOKEN iz okruženja ili data/.env. Vrijednost se nikad ne ispisuje."""
+    tok = (os.environ.get("CIVITAI_TOKEN") or "").strip()
+    if tok:
+        return tok
+    path = _data_env_file()
+    if path is None:
+        return ""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        key = key.strip()
+        val = val.strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in {"'", '"'}:
+            val = val[1:-1]
+        if key == "CIVITAI_TOKEN" and val:
+            return val
+    return ""
+
+
+def redact_secret_url(text: str) -> str:
+    """Makni token/key iz URL-a i teksta grešaka, da se nikad ne pojave u logu ili snapshotu."""
+    if not text:
+        return text
+    return _TOKEN_QUERY_RE.sub(r"\1", str(text))
+
+
+def with_civitai_token(url: str) -> str:
+    """Na Civitai URL dodaj ?token= iz CIVITAI_TOKEN, ako postoji i ako već nije u URL-u."""
+    url = (url or "").strip()
+    if not url or not _is_civitai_url(url):
+        return url
+    token = civitai_token()
+    if not token:
+        return url
+    parsed = urllib.parse.urlparse(url)
+    q = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    if any(k.lower() == "token" for k, _ in q):
+        return url
+    q.append(("token", token))
+    return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(q)))
+
+
+def download_error_message(exc: BaseException, url: str = "") -> str:
+    """Kratka poruka za korisnika, bez tajni. Civitai 401/403 upućuje na CIVITAI_TOKEN."""
+    code = getattr(exc, "code", None)
+    target = url or str(getattr(exc, "url", "") or "")
+    if code in {401, 403} and (not target or _is_civitai_url(target)):
+        return (
+            "Civitai je zatražio prijavu za preuzimanje. Upiši CIVITAI_TOKEN u data\\.env "
+            "(API ključ s https://civitai.com/user/account) i pokušaj ponovno."
+        )
+    return redact_secret_url(str(exc))[:500]
+
+
 def snapshot() -> dict:
     with _lock:
-        return dict(_state)
+        out = dict(_state)
+    if out.get("url"):
+        out["url"] = redact_secret_url(out["url"])
+    if out.get("error"):
+        out["error"] = redact_secret_url(out["error"])
+    if out.get("message"):
+        out["message"] = redact_secret_url(out["message"])
+    return out
 
 
 def _set(**kwargs) -> None:
+    if "url" in kwargs and kwargs["url"]:
+        kwargs = dict(kwargs)
+        kwargs["url"] = redact_secret_url(kwargs["url"])
+    if "error" in kwargs and kwargs["error"]:
+        kwargs = dict(kwargs)
+        kwargs["error"] = redact_secret_url(str(kwargs["error"]))
+    if "message" in kwargs and kwargs["message"]:
+        kwargs = dict(kwargs)
+        kwargs["message"] = redact_secret_url(str(kwargs["message"]))
     with _lock:
         _state.update(kwargs)
 
@@ -484,7 +597,7 @@ def _run(url: str, dest: Path) -> None:
             error="",
         )
     except Exception as exc:
-        _set(status="error", error=str(exc)[:500], message="Preuzimanje nije uspjelo.", speed=0, speed_label="")
+        _set(status="error", error=download_error_message(exc), message="Preuzimanje nije uspjelo.", speed=0, speed_label="")
 
 
 def _run_bundle(jobs: list[dict], label: str, grand_total: int) -> None:
@@ -548,7 +661,7 @@ def _run_bundle(jobs: list[dict], label: str, grand_total: int) -> None:
             error="",
         )
     except Exception as exc:
-        _set(status="error", error=str(exc)[:500], message="Preuzimanje paketa nije uspjelo.")
+        _set(status="error", error=download_error_message(exc), message="Preuzimanje paketa nije uspjelo.")
 
 
 PARALLEL_CONNECTIONS = 8
@@ -588,7 +701,7 @@ def _connection_count(total: int, chunk_size: int) -> int:
 
 
 def _request(url: str, headers: dict, timeout: int = FETCH_TIMEOUT):
-    req = urllib.request.Request(url, headers=headers, method="GET")
+    req = urllib.request.Request(with_civitai_token(url), headers=headers, method="GET")
     return urllib.request.urlopen(req, timeout=timeout)
 
 
@@ -629,7 +742,7 @@ def probe_download(url: str) -> dict:
     info = {"url": url, "final_url": url, "total": 0, "accept_ranges": False, "etag": ""}
     # 1) HEAD
     try:
-        req = urllib.request.Request(url, headers=_base_headers(), method="HEAD")
+        req = urllib.request.Request(with_civitai_token(url), headers=_base_headers(), method="HEAD")
         with urllib.request.urlopen(req, timeout=PROBE_TIMEOUT) as resp:
             info["final_url"] = resp.geturl() or url
             info["etag"] = (resp.headers.get("ETag") or "").strip()
@@ -984,7 +1097,7 @@ def _download_single(
         try:
             _verify_download(tmp, expected_size or file_total or 0, expected_sha)
         except Exception as exc:
-            _set(status="error", error=str(exc)[:500], message="Provjera datoteke nije uspjela.", speed=0, speed_label="")
+            _set(status="error", error=download_error_message(exc), message="Provjera datoteke nije uspjela.", speed=0, speed_label="")
             return written, resumed, file_total or written
         tmp.replace(dest)
         _clear_chunk_map(tmp)
@@ -1037,7 +1150,7 @@ def _download_parallel(
         try:
             _verify_download(tmp, expected_size or file_total, expected_sha)
         except Exception as exc:
-            _set(status="error", error=str(exc)[:500], message="Provjera datoteke nije uspjela.", speed=0, speed_label="")
+            _set(status="error", error=download_error_message(exc), message="Provjera datoteke nije uspjela.", speed=0, speed_label="")
             return _done_bytes(done), resumed, file_total
         tmp.replace(dest)
         _clear_chunk_map(tmp)
@@ -1178,7 +1291,7 @@ def _download_parallel(
         return written_holder["n"], resumed, file_total
     if error_holder and not fallback["flag"]:
         err = error_holder[0]
-        _set(status="error", error=str(err)[:500], message="Preuzimanje nije uspjelo.", speed=0, speed_label="")
+        _set(status="error", error=download_error_message(err), message="Preuzimanje nije uspjelo.", speed=0, speed_label="")
         return written_holder["n"], resumed, file_total
 
     got = _done_bytes(done)
@@ -1195,7 +1308,7 @@ def _download_parallel(
     try:
         _verify_download(tmp, expected_size or file_total, expected_sha)
     except Exception as exc:
-        _set(status="error", error=str(exc)[:500], message="Provjera datoteke nije uspjela.", speed=0, speed_label="")
+        _set(status="error", error=download_error_message(exc), message="Provjera datoteke nije uspjela.", speed=0, speed_label="")
         return got, resumed, file_total
     tmp.replace(dest)
     _clear_chunk_map(tmp)

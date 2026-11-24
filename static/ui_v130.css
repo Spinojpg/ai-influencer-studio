@@ -237,7 +237,12 @@ textarea:focus, input:focus, select:focus { border-color: rgba(184, 147, 255, 0.
 .v11-slot .v11-inline > label:has(> input[type="checkbox"]) { display: inline-flex; align-items: center; gap: 6px; }
 .v11-slot .v11-inline > select { flex: 1; min-width: 160px; }
 .v11-slot .v11-grid3 label { display: grid; gap: 4px; }
-.v11-lora-row { grid-template-columns: minmax(0, 1fr) 96px 40px 32px; }
+.v11-lora-row { grid-template-columns: minmax(0, 1fr) 90px 62px 32px; }
+.v11-lora-row input[type="number"] { width: 62px; min-width: 0; padding: 4px 6px; }
+.gen-lora-field { margin: 8px 0 12px; }
+.gen-lora-field .lbl { margin-bottom: 6px; }
+.gen-lora-field .js-lora-stack .gst-add,
+.js-lora-stack .gst-add { margin-top: 4px; }
 
 /* Detail LoRA prekidači (1 klik) */
 .detail-toggles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }

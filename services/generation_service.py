@@ -546,9 +546,11 @@ DETAIL_LORA_PRESETS = [
     {"key": "skin", "label": "Prirodna koža", "lora": "ostris_photorealistic_slider_xl.safetensors", "weight": 0.5,
      "hint": "Photorealistic slider: prirodnija tekstura kože i izgled prave fotografije."},
     {"key": "detail", "label": "Fini detalji", "lora": "add_detail_xl.safetensors", "weight": 0.4,
-     "hint": "Detail Tweaker XL: oštrije oči, kosa i tkanina. Više od 0,6 zna izgledati umjetno."},
+     "hint": "Detail Tweaker XL: oštrije oči, kosa i tkanina. Preporuka 0,5–1,5 (pozitivno dodaje, negativno smanjuje detalje); 1-klik ostaje 0,4 da ne pretjera."},
     {"key": "light", "label": "Prirodni kontrast", "lora": "sdxl_offset_example_lora_1.0.safetensors", "weight": 0.35,
      "hint": "Offset noise (Stability AI): dublje sjene i manje „ravno” AI svjetlo."},
+    {"key": "skin_realism", "label": "Realistična koža (Skin Realism)", "lora": "skin_realism_xl.safetensors", "weight": 0.5,
+     "hint": "Skin Realism: prirodna tekstura kože i nesavršenosti. Preporuka 0,3–0,7 (zadano 0,5); izbjegavaj 1,0. U prompt možeš dodati okidač: Detailed natural skin and blemishes without-makeup and acne."},
 ]
 
 

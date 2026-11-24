@@ -59,7 +59,7 @@ Izgled je prerađen, a funkcije su ostale iste: sve kontrole, prečaci i API-ji 
 1. **Model i sampler**: model, LoRA osobe i jačina, sampler, scheduler, CFG (auto ili ručno), FreeU_V2.
 2. **Format i hires**: broj slika, Hires pass i njegove postavke (skala 1,2–1,6, denoise 0,25–0,5, koraci 4–16).
 3. **Lice i konzistencija**: jačina referentne slike (IP-Adapter), Face Detailer i njegove postavke, IP-Adapter / InstantID i jačina, **8 GB zaštita**.
-4. **LoRA i detalji**: 1 klik SFW detail LoRA-e (Prirodna koža 0,5 · Fini detalji 0,4 · Prirodni kontrast 0,35; preuzimaju se u Modeli → Preporučene SDXL LoRA-e, a ako nedostaju, preskaču se uz poruku) i LoRA stack (do 5).
+4. **LoRA i detalji**: 1 klik SFW detail LoRA-e (Prirodna koža 0,5 · Fini detalji 0,4 · Prirodni kontrast 0,35 · Realistična koža 0,5; preuzimaju se u Modeli → Preporučene SDXL LoRA-e, a ako nedostaju, preskaču se uz poruku) i LoRA stack (do 5, jačina od −2 do 2). Isti stack je i na glavnom ekranu Generiranja (odjeljak **LoRA**, gumb **+ Dodaj LoRA**).
 5. **Prompt, seed i ostalo**: Dodatno uz izgled, težina izgleda, seed, negativni prompt, oznake kvalitete, predložak sadržaja i serija u redu čekanja.
 
 Uz svaku opciju je „?”: prijeđi mišem, fokusiraj tipkovnicom ili klikni za kratko objašnjenje (Escape zatvara).
@@ -159,7 +159,7 @@ Vlastita LoRA lica osobe, istrenirana izravno u Studiju i prilagođena za **RX 6
 
 ## 5. Preporučene SDXL LoRA-e (realizam i detalji)
 
-Sve su SFW i služe samo za kvalitetu slike. Idu u `models\loras`.
+Sve su SFW i služe samo za kvalitetu slike. Idu u `models\loras`. Skin Realism se preuzima s Civitaija; ako preuzimanje zatraži prijavu, upiši `CIVITAI_TOKEN` u `data/.env` (ključ s https://civitai.com/user/account).
 
 | LoRA | Datoteka | Veličina | Preporučena jačina |
 |---|---|---|---|
@@ -169,6 +169,7 @@ Sve su SFW i služe samo za kvalitetu slike. Idu u `models\loras`.
 | Offset noise (Stability AI) | sdxl_offset_example_lora_1.0.safetensors | ~50 MB | 0,3–0,6 |
 | Nice hands (ntc-ai) | ntc_nice_hands_xl.safetensors | ~9 MB | 0,5–1,5 |
 | Detail Tweaker XL | add_detail_xl.safetensors | ~228 MB | 0,5–1,5 |
+| Realistična koža (Skin Realism) | skin_realism_xl.safetensors | ~218 MB | 0,3–0,7 |
 
 ---
 

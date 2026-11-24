@@ -1,5 +1,10 @@
 # Promjene
 
+## 1.3.6 — 2026-11-24
+- Na glavnom ekranu Generiranja je odjeljak LoRA s gumbom + Dodaj LoRA (ista lista kao u Napredno, jačina od −2 do 2; LoRA osobe i dalje ide zasebno).
+- U kartici Modeli je dodana Realistična koža (Skin Realism, SDXL) za preuzimanje; Detail Tweaker XL je već bio u katalogu (Hugging Face).
+- Preuzimanja s Civitaija podržavaju opcionalni CIVITAI_TOKEN iz data/.env (dodaje se kao ?token=, nikad se ne ispisuje).
+
 ## 1.3.5 — 2026-11-24
 - LoRA se sada sprema nakon svake epohe (čuvaju se zadnje 3), pa zastoj više ne briše sav napredak.
 - Ako trening stane, „Pokušaj ponovno” nudi nastavak od zadnje epohe (kvačica „Nastavi od epohe N”, zadano uključena).

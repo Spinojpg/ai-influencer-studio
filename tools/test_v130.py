@@ -187,6 +187,12 @@ def test_detail_loras():
     check(st == [] and notes == [], "bez prekidača: ništa")
     for d in gs.DETAIL_LORA_PRESETS:
         check(not BANNED.search(json.dumps(d)), f"detail preset {d['key']} je SFW")
+    keys = [d["key"] for d in gs.DETAIL_LORA_PRESETS]
+    check(keys == ["skin", "detail", "light", "skin_realism"], f"4 detail preseta ({keys})")
+    sr = next(d for d in gs.DETAIL_LORA_PRESETS if d["key"] == "skin_realism")
+    check(sr["lora"] == "skin_realism_xl.safetensors" and abs(sr["weight"] - 0.5) < 1e-9, "Skin Realism preset 0,5")
+    st, notes = gs.add_detail_loras([], {"detail_loras": ["skin_realism"]}, "sdxl", available=lambda n, f=None: True)
+    check(st and st[0]["name"] == "skin_realism_xl.safetensors" and st[0]["detail"] == "skin_realism", "skin_realism se dodaje u stack")
 
 
 def test_plan_integration():
@@ -245,7 +251,7 @@ def test_ui_options():
     d = o["defaults"]
     check(abs(d["hires_scale"] - 1.33) < 1e-9 and abs(d["hires_denoise"] - 0.35) < 1e-9 and d["hires_steps"] == 8, "zadani hires 1,33 / 0,35 / 8")
     check([p["key"] for p in o["quality_profiles"]] == ["realism", "fast", "turbo"], "profili u opcijama")
-    check(len(o["detail_loras"]) == 3 and all("available" in x for x in o["detail_loras"]), "detail LoRA-e s 'available'")
+    check(len(o["detail_loras"]) == 4 and all("available" in x for x in o["detail_loras"]), "detail LoRA-e s 'available'")
     check(o["vram_guard"]["fd_max_denoise"] == 0.5, "vram_guard granice")
 
 
@@ -488,6 +494,54 @@ def test_http():
 
 # ---------------------------------------------------------------- statičke provjere
 
+
+def test_catalog_and_gen_lora_ui():
+    print("== katalog Skin Realism / Detail Tweaker i LoRA na Generiranju ==")
+    import model_download
+    skin = model_download.curated_by_id("lora-skin-realism-xl")
+    tw = model_download.curated_by_id("lora-detail-tweaker-xl")
+    check(skin and skin["kind"] == "lora" and skin["arch"] == "sdxl" and model_download.dest_dir_for(skin["kind"]).name == "loras", "Skin Realism: lora / SDXL / models/loras")
+    check(skin["filename"] == "skin_realism_xl.safetensors" and skin["size_bytes"] == 228459148, "Skin Realism datoteka i veličina")
+    check(skin["url"].startswith("https://civitai.com/api/download/models/340833"), "Skin Realism Civitai URL (REWORKED)")
+    check((skin.get("sha256") or "").lower() == "275fab00cb4458dd916ba760c5c37e339d0d5db5f3e245838858f71469a3cec1", "Skin Realism sha256")
+    check(tw and tw["filename"] == "add_detail_xl.safetensors" and tw["url"].startswith("https://huggingface.co/"), "Detail Tweaker ostaje na Hugging Faceu")
+    prev = os.environ.get("CIVITAI_TOKEN")
+    os.environ["CIVITAI_TOKEN"] = "secret-test-token-xyz"
+    try:
+        raw = "https://civitai.com/api/download/models/340833?fileId=270833"
+        authed = model_download.with_civitai_token(raw)
+        check("token=secret-test-token-xyz" in authed and "fileId=270833" in authed, "CIVITAI_TOKEN se dodaje kao ?token=")
+        check("secret-test-token-xyz" not in model_download.redact_secret_url(authed), "token se ne vidi u redact_secret_url")
+        check(model_download.with_civitai_token("https://huggingface.co/x") == "https://huggingface.co/x", "HF URL ostaje bez tokena")
+        model_download._set(url=authed, error="fail " + authed, message="msg " + authed)
+        snap = model_download.snapshot()
+        blob = json.dumps(snap)
+        check("secret-test-token-xyz" not in blob, "snapshot ne sadrži CIVITAI_TOKEN")
+        msg = model_download.download_error_message(urllib.request.HTTPError(raw, 401, "Unauthorized", hdrs=None, fp=None), raw)
+        check("CIVITAI_TOKEN" in msg and "secret-test-token-xyz" not in msg, "401 poruka spominje CIVITAI_TOKEN, ne vrijednost")
+    finally:
+        if prev is None:
+            os.environ.pop("CIVITAI_TOKEN", None)
+        else:
+            os.environ["CIVITAI_TOKEN"] = prev
+    # iz datoteke data/.env, ako env nije postavljen
+    envf = TMP / "data" / ".env"
+    envf.write_text("CIVITAI_TOKEN=from-file-token\n", encoding="utf-8")
+    os.environ.pop("CIVITAI_TOKEN", None)
+    try:
+        check(model_download.civitai_token() == "from-file-token", "CIVITAI_TOKEN iz data/.env")
+    finally:
+        envf.unlink(missing_ok=True)
+        os.environ.pop("CIVITAI_TOKEN", None)
+    html = (ROOT / "index.html").read_text(encoding="utf-8")
+    v11 = (ROOT / "static" / "v11.js").read_text(encoding="utf-8")
+    check('id="genLoraField"' in html and 'id="genLoraStack"' in html and "class=\"js-lora-stack\"" in html, "Generiranje: odjeljak LoRA")
+    check(">LoRA<" in html.split('id="genLoraField"', 1)[1][:400], "naslov odjeljka je LoRA")
+    check("+ Dodaj LoRA" in v11 and 'min="-2"' in v11 and 'max="2"' in v11 and "-str-num" in v11, "stack: + Dodaj LoRA, jačina -2..2, brojčano polje")
+    check("class=\"js-lora-stack\"" in v11 and "renderStackUi: renderStackUi" in v11, "Napredno i Generiranje dijele isti stack")
+    check("LoRA osobe" in html, "LoRA osobe i dalje postoji zasebno")
+
+
 def test_static():
     print("== statičke provjere UI-ja, sadržaja i pakiranja ==")
     html = (ROOT / "index.html").read_text(encoding="utf-8")
@@ -535,6 +589,7 @@ def main():
     test_detail_loras()
     test_plan_integration()
     test_ui_options()
+    test_catalog_and_gen_lora_ui()
     test_migration()
     test_rating_sync()
     test_gpu_parsing()

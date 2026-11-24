@@ -871,6 +871,11 @@
               <span class="turbo-badge" id="activeTurboBadge" hidden>Turbo</span>
             </div>
           </div>
+          <div class="field gen-lora-field" id="genLoraField">
+            <label class="lbl">LoRA</label>
+            <div id="genLoraStack" class="js-lora-stack" aria-label="Dodatne LoRA-e"></div>
+            <div class="hint" id="genLoraHint">Dodatne LoRA-e uz LoRA osobe (ista lista kao u Napredno). Jačina od −2 do 2. Najviše 5. Na Turbo profilu 8 GB zaštita prima najviše 2 detail LoRA-e.</div>
+          </div>
           <button class="go" id="go" type="submit">Generiraj</button>
           <div class="profile-hint" id="qualityProfileHint" aria-live="polite"></div>
           <div class="hint go-hint" id="firstRunHint">Prvo pokretanje može trajati dulje (kompilacija u ComfyUI-ju, posebno na AMD). Ctrl+Enter pokreće.</div>
@@ -2150,6 +2155,7 @@
       const arch = currentArch;
       const field = $("loraField");
       if (field) field.hidden = arch === "krea2";
+      if ($("genLoraField")) $("genLoraField").hidden = arch === "krea2";
       if (arch === "krea2") {
         loraEl.innerHTML = '<option value="">Bez LoRA-e</option>';
         loraEl.value = "";
@@ -2184,6 +2190,7 @@
       }
       updateLoraHint(groups.compatible.length + groups.other.length);
       syncLoraStrengthUi();
+      if (window.StudioV11 && typeof window.StudioV11.renderStackUi === "function") window.StudioV11.renderStackUi();
     }
     async function refreshLoras(showMsg) {
       const btn = $("loraRefresh");

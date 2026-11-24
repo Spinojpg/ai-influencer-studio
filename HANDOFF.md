@@ -313,6 +313,7 @@ Idu u `models\loras`:
 | Offset noise (Stability AI) | `sdxl_offset_example_lora_1.0.safetensors` | ~50 MB | 0,3–0,6 |
 | Nice hands (ntc-ai) | `ntc_nice_hands_xl.safetensors` | ~9 MB | 0,5–1,5 |
 | Detail Tweaker XL | `add_detail_xl.safetensors` | ~228 MB | 0,5–1,5 |
+| Realistična koža (Skin Realism) | `skin_realism_xl.safetensors` | ~218 MB | 0,3–0,7 |
 
 LoRA izbornik (od 1.0.19) čita `models\loras` s podmapama i spaja s popisom iz ComfyUI-ja. Ništa se ne skriva: prvo kompatibilne s odabranim modelom, ostale pod „Ostalo / možda nekompatibilno“. Interna Turbo LoRA ide samo preko Brzina → Turbo.
 

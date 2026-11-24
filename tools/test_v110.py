@@ -71,11 +71,16 @@ def test_package_and_safety():
         check(not bad, f"{p.relative_to(ROOT)}: bez eksplicitnih pojmova {bad[:3]}")
     import model_download
     loras = [c for c in model_download.CURATED if c.get("group") == model_download.CURATED_LORA_GROUP]
-    check(len(loras) == 6, f"6 preporučenih SDXL LoRA-a ({len(loras)})")
+    check(len(loras) == 7, f"7 preporučenih SDXL LoRA-a ({len(loras)})")
     for c in loras:
-        check(c["kind"] == "lora" and c["arch"] == "sdxl" and c["url"].startswith("https://huggingface.co/") and " " not in c["filename"]
+        host_ok = c["url"].startswith("https://huggingface.co/") or c["url"].startswith("https://civitai.com/")
+        check(c["kind"] == "lora" and c["arch"] == "sdxl" and host_ok and " " not in c["filename"]
               and c["filename"].endswith(".safetensors") and c["size_bytes"] > 1_000_000, f"LoRA {c['id']} ispravna")
         check(not BANNED.search(c["name"] + c["url"] + c["note"]), f"LoRA {c['id']} SFW")
+    skin = next((c for c in loras if c["id"] == "lora-skin-realism-xl"), None)
+    tw = next((c for c in loras if c["id"] == "lora-detail-tweaker-xl"), None)
+    check(skin and skin["filename"] == "skin_realism_xl.safetensors" and "340833" in skin["url"] and skin.get("sha256"), "Skin Realism u katalogu (Civitai REWORKED)")
+    check(tw and tw["filename"] == "add_detail_xl.safetensors" and tw["url"].startswith("https://huggingface.co/"), "Detail Tweaker XL u katalogu (Hugging Face)")
     check(model_download.dest_dir_for("lora").name == "loras", "LoRA ide u models/loras")
     from services import generation_service, crm_service
     for t in generation_service.DEFAULT_TEMPLATES:

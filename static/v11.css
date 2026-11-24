@@ -22,8 +22,9 @@
 .v11-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
 .v11-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 14px; }
 @media (max-width: 720px) { .v11-grid2, .v11-grid3 { grid-template-columns: 1fr; } }
-.v11-lora-row { display: grid; grid-template-columns: 1fr 120px 46px 32px; gap: 8px; align-items: center; margin-bottom: 6px; }
+.v11-lora-row { display: grid; grid-template-columns: minmax(0, 1fr) 110px 62px 32px; gap: 8px; align-items: center; margin-bottom: 6px; }
 .v11-lora-row input[type=range] { width: 100%; }
+.v11-lora-row input[type=number] { width: 62px; min-width: 0; padding: 4px 6px; }
 .v11-lora-row .btn { padding: 4px 8px; }
 .v11-queue { margin-top: 18px; }
 .v11-job { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
