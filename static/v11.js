@@ -115,9 +115,36 @@
     });
     return html;
   }
-  function rangeLabel(label, id, valId, min, max, step, val, dp) {
-    return "<label>" + label + ' <span class="range-val" id="' + valId + '">' + num(val, 0).toFixed(dp) + '</span><input type="range" id="' + id + '" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '" /></label>';
+  function rangeLabel(label, id, valId, min, max, step, val, dp, tipText) {
+    return '<label class="rl"><span class="rl-head"><span class="rl-name">' + label + "</span>" + (tipText ? tip(tipText, label) : "") + '<span class="range-val" id="' + valId + '">' + num(val, 0).toFixed(dp) + '</span></span><input type="range" id="' + id + '" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '" /></label>';
   }
+  /* 1.3.0: kratko objašnjenje uz svaku naprednu opciju (popover radi ui_v130.js: hover, fokus i klik) */
+  function tip(text, label) {
+    return '<button type="button" class="tip" data-tip="' + esc(text) + '" aria-label="Objašnjenje: ' + esc(label || "opcija") + '">?</button>';
+  }
+  const TIPS = {
+    tpl: "Gotov recept za scenu: dopisuje prompt prije i poslije tvoje scene te postavlja format i postavke. Javni teaser je za feed, Premium za ekskluzivni (SFW) sadržaj.",
+    sampler: "Algoritam koji iz šuma crta sliku. dpmpp_2m_sde + karras daje prirodne detalje; dpmpp_2m je malo brži; euler + sgm_uniform je za Turbo (8 koraka). dpmpp_sde je 2× sporiji po koraku.",
+    scheduler: "Raspored jačine šuma po koracima. karras je najbolji za realizam u 20–30 koraka, sgm_uniform za Turbo/Hyper LoRA-e.",
+    cfg: "Koliko strogo model prati prompt. Previsok CFG (6+) daje „prepečenu”, plastičnu kožu i prezasićene boje. Realizam: SDXL 4,0–4,5, SD 1.5 ~5; Turbo 1,5–2,5. Bez kvačice vrijedi profil kvalitete.",
+    freeu: "Besplatno pojačanje detalja unutar modela (bez dodatnog VRAM-a i vremena). Ako slike izgledaju pretjerano oštro ili „AI”, isključi.",
+    hiresScale: "Koliko se baza poveća u drugom prolazu. 1,25–1,35× je brzo i stane u 8 GB; 8 GB zaštita sama smanji skalu ako bi slika bila prevelika.",
+    hiresDenoise: "Koliko drugi prolaz smije mijenjati sliku. 0,32–0,38 dodaje oštrinu i teksturu kože bez mijenjanja kompozicije; iznad 0,45 se pojave novi detalji i artefakti.",
+    hiresSteps: "Koraci drugog prolaza. 6–10 je dovoljno uz nizak denoise; više samo produžuje generiranje.",
+    refMode: "Kako se drži isto lice: IP-Adapter (do 8 slika s profila, lakši) ili InstantID (jedna referenca, jači identitet, SDXL). Automatski bira ono što je instalirano.",
+    iid: "Jačina InstantID identiteta. 0,6–0,85 je prirodno; iznad 1,0 lice postaje ukočeno i „zalijepljeno”. Uz InstantID 8 GB zaštita smanjuje hires.",
+    fdDenoise: "Koliko Face Detailer smije preslikati lice. 0,3–0,45 = prirodno; više mijenja crte lica. 8 GB zaštita ograničava na 0,5.",
+    fdGuide: "Veličina na kojoj se lice ponovno crta. 384–512 je oštro i sigurno za 8 GB.",
+    fdMax: "Najveća veličina izreza lica. 768 je gornja sigurna granica za RX 6600.",
+    fdBbox: "Koliko siguran mora biti detektor da je to lice. Niže hvata i manja/profilna lica, ali i lažne pogotke.",
+    guard: "Automatski sprječava „out of memory” na RX 6600: smanji hires skalu, uz InstantID + Face Detailer isključi hires, uz SDXL + hires generira 1 sliku, prebaci VAE na tiled. Ništa ne briše iz tvojih postavki.",
+    detail: "Kurirane SFW LoRA-e za realizam (preuzimaju se u kartici Modeli). Dodaju se na kraj LoRA stacka s umjerenom jačinom; uz Turbo najviše dvije.",
+    stack: "Do 5 LoRA-a odjednom, svaka s vlastitom jačinom. Popunjava se iz profila osobe; više LoRA-a = sporije i veći rizik od „AI” izgleda.",
+    series: "Dodaje više poslova u red čekanja. Red radi jedan po jedan posao (sigurno za 8 GB) i preživi restart Studija.",
+    seedMode: "Nasumični: svaka slika nova. Uzastopni: seed, seed+1… — dobro za varijacije iste scene.",
+    multiTpl: "Isti opis scene kroz više predložaka odjednom (npr. kafić, ulica, studio) — po jedan posao za svaki."
+  };
+  function slot(id) { return $(id) || $("v11Gen"); }
   async function renderGen() {
     const box = $("v11Gen");
     if (!box) return;
@@ -126,46 +153,56 @@
     const n = o.nodes || {};
     const fd = d.face_detailer || {};
     const sel = (id, list, cur) => '<select id="' + id + '">' + (list || []).map((s) => "<option" + (s === cur ? " selected" : "") + ">" + s + "</option>").join("") + "</select>";
-    box.innerHTML = ""
-      + '<div class="field"><label class="lbl" for="v11Tpl">Predložak sadržaja</label>'
+    const modelHtml = '<div class="v11-grid2">'
+      + '<div class="field"><label class="lbl" for="v11Sampler">Sampler ' + tip(TIPS.sampler, "Sampler") + "</label>" + sel("v11Sampler", o.samplers, d.sampler || "dpmpp_2m_sde") + "</div>"
+      + '<div class="field"><label class="lbl" for="v11Scheduler">Scheduler ' + tip(TIPS.scheduler, "Scheduler") + "</label>" + sel("v11Scheduler", o.schedulers, d.scheduler || "karras") + "</div>"
+      + "</div>"
+      + '<div class="field"><label class="lbl" for="v11Cfg">CFG ' + tip(TIPS.cfg, "CFG") + ' <span class="range-val" id="v11CfgVal">auto</span></label>'
+      + '<div class="v11-inline"><label><input type="checkbox" id="v11CfgOn" /> Ručno</label><input type="range" id="v11Cfg" min="1.5" max="8" step="0.1" value="4.3" disabled /></div>'
+      + '<div class="hint">Auto = profil kvalitete (Realizam 4,3 · Brzo 4,0 · Turbo 2,2). Niži CFG = manje plastičan izgled.</div></div>'
+      + '<div class="field"><label class="lbl"><input type="checkbox" id="v11Freeu" checked /> FreeU_V2 ' + tip(TIPS.freeu, "FreeU") + " " + badge(n.freeu_v2, "čvor postoji", "nema čvora – preskače se") + "</label></div>";
+    const hiresHtml = '<div class="field"><label class="lbl">Hires postavke (kad je uključen)</label><div class="v11-grid3">'
+      + rangeLabel("Skala", "v11HiresScale", "v11HsVal", 1.2, 1.6, 0.01, num(d.hires_scale, 1.33), 2, TIPS.hiresScale)
+      + rangeLabel("Denoise", "v11HiresDenoise", "v11HdVal", 0.25, 0.5, 0.01, num(d.hires_denoise, 0.35), 2, TIPS.hiresDenoise)
+      + rangeLabel("Koraci", "v11HiresSteps", "v11HstVal", 4, 16, 1, num(d.hires_steps, 8), 0, TIPS.hiresSteps)
+      + '</div><div class="hint">Drugi prolaz ide kroz VAEDecodeTiled kad je VAE način „tiled”.</div></div>';
+    const faceHtml = '<div class="field"><label class="lbl" for="v11RefMode">Konzistentnost lica ' + tip(TIPS.refMode, "Konzistentnost lica") + "</label>"
+      + '<div class="v11-inline"><select id="v11RefMode"><option value="">Kao na profilu osobe</option><option value="auto">Automatski</option><option value="ipadapter">IP-Adapter</option><option value="instantid">InstantID</option></select>'
+      + "IP-Adapter " + badge(n.ipadapter, "spreman", "nedostaje") + " InstantID " + badge(n.instantid, "spreman", "nedostaje") + "</div>"
+      + rangeLabel("Jačina InstantID", "v11IidWeight", "v11IidVal", 0.3, 1.2, 0.05, 0.8, 2, TIPS.iid)
+      + '<div class="hint">Automatski: IP-Adapter ako je instaliran, inače InstantID (SDXL, treba ComfyUI_InstantID + antelopev2). Na AMD-u InsightFace radi na CPU-u.</div></div>'
+      + '<div class="field"><label class="lbl">Face Detailer postavke (kad je uključen)</label><div class="v11-grid2">'
+      + rangeLabel("Denoise", "v11FdDenoise", "v11FdDVal", 0.1, 0.8, 0.02, num(fd.denoise, 0.4), 2, TIPS.fdDenoise)
+      + rangeLabel("Guide size", "v11FdGuide", "v11FdGVal", 256, 768, 32, num(fd.guide_size, 384), 0, TIPS.fdGuide)
+      + rangeLabel("Max size", "v11FdMax", "v11FdMVal", 512, 1024, 64, num(fd.max_size, 768), 0, TIPS.fdMax)
+      + rangeLabel("Prag detekcije", "v11FdBbox", "v11FdBVal", 0.2, 0.9, 0.05, num(fd.bbox_threshold, 0.5), 2, TIPS.fdBbox)
+      + "</div></div>"
+      + '<div class="field guard-field"><label class="lbl"><input type="checkbox" id="v11VramGuard" checked /> 8 GB zaštita (RX 6600) ' + tip(TIPS.guard, "8 GB zaštita") + "</label>"
+      + '<div class="hint">Face Detailer + InstantID + Hires zajedno? Zaštita sama složi kombinaciju koja stane u 8 GB i javi što je promijenila.</div></div>';
+    const dl = o.detail_loras || [];
+    const loraHtml = '<div class="field"><label class="lbl">Detail LoRA-e (SFW, 1 klik) ' + tip(TIPS.detail, "Detail LoRA-e") + "</label>"
+      + '<div class="detail-toggles" id="v11DetailLoras">' + (dl.length ? dl.map((x) => '<label class="dtoggle' + (x.available ? "" : " missing") + '" title="' + esc(x.hint || "") + '">'
+        + '<input type="checkbox" value="' + esc(x.key) + '" /><span class="dt-name">' + esc(x.label) + '</span><span class="dt-meta">' + (x.available ? "jačina " + num(x.weight, 0.4).toFixed(2) : "nije preuzeta") + "</span></label>").join("") : '<span class="hint">Nema kuriranih detail LoRA-a.</span>') + "</div>"
+      + '<div class="hint">Preuzimanje: Modeli → „Preporučene SDXL LoRA-e”. Ako datoteka nedostaje, preskače se uz poruku (ne ruši generiranje).</div></div>'
+      + '<div class="field"><label class="lbl">LoRA stack (do ' + (o.max_loras || 5) + ") " + tip(TIPS.stack, "LoRA stack") + '</label><div id="v11Stack"></div>'
+      + '<div class="hint">Popunjava se iz profila osobe. Jedna LoRA iz Napredno i dalje radi kao prije.</div></div>';
+    const miscHtml = '<div class="field"><label class="lbl" for="v11Tpl">Predložak sadržaja ' + tip(TIPS.tpl, "Predložak") + "</label>"
       + '<div class="v11-inline"><select id="v11Tpl">' + tplOptions("") + '</select><button type="button" class="btn" id="v11TplManage">Uredi predloške</button></div>'
       + '<div class="hint" id="v11TplHint">Javni teaser (lifestyle, moda, BTS) i Premium sadržaj (studio glamour, editorial, putovanja, personalizirani portreti). Predložak dopunjuje prompt, format i postavke.</div>'
       + '<div id="v11TplEditor" hidden></div></div>'
-      + '<div class="v11-grid2">'
-      + '<div class="field"><label class="lbl" for="v11Sampler">Sampler</label>' + sel("v11Sampler", o.samplers, d.sampler || "dpmpp_2m_sde") + "</div>"
-      + '<div class="field"><label class="lbl" for="v11Scheduler">Scheduler</label>' + sel("v11Scheduler", o.schedulers, d.scheduler || "karras") + "</div>"
-      + "</div>"
-      + '<div class="field"><label class="lbl" for="v11Cfg">CFG <span class="range-val" id="v11CfgVal">auto</span></label>'
-      + '<div class="v11-inline"><label><input type="checkbox" id="v11CfgOn" /> Ručno</label><input type="range" id="v11Cfg" min="3" max="8" step="0.1" value="5" disabled /></div>'
-      + '<div class="hint">Za realizam na SDXL-u 4,5–5,5. Bez kvačice vrijedi zadano za model.</div></div>'
-      + '<div class="field"><label class="lbl">Hires fix (kad je uključen u Napredno)</label><div class="v11-grid3">'
-      + rangeLabel("Skala", "v11HiresScale", "v11HsVal", 1.4, 1.5, 0.01, num(d.hires_scale, 1.45), 2)
-      + rangeLabel("Denoise", "v11HiresDenoise", "v11HdVal", 0.35, 0.45, 0.01, num(d.hires_denoise, 0.38), 2)
-      + rangeLabel("Koraci", "v11HiresSteps", "v11HstVal", 12, 15, 1, num(d.hires_steps, 14), 0)
-      + '</div><div class="hint">Drugi prolaz ide kroz VAEDecodeTiled kad je VAE način „tiled”.</div></div>'
-      + '<div class="field"><label class="lbl"><input type="checkbox" id="v11Freeu" checked /> FreeU_V2 (b1 1,3 · b2 1,4 · s1 0,9 · s2 0,2) ' + badge(n.freeu_v2, "čvor postoji", "nema čvora – preskače se") + "</label></div>"
-      + '<div class="field"><label class="lbl" for="v11RefMode">Konzistentnost lica</label>'
-      + '<div class="v11-inline"><select id="v11RefMode"><option value="">Kao na profilu osobe</option><option value="auto">Automatski</option><option value="ipadapter">IP-Adapter</option><option value="instantid">InstantID</option></select>'
-      + "IP-Adapter " + badge(n.ipadapter, "spreman", "nedostaje") + " InstantID " + badge(n.instantid, "spreman", "nedostaje") + "</div>"
-      + rangeLabel("Jačina InstantID", "v11IidWeight", "v11IidVal", 0.3, 1.2, 0.05, 0.8, 2)
-      + '<div class="hint">Automatski: IP-Adapter ako je instaliran, inače InstantID (SDXL, treba ComfyUI_InstantID + antelopev2). Na AMD-u InsightFace radi na CPU-u.</div></div>'
-      + '<div class="field"><label class="lbl">Face Detailer postavke (kad je uključen)</label><div class="v11-grid2">'
-      + rangeLabel("Denoise", "v11FdDenoise", "v11FdDVal", 0.1, 0.8, 0.02, num(fd.denoise, 0.4), 2)
-      + rangeLabel("Guide size", "v11FdGuide", "v11FdGVal", 256, 768, 32, num(fd.guide_size, 384), 0)
-      + rangeLabel("Max size", "v11FdMax", "v11FdMVal", 512, 1024, 64, num(fd.max_size, 768), 0)
-      + rangeLabel("Prag detekcije", "v11FdBbox", "v11FdBVal", 0.2, 0.9, 0.05, num(fd.bbox_threshold, 0.5), 2)
-      + "</div></div>"
-      + '<div class="field"><label class="lbl">LoRA stack (do ' + (o.max_loras || 5) + ')</label><div id="v11Stack"></div>'
-      + '<div class="hint">Popunjava se iz profila osobe. Jedna LoRA iz Napredno i dalje radi kao prije.</div></div>'
-      + '<div class="field"><label class="lbl">Serija u redu čekanja</label><div class="v11-grid2">'
+      + '<div class="field"><label class="lbl">Serija u redu čekanja ' + tip(TIPS.series, "Serija u redu čekanja") + '</label><div class="v11-grid2">'
       + '<label>Broj slika <input type="number" id="v11BatchN" min="1" max="50" value="4" /></label>'
-      + '<label>Seed <select id="v11SeedMode"><option value="random">Nasumični</option><option value="sequential">Uzastopni (seed, seed+1…)</option></select></label>'
-      + '</div><label class="lbl" style="margin-top:8px">Više predložaka odjednom (opcionalno)</label><div class="chips" id="v11MultiTpl">'
+      + '<label>Seed ' + tip(TIPS.seedMode, "Seed serije") + ' <select id="v11SeedMode"><option value="random">Nasumični</option><option value="sequential">Uzastopni (seed, seed+1…)</option></select></label>'
+      + '</div><label class="lbl" style="margin-top:8px">Više predložaka odjednom (opcionalno) ' + tip(TIPS.multiTpl, "Više predložaka") + '</label><div class="chips" id="v11MultiTpl">'
       + V.templates.map((t) => '<label class="chip"><input type="checkbox" value="' + t.id + '" /> ' + esc(t.name) + "</label>").join("") + "</div>"
       + '<div class="actions"><button type="button" class="btn primary" id="v11Enqueue">Dodaj u red</button></div>'
       + '<div class="hint">Red radi u pozadini jedan po jedan posao i preživi restart Studija.</div></div>';
+    const parts = [["v11GenModel", modelHtml], ["v11GenHires", hiresHtml], ["v11GenFace", faceHtml], ["v11GenLora", loraHtml]];
+    const own = parts.filter((p) => $(p[0])).map((p) => { $(p[0]).innerHTML = p[1]; return p[0]; });
+    box.innerHTML = parts.filter((p) => own.indexOf(p[0]) < 0).map((p) => p[1]).join("") + miscHtml;
     syncStackFromPersona(true);
     bindGen();
+    try { document.dispatchEvent(new CustomEvent("studio:gen-rendered", { detail: { options: o } })); } catch (e) { /* stari preglednik */ }
   }
   function renderStackUi() {
     const el = $("v11Stack");
@@ -199,7 +236,7 @@
     });
     if (!genBound) {
       genBound = true;
-      bindStack($("v11Gen"), "gst", (st, rerender) => { V.stack = st; V.stackTouched = true; if (rerender) renderStackUi(); });
+      bindStack($("v11GenLora") || $("v11Gen"), "gst", (st, rerender) => { V.stack = st; V.stackTouched = true; if (rerender) renderStackUi(); });
       const osoba = $("osoba");
       if (osoba) osoba.addEventListener("change", () => setTimeout(() => syncStackFromPersona(false), 0));
     }
@@ -239,7 +276,7 @@
     if (!$("v11Sampler")) return out;
     out.sampler = $("v11Sampler").value;
     out.scheduler = $("v11Scheduler").value;
-    if ($("v11CfgOn").checked) out.cfg = num($("v11Cfg").value, 5);
+    if ($("v11CfgOn").checked) out.cfg = num($("v11Cfg").value, 4.3);
     out.hires_scale = num($("v11HiresScale").value, 1.45);
     out.hires_denoise = num($("v11HiresDenoise").value, 0.38);
     out.hires_steps = num($("v11HiresSteps").value, 14);
@@ -254,6 +291,12 @@
     if (tpl) out.template_id = Number(tpl);
     const st = V.stack.filter((x) => x.name);
     if (st.length || V.stackTouched) out.loras = st;
+    // 1.3.0: RX 6600 profil kvalitete, SFW detail LoRA-e i 8 GB zaštita
+    const qb = document.querySelector("#quality button.on");
+    if (qb && qb.dataset.profile) out.quality_profile = qb.dataset.profile;
+    const dls = [...document.querySelectorAll("#v11DetailLoras input:checked")].map((i) => i.value);
+    if (dls.length) out.detail_loras = dls;
+    if ($("v11VramGuard")) out.vram_guard = $("v11VramGuard").checked;
     return out;
   }
   async function enqueueBatch() {
@@ -344,12 +387,21 @@
   });
 
   /* ---------- GALERIJA + OCJENE ---------- */
+  const RATED = {};  // gallery_id -> ocjena (da ponovno iscrtavanje rezultata ne izgubi ocjenu)
+  function ratingOf(gid) { return gid == null ? 0 : Number(RATED[String(gid)] || 0); }
+  function rateBar(r) {
+    r = Number(r || 0);
+    return '<div class="rate-bar" role="group" aria-label="Ocjena slike">'
+      + '<button type="button" class="rate-btn good' + (r > 0 ? " on" : "") + '" data-rate="1" title="Dobra – ide u LoRA dataset osobe" aria-pressed="' + (r > 0) + '">Dobra</button>'
+      + '<button type="button" class="rate-btn bad' + (r < 0 ? " on" : "") + '" data-rate="-1" title="Loša – ne ide u LoRA dataset" aria-pressed="' + (r < 0) + '">Loša</button></div>';
+  }
   function galCard(it) {
     const r = Number(it.rating || 0);
+    RATED[String(it.id)] = r;
     const dl = it.url + (it.url.indexOf("?") >= 0 ? "&" : "?") + "download=1";
-    return '<figure class="shot" data-gid="' + it.id + '" data-filename="' + esc(it.filename) + '" data-subfolder="' + esc(it.subfolder || "") + '" data-type="' + esc(it.type || "output") + '" data-seed="' + esc(it.seed || "") + '" data-prompt="' + esc(it.prompt || "") + '">'
+    return '<figure class="shot gal-shot' + (r > 0 ? " rated-good" : (r < 0 ? " rated-bad" : "")) + '" data-gid="' + it.id + '" data-persona="' + esc(it.persona_id || "") + '" data-filename="' + esc(it.filename) + '" data-subfolder="' + esc(it.subfolder || "") + '" data-type="' + esc(it.type || "output") + '" data-seed="' + esc(it.seed || "") + '" data-prompt="' + esc(it.prompt || "") + '">'
       + (r ? '<span class="v11-rate v11-badge ' + (r > 0 ? "ok" : "bad") + '">' + (r > 0 ? "Dobra" : "Loša") + "</span>" : "")
-      + '<div class="shot-media"><img src="' + esc(it.url) + '" alt="" loading="lazy" decoding="async" data-full="' + esc(it.url) + '" data-dl="' + esc(dl) + '" /></div>'
+      + '<div class="shot-media"><img src="' + esc(it.url) + '" alt="" loading="lazy" decoding="async" data-full="' + esc(it.url) + '" data-dl="' + esc(dl) + '" />' + rateBar(r) + "</div>"
       + '<figcaption><span class="shot-cap">' + (it.source === "character_sheet" ? "Character sheet · " : "") + (it.seed ? "seed " + esc(it.seed) : "") + "</span></figcaption></figure>";
   }
   async function loadGallery(reset) {
@@ -375,33 +427,125 @@
     if (g) g.classList.toggle("on", Number(r) > 0);
     if (b) b.classList.toggle("on", Number(r) < 0);
   }
-  async function rate(rating) {
-    const s = V.lastShot;
-    if (!s) { toast("Otvori sliku iz galerije ili rezultata.", true); return; }
+  function shotFromFig(fig) {
+    return { gid: fig.dataset.gid || "", filename: fig.dataset.filename || "", subfolder: fig.dataset.subfolder || "", type: fig.dataset.type || "output", seed: fig.dataset.seed || "", prompt: fig.dataset.prompt || "", persona: fig.dataset.persona || "" };
+  }
+  function syncMsg(ls, rating) {
+    const st = ls && (ls.action || ls.status);
+    if (rating > 0) {
+      if (st === "added") return "Dobra ✓ — dodana u LoRA dataset osobe" + (ls.count ? " (" + ls.count + " slika)" : "") + ".";
+      if (st === "exists") return "Dobra ✓ — već je u LoRA datasetu.";
+      if (st === "deferred") return "Dobra ✓ — trening je u tijeku, uvezi „Dobra” slike kasnije.";
+      if (st === "skipped") return "Dobra ✓ — nije dodana u dataset: " + (ls.reason || "preskočeno") + ".";
+      if (st === "none") return "Dobra ✓" + (ls && ls.reason ? " — " + ls.reason : ".");
+      return "Označeno kao dobra.";
+    }
+    if (rating < 0) return st === "removed" ? "Loša ✓ — maknuta iz LoRA dataseta." : "Označeno kao loša.";
+    return st === "removed" ? "Ocjena uklonjena i slika maknuta iz dataseta." : "Ocjena uklonjena.";
+  }
+  async function rateShot(s, rating, fig) {
+    if (!s || !s.filename) { toast("Otvori sliku iz galerije ili rezultata.", true); return null; }
     const c = C();
-    const p = c && c.selectedPersona();
+    const p = c && c.selectedPersona && c.selectedPersona();
     try {
-      const body = { rating: rating, filename: s.filename, subfolder: s.subfolder, type: s.type, prompt: s.prompt, seed: s.seed, persona_id: p ? p.id : null };
+      const body = { rating: rating, filename: s.filename, subfolder: s.subfolder, type: s.type, prompt: s.prompt, seed: s.seed, persona_id: s.persona ? Number(s.persona) : (p ? p.id : null) };
       if (s.gid) body.gallery_id = Number(s.gid);
       const d = await post("/api/gallery/rate", body);
       s.gid = d.item.id;
-      markLb(d.item.rating);
-      toast(rating > 0 ? "Označeno kao dobra – ide u LoRA dataset." : (rating < 0 ? "Označeno kao loša." : "Ocjena uklonjena."));
+      const r = Number(d.item.rating || 0);
+      RATED[String(d.item.id)] = r;
+      toast(syncMsg(d.lora_sync || d.item.lora_sync, rating));
       V.galItems = V.galItems.map((x) => (x.id === d.item.id ? d.item : x));
-      const fig = document.querySelector('#v11Gallery figure[data-gid="' + d.item.id + '"]');
-      if (fig) fig.outerHTML = galCard(d.item);
-    } catch (e) { toast(e.message, true); }
+      document.querySelectorAll('figure.shot[data-gid="' + d.item.id + '"]').forEach((f) => {
+        if (f.closest("#v11Gallery")) { f.outerHTML = galCard(d.item); return; }
+        f.querySelectorAll(".rate-btn").forEach((b) => { const on = Number(b.dataset.rate) === r && r !== 0; b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on)); });
+      });
+      if (fig && !fig.dataset.gid) {
+        fig.dataset.gid = d.item.id;
+        fig.querySelectorAll(".rate-btn").forEach((b) => { const on = Number(b.dataset.rate) === r && r !== 0; b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on)); });
+      }
+      if (V.lastShot && String(V.lastShot.gid) === String(d.item.id)) markLb(r);
+      try { document.dispatchEvent(new CustomEvent("studio:rated", { detail: { item: d.item, lora_sync: d.lora_sync || d.item.lora_sync } })); } catch (e) { /* ignore */ }
+      return d;
+    } catch (e) { toast(e.message, true); return null; }
   }
+  async function rate(rating) {
+    const s = V.lastShot;
+    if (!s) { toast("Otvori sliku iz galerije ili rezultata.", true); return; }
+    await rateShot(s, rating, null);
+  }
+  /* 1.3.0: gumbi Dobra / Loša izravno na svakoj slici (rezultati, povijest, galerija); ponovni klik briše ocjenu */
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest && e.target.closest(".rate-btn");
+    if (!btn) return;
+    const fig = btn.closest("figure.shot");
+    if (!fig) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const want = Number(btn.dataset.rate);
+    const rating = btn.classList.contains("on") ? 0 : want;
+    rateShot(shotFromFig(fig), rating, fig);
+  });
   document.addEventListener("click", (e) => {
     const fig = e.target.closest && e.target.closest("figure.shot");
     if (fig && e.target.closest("img")) {
-      V.lastShot = { gid: fig.dataset.gid || "", filename: fig.dataset.filename || "", subfolder: fig.dataset.subfolder || "", type: fig.dataset.type || "output", seed: fig.dataset.seed || "", prompt: fig.dataset.prompt || "" };
+      V.lastShot = shotFromFig(fig);
       const item = V.galItems.find((x) => String(x.id) === String(fig.dataset.gid));
       markLb(item ? item.rating : 0);
     }
   }, true);
 
   /* ---------- PREGLED ---------- */
+  /* 1.3.0: Početna — 4 glass KPI kartice sa sparkline / prsten grafikonima (SVG, bez vanjskih biblioteka) */
+  function spark(vals, color, id) {
+    const v = (vals || []).map((x) => num(x, 0));
+    if (v.length < 2) return "";
+    const W = 220, H = 56, mx = Math.max.apply(null, v.concat([1])), step = W / (v.length - 1);
+    const pts = v.map((x, i) => [i * step, H - 4 - (x / mx) * (H - 10)]);
+    // glatka krivulja (kubni Bézier kroz sredine), bez vanjskih biblioteka
+    let line = "M" + pts[0][0].toFixed(1) + " " + pts[0][1].toFixed(1);
+    for (let i = 1; i < pts.length; i++) {
+      const p0 = pts[i - 1], p1 = pts[i], mx2 = (p0[0] + p1[0]) / 2;
+      line += " C" + mx2.toFixed(1) + " " + p0[1].toFixed(1) + " " + mx2.toFixed(1) + " " + p1[1].toFixed(1) + " " + p1[0].toFixed(1) + " " + p1[1].toFixed(1);
+    }
+    const area = line + " L" + W + " " + H + " L0 " + H + " Z";
+    return '<svg class="kpi-spark" viewBox="0 0 ' + W + " " + H + '" preserveAspectRatio="none" aria-hidden="true">'
+      + '<defs><linearGradient id="' + id + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + color + '" stop-opacity="0.38"/><stop offset="1" stop-color="' + color + '" stop-opacity="0"/></linearGradient></defs>'
+      + '<path d="' + area + '" fill="url(#' + id + ')"/><path d="' + line + '" fill="none" stroke="' + color + '" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>';
+  }
+  function ring(frac, color, label) {
+    const f = Math.max(0, Math.min(1, num(frac, 0))), R = 26, L = 2 * Math.PI * R;
+    return '<svg class="kpi-ring" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="' + R + '" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="7"/>'
+      + '<circle cx="32" cy="32" r="' + R + '" fill="none" stroke="' + color + '" stroke-width="7" stroke-linecap="round" stroke-dasharray="' + (f * L).toFixed(1) + " " + L.toFixed(1) + '" transform="rotate(-90 32 32)"/>'
+      + '<text x="32" y="36" text-anchor="middle" class="ring-txt">' + esc(label) + "</text></svg>";
+  }
+  function trend(vals) {
+    const v = (vals || []).map((x) => num(x, 0));
+    const h = Math.floor(v.length / 2);
+    const a = v.slice(0, h).reduce((x, y) => x + y, 0), b = v.slice(h).reduce((x, y) => x + y, 0);
+    if (!a && !b) return '<span class="kpi-trend flat">bez promjene</span>';
+    if (!a) return '<span class="kpi-trend up">▲ novo</span>';
+    const pct = Math.round(((b - a) / a) * 100);
+    return '<span class="kpi-trend ' + (pct >= 0 ? "up" : "down") + '">' + (pct >= 0 ? "▲ " : "▼ ") + Math.abs(pct) + " %</span>";
+  }
+  function homeCard(cls, ico, eyebrow, value, sub, viz) {
+    return '<div class="kpi-card ' + cls + '"><div class="kpi-top"><span class="kpi-ico" aria-hidden="true">' + ico + '</span><span class="kpi-eyebrow">' + eyebrow + "</span></div>"
+      + '<div class="kpi-body"><div><div class="kpi-num">' + value + '</div><div class="kpi-sub">' + sub + "</div></div>" + viz + "</div></div>";
+  }
+  function renderHomeKpis(d) {
+    const el = $("v13HomeKpis");
+    if (!el) return;
+    const sum = (a) => (a || []).reduce((x, y) => x + num(y, 0), 0);
+    const crm = d.crm || {};
+    const rev = d.revenue_series || [], imgs = d.images_series || [];
+    const good = num(d.rated_good, 0), bad = num(d.rated_bad, 0);
+    const prof = num(d.profiles, 0), withLora = num(d.personas_with_lora, 0);
+    const sched = num(d.scheduled_posts, 0), today = num(d.posts_today, 0);
+    el.innerHTML = homeCard("k-violet", "€", "Prihodi", money(crm.total_revenue), money(sum(rev)) + " u 14 dana " + trend(rev), spark(rev, "#b893ff", "spRev"))
+      + homeCard("k-sky", "▣", "Slike", String(num(d.gallery_total, 0)), sum(imgs) + " novih · Dobra " + good + " · Loša " + bad + " " + trend(imgs), spark(imgs, "#6eb6ff", "spImg"))
+      + homeCard("k-mint", "◎", "Aktivne osobe", String(prof), withLora + " s LoRA-om · " + (prof - withLora > 0 ? (prof - withLora) + " bez" : "sve spremne"), ring(prof ? withLora / prof : 0, "#5ce8b0", prof ? Math.round((withLora / prof) * 100) + "%" : "0%"))
+      + homeCard("k-coral", "◷", "Zakazano", String(sched), today + " objava danas · red " + num((d.queue || {}).queued, 0), ring(sched ? Math.min(1, today / Math.max(sched, 1)) : 0, "#ff7893", String(today)));
+  }
   async function renderOverview() {
     const el = $("v11Kpis");
     if (!el) return;
@@ -421,6 +565,7 @@
       + kpi("Prihod", money(crm.total_revenue), "zabilježene kupnje")
       + kpi("Slanje poruka", auto ? "Automatsko" : "Nacrt", '<button type="button" class="btn" id="ovSendToggle">' + (auto ? "Prebaci na nacrt" : "Uključi automatsko") + "</button> · AI: " + esc(d.llm), auto ? "ok" : "")
       + kpi("Galerija", d.gallery_total || 0, "osoba: " + (d.profiles || 0));
+    renderHomeKpis(d);
     $("v11OvQueue").innerHTML = jobsHtml({ jobs: d.queue_jobs }, true);
     $("v11OvPosts").innerHTML = (d.upcoming_posts || []).map(postItem).join("") || '<div class="hint">Nema zakazanih objava.</div>';
     const t = $("ovSendToggle");
@@ -893,6 +1038,16 @@
     if (lbB) lbB.addEventListener("click", (e) => { e.stopPropagation(); rate(lbB.classList.contains("on") ? 0 : -1); });
     if ($("v11GalMore")) $("v11GalMore").addEventListener("click", () => loadGallery(false));
     if ($("v11GalFilter")) $("v11GalFilter").addEventListener("change", () => loadGallery(true));
+    if ($("v11GalChips")) $("v11GalChips").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-f]");
+      if (!b) return;
+      $("v11GalChips").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+      if ($("v11GalFilter")) { $("v11GalFilter").value = b.dataset.f; $("v11GalFilter").dispatchEvent(new Event("change")); }
+    });
+    if ($("v11GalFilter")) $("v11GalFilter").addEventListener("change", () => {
+      const v = $("v11GalFilter").value;
+      if ($("v11GalChips")) $("v11GalChips").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x.dataset.f === v));
+    });
     if ($("v11SaveLegacyHw")) $("v11SaveLegacyHw").addEventListener("click", () => { const c = C(); if (c) c.saveSettings(); setTimeout(() => loadHw(true), 800); });
     const ss = $("saveSettings");
     if (ss) ss.addEventListener("click", () => setTimeout(() => renderSendBar(true), 700));
@@ -909,7 +1064,7 @@
     if (c && c.currentTab() !== "slike") onTab(c.currentTab());
   }
 
-  window.StudioV11 = { genExtras: genExtras, onTab: onTab, refreshQueue: refreshQueue, loadGallery: loadGallery, version: "1.1.0" };
+  window.StudioV11 = { genExtras: genExtras, onTab: onTab, refreshQueue: refreshQueue, loadGallery: loadGallery, ratingOf: ratingOf, version: "1.3.0" };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
   else boot();
 })();

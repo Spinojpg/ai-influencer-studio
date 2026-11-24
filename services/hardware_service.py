@@ -850,3 +850,267 @@ def read_gpu_temperature() -> dict:
         st["method"] = None
         st["fail_until"] = time.time() + _TEMP_RETRY_S
     return {"available": False, "temp_c": None, "source": "", "message": "Senzor temperature nedostupan"}
+
+
+# ---------- 1.3.0: bazna rezolucija po dužoj stranici (RX 6600 profili kvalitete) ----------
+
+def rx_base_for(arch: str, width: int, height: int, long_side: int) -> tuple[int, int]:
+    """Bazno platno za zadani omjer s duljom stranicom `long_side` (poravnato na 8). Nikad veće od cilja."""
+    width, height = int(width or 0), int(height or 0)
+    long_side = int(long_side or 0)
+    if width <= 0 or height <= 0 or long_side <= 0 or arch not in {"sdxl", "sd15"}:
+        return width, height
+    if max(width, height) <= long_side:
+        return width - width % 8, height - height % 8
+    if width >= height:
+        bw, bh = long_side, long_side * height / width
+    else:
+        bw, bh = long_side * width / height, long_side
+    bw, bh = int(round(bw)), int(round(bh))
+    return max(256, bw - bw % 8), max(256, bh - bh % 8)
+
+
+# ---------- 1.3.0: živi GPU podaci (opterećenje, temperatura, VRAM) ----------
+#
+# Brzo i sigurno: rezultat se kešira (GPU_LIVE_TTL_S); osvježavanje ide u pozadinskoj niti pa HTTP
+# zahtjev nikad ne čeka PowerShell. Na Windowsu: Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine
+# (opterećenje, nije lokalizirano kao Get-Counter) + GPUAdapterMemory (zauzeti VRAM). Rezerva: amd-smi /
+# rocm-smi / nvidia-smi, na Linuxu sysfs (gpu_busy_percent, mem_info_vram_*). Nikad ne izmišljamo broj.
+# Testni hookovi: STUDIO_GPU_USAGE=<0-100>|none, STUDIO_GPU_VRAM_USED_MB, STUDIO_GPU_VRAM_TOTAL_MB.
+
+GPU_LIVE_TTL_S = 2.5
+_LIVE_LOCK = threading.Lock()
+_LIVE: dict = {"data": None, "ts": 0.0, "refreshing": False, "probe": None}
+
+WIN_GPU_COUNTERS_PS = (
+    "$e = Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine -ErrorAction SilentlyContinue | "
+    "Select-Object Name,UtilizationPercentage; "
+    "$m = Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory -ErrorAction SilentlyContinue | "
+    "Select-Object Name,DedicatedUsage; "
+    "@{engines=@($e); memory=@($m)} | ConvertTo-Json -Compress -Depth 3"
+)
+
+
+def _num(v) -> float | None:
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if x != x else x
+
+
+def parse_win_gpu_counters(text: str) -> dict:
+    """JSON {engines:[{Name, UtilizationPercentage}], memory:[{Name, DedicatedUsage}]} -> {usage_pct, vram_used_mb}.
+
+    Opterećenje = najveći zbroj po (adapter, vrsta enginea) — ZLUDA radi na 3D ili Compute engineu, pa uzimamo
+    onaj koji je najzaposleniji. VRAM = najveći DedicatedUsage po adapteru (diskretna kartica)."""
+    out = {"usage_pct": None, "vram_used_mb": None}
+    try:
+        data = json.loads(text or "")
+    except (TypeError, ValueError):
+        return out
+    if not isinstance(data, dict):
+        return out
+    engines = data.get("engines") or []
+    if isinstance(engines, dict):
+        engines = [engines]
+    sums: dict = {}
+    for e in engines:
+        if not isinstance(e, dict):
+            continue
+        name = str(e.get("Name") or "")
+        val = _num(e.get("UtilizationPercentage"))
+        if val is None:
+            continue
+        m = re.search(r"(luid_0x[0-9a-fA-F]+_0x[0-9a-fA-F]+).*?engtype_([A-Za-z0-9]+)", name)
+        key = (m.group(1).lower(), m.group(2)) if m else ("?", name.rsplit("engtype_", 1)[-1] or "?")
+        sums[key] = sums.get(key, 0.0) + val
+    if sums:
+        out["usage_pct"] = round(max(0.0, min(100.0, max(sums.values()))), 1)
+    mem = data.get("memory") or []
+    if isinstance(mem, dict):
+        mem = [mem]
+    used = [(_num(m.get("DedicatedUsage")) or 0.0) for m in mem if isinstance(m, dict)]
+    if used and max(used) > 0:
+        out["vram_used_mb"] = int(max(used) / (1024 * 1024))
+    return out
+
+
+def parse_smi_usage(text: str) -> float | None:
+    """amd-smi / rocm-smi JSON ili nvidia-smi CSV -> postotak opterećenja."""
+    text = (text or "").strip()
+    if not text:
+        return None
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = None
+    if data is not None:
+        found: list = []
+
+        def walk(o, key=""):
+            if isinstance(o, dict):
+                for k, v in o.items():
+                    walk(v, str(k).lower())
+            elif isinstance(o, list):
+                for v in o:
+                    walk(v, key)
+            elif ("use" in key or "activity" in key or "busy" in key) and ("gfx" in key or "gpu" in key):
+                x = _num(str(o).replace("%", "").strip())
+                if x is not None and 0 <= x <= 100:
+                    found.append(x)
+        walk(data)
+        return round(max(found), 1) if found else None
+    first = text.splitlines()[0].split(",")[0].replace("%", "").strip()
+    x = _num(first)
+    return round(x, 1) if x is not None and 0 <= x <= 100 else None
+
+
+def _live_from_test_hook() -> dict | None:
+    raw = (os.environ.get("STUDIO_GPU_USAGE") or "").strip()
+    if not raw:
+        return None
+    usage = None if raw.lower() in {"none", "off", "-"} else _num(raw)
+    used = _num(os.environ.get("STUDIO_GPU_VRAM_USED_MB"))
+    total = _num(os.environ.get("STUDIO_GPU_VRAM_TOTAL_MB"))
+    return {"usage_pct": usage, "vram_used_mb": int(used) if used is not None else None,
+            "vram_total_mb": int(total) if total is not None else None, "source": "test-env"}
+
+
+def _probe_linux_sysfs(root: str = "/sys/class/drm") -> dict:
+    import glob
+    out = {"usage_pct": None, "vram_used_mb": None, "vram_total_mb": None}
+    for dev in sorted(glob.glob(os.path.join(root, "card*", "device"))):
+        try:
+            busy = Path(dev, "gpu_busy_percent").read_text().strip()
+        except OSError:
+            continue
+        out["usage_pct"] = _num(busy)
+        try:
+            out["vram_used_mb"] = int(int(Path(dev, "mem_info_vram_used").read_text().strip()) / (1024 * 1024))
+            out["vram_total_mb"] = int(int(Path(dev, "mem_info_vram_total").read_text().strip()) / (1024 * 1024))
+        except (OSError, ValueError):
+            pass
+        break
+    return out
+
+
+def _probe_smi_usage() -> dict:
+    import shutil as _sh
+    out = {"usage_pct": None, "vram_used_mb": None, "vram_total_mb": None}
+    if _sh.which("amd-smi"):
+        out["usage_pct"] = parse_smi_usage(_run(["amd-smi", "metric", "-u", "--json"], timeout=6))
+    if out["usage_pct"] is None and _sh.which("rocm-smi"):
+        out["usage_pct"] = parse_smi_usage(_run(["rocm-smi", "--showuse", "--json"], timeout=6))
+    if out["usage_pct"] is None and _sh.which("nvidia-smi"):
+        text = _run(["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"], timeout=6)
+        out["usage_pct"] = parse_smi_usage(text)
+        parts = [p.strip() for p in (text.strip().splitlines() or [""])[0].split(",")]
+        if len(parts) >= 3:
+            used, total = _num(parts[1]), _num(parts[2])
+            out["vram_used_mb"] = int(used) if used is not None else None
+            out["vram_total_mb"] = int(total) if total is not None else None
+    return out
+
+
+def _probe_gpu_usage() -> dict:
+    """Jedno očitanje opterećenja/VRAM-a (može trajati 1–2 s na Windowsu, zato ide u pozadini)."""
+    hook = _live_from_test_hook()
+    if hook is not None:
+        return hook
+    res = {"usage_pct": None, "vram_used_mb": None, "vram_total_mb": None, "source": ""}
+    if sys.platform == "win32":
+        win = parse_win_gpu_counters(_run(["powershell", "-NoProfile", "-NonInteractive", "-Command", WIN_GPU_COUNTERS_PS], timeout=8))
+        if win["usage_pct"] is not None or win["vram_used_mb"] is not None:
+            res.update(win)
+            res["source"] = "windows-perf"
+    else:
+        lin = _probe_linux_sysfs()
+        if lin["usage_pct"] is not None:
+            res.update(lin)
+            res["source"] = "sysfs"
+    if res["usage_pct"] is None:
+        smi = _probe_smi_usage()
+        if smi["usage_pct"] is not None:
+            res.update({k: v for k, v in smi.items() if v is not None})
+            res["source"] = res["source"] or "smi"
+    return res
+
+
+def _vram_from_stats(stats: dict | None) -> tuple[int | None, int | None]:
+    try:
+        dev = ((stats or {}).get("devices") or [])[0]
+    except (IndexError, AttributeError, TypeError):
+        return None, None
+    total, free = _num(dev.get("vram_total")), _num(dev.get("vram_free"))
+    if not total:
+        return None, None
+    used = (total - free) if free is not None else None
+    return (int(used / (1024 * 1024)) if used is not None else None), int(total / (1024 * 1024))
+
+
+def _refresh_live(probe=None) -> None:
+    try:
+        usage = (probe or _probe_gpu_usage)()
+    except Exception:
+        usage = {"usage_pct": None, "vram_used_mb": None, "vram_total_mb": None, "source": ""}
+    try:
+        temp = read_gpu_temperature()
+    except Exception:
+        temp = {"available": False, "temp_c": None}
+    data = {**usage, "temp_c": temp.get("temp_c") if temp.get("available") else None,
+            "temp_source": temp.get("source") or "", "measured_at": time.time()}
+    with _LIVE_LOCK:
+        _LIVE["data"] = data
+        _LIVE["ts"] = time.time()
+        _LIVE["refreshing"] = False
+
+
+def gpu_live(*, system_stats: dict | None = None, probe=None, wait_s: float = 1.5, now_fn=time.time) -> dict:
+    """Kompaktni živi podaci za GPU traku. Vraća keširano (TTL ~2,5 s), osvježava u pozadini.
+
+    {available, gpu_usage_pct, temp_c, vram_used_mb, vram_total_mb, source, cached, age_s}"""
+    start = None
+    with _LIVE_LOCK:
+        fresh = _LIVE["data"] is not None and (now_fn() - _LIVE["ts"]) < GPU_LIVE_TTL_S
+        if not fresh and not _LIVE["refreshing"]:
+            _LIVE["refreshing"] = True
+            start = threading.Thread(target=_refresh_live, args=(probe,), daemon=True, name="gpu-live")
+        first = _LIVE["data"] is None
+    if start is not None:
+        start.start()
+        if first:
+            start.join(timeout=max(0.0, wait_s))
+    with _LIVE_LOCK:
+        data = dict(_LIVE["data"] or {})
+        age = (now_fn() - _LIVE["ts"]) if _LIVE["data"] is not None else None
+    s_used, s_total = _vram_from_stats(system_stats)
+    used = s_used if s_used is not None else data.get("vram_used_mb")
+    total = s_total or data.get("vram_total_mb")
+    if not total:
+        try:
+            gb = (hardware_profile() or {}).get("vram_gb")
+            total = int(float(gb) * 1024) if gb else None
+        except Exception:
+            total = None
+    usage = data.get("usage_pct")
+    temp = data.get("temp_c")
+    return {
+        "ok": True,
+        "available": usage is not None or temp is not None or used is not None,
+        "gpu_usage_pct": usage,
+        "temp_c": temp,
+        "vram_used_mb": used,
+        "vram_total_mb": total,
+        "vram_source": "comfyui" if s_used is not None else (data.get("source") or ""),
+        "source": data.get("source") or "",
+        "temp_source": data.get("temp_source") or "",
+        "cached": start is None,
+        "age_s": round(age, 2) if age is not None else None,
+        "ttl_s": GPU_LIVE_TTL_S,
+    }
+
+
+def reset_gpu_live_cache() -> None:
+    with _LIVE_LOCK:
+        _LIVE.update({"data": None, "ts": 0.0, "refreshing": False})

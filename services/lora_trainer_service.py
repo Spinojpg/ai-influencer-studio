@@ -91,6 +91,8 @@ PRESETS = {
 DEFAULT_PRESET = "balanced"
 
 TEMP_DEFAULTS = {"lora_temp_warn": "80", "lora_temp_critical": "88", "lora_temp_stop": "92", "lora_temp_autostop": "1"}
+# 1.3.0: slike ocijenjene „Dobra” same idu u LoRA dataset osobe (može se isključiti u treneru).
+AUTO_SYNC_KEY = "lora_auto_sync_good"
 
 # Paketi koje NIKAD ne instaliramo na AMD/ZLUDA (CUDA-only ili nepotrebno teški). torch ostaje ComfyUI-jev.
 SKIP_PACKAGES = {"bitsandbytes", "xformers", "tensorboard", "tensorboardx", "opencv-python", "opencv-python-headless",
@@ -184,6 +186,7 @@ def ensure_schema() -> None:
         inbox._ensure_column(c, "profiles", "lora_trigger", "TEXT DEFAULT ''")
         for key, val in TEMP_DEFAULTS.items():
             c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES(?, ?)", (key, val))
+        c.execute("INSERT OR IGNORE INTO settings(key, value) VALUES(?, ?)", (AUTO_SYNC_KEY, "1"))
         # Treniranje ne preživi gašenje Studija (proces se ugasi s njim).
         marks = ",".join("?" * len(ACTIVE_STATUSES))
         c.execute(
@@ -474,6 +477,67 @@ def count_guidance(n: int) -> dict:
             "message": f"Previše slika za treniranje (najviše {HARD_MAX}). Obriši višak, preporuka je do {IDEAL_MAX}."}
 
 
+def auto_sync_enabled() -> bool:
+    return str(inbox.get_setting(AUTO_SYNC_KEY, "1") or "1") != "0"
+
+
+def set_auto_sync(on: bool) -> dict:
+    inbox.set_setting(AUTO_SYNC_KEY, "1" if on else "0")
+    return {"ok": True, "auto_sync_good": auto_sync_enabled()}
+
+
+def _rating_counts(pid: int) -> dict:
+    try:
+        with conn() as c:
+            rows = c.execute("SELECT rating, COUNT(*) FROM gallery_items WHERE persona_id=? GROUP BY rating", (int(pid),)).fetchall()
+    except Exception:
+        return {"good": 0, "bad": 0}
+    d = {int(r[0] or 0): int(r[1]) for r in rows}
+    return {"good": d.get(1, 0), "bad": d.get(-1, 0)}
+
+
+def sync_gallery_rating(item: dict) -> dict:
+    """Ocjena slike iz galerije -> LoRA dataset osobe.
+
+    Dobra (1): doda sliku u dataset (bez duplikata: isti izvor gallery:<id> ili isti sha1 se preskače).
+    Loša (-1) ili bez ocjene (0): ukloni sliku iz dataseta AKO je došla iz galerije / ocjena (ručni uploadi ostaju)."""
+    if not item or not item.get("id"):
+        return {"action": "none", "reason": "Nema slike."}
+    pid = item.get("persona_id")
+    if not pid or not inbox.get_profile(int(pid)):
+        return {"action": "none", "reason": "Slika nije vezana uz osobu."}
+    pid = int(pid)
+    ref = f"gallery:{int(item['id'])}"
+    rating = int(item.get("rating") or 0)
+    with conn() as c:
+        rows = c.execute("SELECT id, filename FROM lora_dataset_images WHERE profile_id=? AND source_ref=?", (pid, ref)).fetchall()
+    a = active_job()
+    busy = bool(a and int(a["profile_id"]) == pid)
+    if rating > 0:
+        if rows:
+            return {"action": "exists", "profile_id": pid, "message": "Slika je već u LoRA datasetu."}
+        if not auto_sync_enabled():
+            return {"action": "none", "profile_id": pid, "reason": "Automatsko dodavanje je isključeno."}
+        if busy:
+            return {"action": "deferred", "profile_id": pid, "message": "Treniranje je u tijeku — uvezi „Dobra” slike kasnije."}
+        from . import generation_service
+        data = generation_service.read_item_bytes(item)
+        res = add_images(pid, [(data, item.get("filename") or f"galerija_{item['id']}.png")], source="gallery", source_refs=[ref])
+        if res["added"]:
+            return {"action": "added", "profile_id": pid, "count": res["dataset"]["count"], "message": "Dodano u LoRA dataset osobe."}
+        reason = (res["skipped"][0]["reason"] if res["skipped"] else "")
+        return {"action": "skipped", "profile_id": pid, "reason": reason, "count": res["dataset"]["count"]}
+    if not rows:
+        return {"action": "none", "profile_id": pid}
+    if busy:
+        return {"action": "deferred", "profile_id": pid, "message": "Treniranje je u tijeku — slika se uklanja iz dataseta nakon treninga."}
+    for r in rows:
+        with conn() as c:
+            c.execute("DELETE FROM lora_dataset_images WHERE id=?", (int(r[0]),))
+        _unlink_ds_files(pid, r[1])
+    return {"action": "removed", "profile_id": pid, "removed": len(rows), "message": "Uklonjeno iz LoRA dataseta osobe."}
+
+
 def dataset_state(pid: int) -> dict:
     if not inbox.get_profile(int(pid)):
         raise KeyError("Osoba ne postoji.")
@@ -484,8 +548,16 @@ def dataset_state(pid: int) -> dict:
         r["caption"] = effective_caption(r, prof, trig)
         r["caption_auto"] = build_caption(prof, trig, int(r.get("width") or 0), int(r.get("height") or 0), float(r.get("brightness") or 128))
         items.append(r)
+    by_source: dict = {}
+    for r in items:
+        by_source[r.get("source") or "upload"] = by_source.get(r.get("source") or "upload", 0) + 1
+    rc = _rating_counts(pid)
+    good_in = by_source.get("gallery", 0)
     return {"ok": True, "profile_id": int(pid), "trigger": trig, "count": len(items), "items": items,
-            "guidance": count_guidance(len(items)), "ideal": [IDEAL_MIN, IDEAL_MAX], "limits": [HARD_MIN, HARD_MAX]}
+            "guidance": count_guidance(len(items)), "ideal": [IDEAL_MIN, IDEAL_MAX], "limits": [HARD_MIN, HARD_MAX],
+            "by_source": by_source, "good_in_dataset": good_in, "manual_in_dataset": len(items) - good_in,
+            "good_rated": rc["good"], "bad_rated": rc["bad"], "good_missing": max(0, rc["good"] - good_in),
+            "auto_sync_good": auto_sync_enabled()}
 
 
 def add_images(pid: int, files: list, *, source: str = "upload", source_refs: list | None = None) -> dict:
@@ -559,6 +631,8 @@ def import_from_persona(pid: int, sources: list | None = None) -> dict:
             except Exception:
                 continue
     if not groups["ref"][0] and not groups["gallery"][0]:
+        if sources == ["good"]:
+            raise ValueError("Ova osoba još nema slika ocijenjenih „Dobra” — ocijeni slike u Generiranju gumbom Dobra.")
         raise ValueError("Ova osoba još nema referentnih slika ni slika ocijenjenih kao „Dobra” u galeriji.")
     added, skipped = [], []
     for kind, (files, refs) in groups.items():

@@ -68,6 +68,38 @@ def _q(query: dict, key: str, default: str = "") -> str:
     return (query.get(key) or [default])[0]
 
 
+def gpu_live_payload(ctx: dict) -> dict:
+    """1.3.0: kompaktna živa GPU traka (opterećenje, temperatura, VRAM, trenutni posao). Brzo: keš ~2,5 s."""
+    stats = None
+    try:
+        ok, _msg = ctx["comfy_up"]()
+        stats = ctx["system_stats"]() if ok else None
+    except Exception:
+        stats = None
+    live = hardware_service.gpu_live(system_stats=stats)
+    temp_status, temp_msg = "unavailable", ""
+    activity = {"generating": False, "training": False, "label": "", "step": None, "total": None, "progress": None}
+    try:
+        from services import lora_trainer_service as lt
+        temp_status, temp_msg = lt.classify_temp(live.get("temp_c"))
+        job = lt.active_job()
+        if job:
+            activity.update({"training": True, "label": job.get("status_label") or "Treniranje…",
+                             "step": job.get("current_step"), "total": job.get("total_steps"),
+                             "progress": (float(job.get("progress_pct") or 0) / 100.0)})
+    except Exception:
+        pass
+    if not activity["training"]:
+        try:
+            q = generation_service.list_queue(limit=3, include_finished=False)
+            run = next((j for j in q["jobs"] if j.get("status") == "running"), None)
+            if run:
+                activity.update({"generating": True, "label": run.get("label") or "Generiranje…", "progress": float(run.get("progress") or 0)})
+        except Exception:
+            pass
+    return {**live, "temp_status": temp_status, "temp_message": temp_msg, "activity": activity}
+
+
 def overview(handler_ctx: dict) -> dict:
     comfy_ok, comfy_msg = handler_ctx["comfy_up"]()
     stats = handler_ctx["system_stats"]() if comfy_ok else {}
@@ -90,7 +122,48 @@ def overview(handler_ctx: dict) -> dict:
         "llm": crm_service.llm_status()["active"],
         "profiles": len(inbox.list_profiles()),
         "gallery_total": generation_service.list_gallery(limit=1)["total"],
+        **dashboard_series(),
     }
+
+
+def dashboard_series(days: int = 14) -> dict:
+    """1.3.0: nizovi za Početnu (prihod i slike po danu, ocjene, zakazane objave, osobe s LoRA-om). Nikad ne baca."""
+    from services.common import conn
+    import datetime as _dt
+    today = _dt.date.today()
+    start = _dt.datetime.combine(today - _dt.timedelta(days=days - 1), _dt.time()).timestamp()
+    labels = [(today - _dt.timedelta(days=days - 1 - i)).isoformat() for i in range(days)]
+
+    def series(sql: str) -> list:
+        vals = [0.0] * days
+        try:
+            with conn() as c:
+                for ts, val in c.execute(sql, (start,)).fetchall():
+                    i = (_dt.date.fromtimestamp(float(ts)) - (today - _dt.timedelta(days=days - 1))).days
+                    if 0 <= i < days:
+                        vals[i] += float(val or 0)
+        except Exception:
+            pass
+        return [round(v, 2) for v in vals]
+
+    out = {
+        "series_days": labels,
+        "revenue_series": series("SELECT created_at, amount FROM crm_purchases WHERE created_at>=?"),
+        "images_series": series("SELECT created_at, 1 FROM gallery_items WHERE created_at>=?"),
+        "rated_good": 0, "rated_bad": 0, "scheduled_posts": 0, "personas_with_lora": 0,
+    }
+    try:
+        with conn() as c:
+            for r, n in c.execute("SELECT rating, COUNT(*) FROM gallery_items GROUP BY rating").fetchall():
+                if int(r or 0) == 1:
+                    out["rated_good"] = int(n)
+                elif int(r or 0) == -1:
+                    out["rated_bad"] = int(n)
+            out["scheduled_posts"] = int(c.execute("SELECT COUNT(*) FROM scheduled_posts WHERE status='scheduled'").fetchone()[0])
+            out["personas_with_lora"] = int(c.execute("SELECT COUNT(*) FROM profiles WHERE COALESCE(preferred_lora,'')<>''").fetchone()[0])
+    except Exception:
+        pass
+    return out
 
 
 def gen_options(ctx: dict) -> dict:
@@ -183,6 +256,9 @@ def _route(h, method: str, path: str, query: dict, body: dict, ctx: dict) -> boo
             res["restart"] = hardware_service.restart_comfy()
         J(200, {**res, "saved": True})
         return True
+    if method == "GET" and path == "/api/gpu-live":
+        J(200, gpu_live_payload(ctx))
+        return True
     if path == "/api/hardware/restart":
         J(200, {"ok": True, "restart": hardware_service.restart_comfy() if method == "POST" else hardware_service.restart_status()})
         return True
@@ -272,7 +348,7 @@ def _route(h, method: str, path: str, query: dict, body: dict, ctx: dict) -> boo
                                              subfolder=str(body.get("subfolder") or ""), type_=str(body.get("type") or "output"),
                                              rating=_int(body.get("rating"), 0), persona_id=_int(body.get("persona_id")),
                                              prompt=str(body.get("prompt") or ""), seed=body.get("seed") or "", model=str(body.get("model") or ""))
-        J(200, {"ok": True, "item": item})
+        J(200, {"ok": True, "item": item, "lora_sync": (item or {}).get("lora_sync")})
         return True
     if method == "POST" and path == "/api/lora-dataset/export":
         pid = _int(body.get("persona_id"))

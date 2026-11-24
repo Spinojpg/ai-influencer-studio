@@ -109,7 +109,12 @@ def _route(h, method: str, path: str, query: dict, body: dict, ctx: dict) -> boo
         J(200, {"ok": True, **t, "status": st, "message": msg})
         return True
     if path == "/api/lora-trainer/settings":
-        J(200, {"ok": True, "temp": lt.save_temp_settings(body) if method == "POST" else lt.temp_settings()})
+        # 1.3.0: i prekidač „slike ocijenjene Dobra same idu u dataset” (auto_sync_good)
+        if method == "POST" and "auto_sync_good" in body:
+            lt.set_auto_sync(str(body.get("auto_sync_good")).lower() not in {"0", "false", "off", "no", ""})
+        temp_keys = {k for k in body if k != "auto_sync_good"}
+        temp = lt.save_temp_settings(body) if (method == "POST" and temp_keys) else lt.temp_settings()
+        J(200, {"ok": True, "temp": temp, "auto_sync_good": lt.auto_sync_enabled()})
         return True
     if method == "GET" and path == "/api/lora-trainer/personas":
         J(200, {"ok": True, "personas": lt.personas_overview(), "active_job": lt.active_job()})
@@ -193,6 +198,12 @@ def _route(h, method: str, path: str, query: dict, body: dict, ctx: dict) -> boo
         if not pid:
             raise ValueError("Odaberi osobu.")
         J(200, lt.activate_lora(pid, _int(body.get("lora_id")), str(body.get("lora_filename") or "")))
+        return True
+
+    # ---------- 1.3.0: ocjene slika -> dataset ----------
+    m = re.fullmatch(r"/api/lora-trainer/dataset/(\d+)/import-good", path)
+    if m and method == "POST":
+        J(200, lt.import_from_persona(int(m.group(1)), ["good"]))
         return True
 
     J(404, {"ok": False, "error": "Nepoznata ruta LoRA trenera."})

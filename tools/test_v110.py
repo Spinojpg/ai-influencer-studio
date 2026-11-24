@@ -660,7 +660,8 @@ def test_browser(url: str):
     check(info["auto_on"] and info["approve_on"], "glavni prekidač Nacrt / Automatsko radi jednim klikom")
     check(info["gen_ui"] == "dpmpp_2m_sde", "Generiranje: sampler dpmpp_2m_sde")
     ex = info["extras"] or {}
-    check(ex.get("safe_mode") is True and ex.get("vae_mode") == "tiled" and ex.get("freeu") is True and abs(ex.get("hires_scale", 0) - 1.45) < 1e-6, f"genExtras {ex}")
+    # 1.3.0: zadani hires je sada brzi 1,33× (denoise 0,35, 8 koraka) za RX 6600
+    check(ex.get("safe_mode") is True and ex.get("vae_mode") == "tiled" and ex.get("freeu") is True and abs(ex.get("hires_scale", 0) - 1.33) < 1e-6, f"genExtras {ex}")
     check("8 GB siguran mod" in info["hw_quick"] and "RX 6600" in info["hw_quick"], "brzi hardverski prekidači u Generiranju")
     check(info["curated_group"], "Modeli: sekcija Preporučene SDXL LoRA-e")
 

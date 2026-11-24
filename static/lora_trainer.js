@@ -40,19 +40,21 @@
     if (!root || L.built) return !!root;
     L.built = true;
     root.innerHTML = ''
-      + '<div class="lt-head"><div><h2 class="sec" style="margin:0">LoRA trener</h2>'
-      + '<div class="hint">Nauči Studio lice svoje osobe: dodaš 15–40 slika, klikneš jedan gumb, a gotova LoRA se sama doda u profil osobe.</div></div>'
-      + '<div id="ltTemp" class="lt-temp"></div></div>'
+      + '<div class="lt-head"><div class="lt-head-l"><span class="lt-head-ico" aria-hidden="true">✦</span><div><span class="eyebrow">Osobe · LoRA</span><h2 class="sec" style="margin:0">LoRA trener</h2>'
+      + '<div class="hint">Nauči Studio lice svoje osobe: ocijeni slike „Dobra” ili dodaj 15–40 slika, klikni jedan gumb, a gotova LoRA se sama doda u profil osobe.</div></div></div>'
+      + '<div class="lt-head-r"><div id="ltTemp" class="lt-temp"></div><div id="ltGpu" class="gpu-live lt-gpu" hidden aria-live="polite"></div></div></div>'
       + '<div id="ltSetup" class="lt-banner" hidden></div>'
       + '<div class="lt-steps">'
       + '<div class="lt-step"><div class="lt-num">1</div><div class="lt-body"><h3>Odaberi osobu</h3>'
       + '<select id="ltPersona" aria-label="Osoba za treniranje"></select>'
-      + '<div id="ltPersonaInfo" class="lt-info"></div><div id="ltVersions" class="lt-versions"></div></div></div>'
+      + '<div class="lt-ready-row"><span id="ltReady" class="lt-ready">—</span><span id="ltGood" class="lt-good"></span></div>'
+      + '<div id="ltPersonaInfo" class="lt-info"></div><div id="ltVersions" class="lt-versions"></div>'
+      + '<label class="lt-check lt-sync"><input type="checkbox" id="ltAutoSync" checked /> Slike ocijenjene „Dobra” automatski idu u dataset</label></div></div>'
       + '<div class="lt-step"><div class="lt-num">2</div><div class="lt-body"><h3>Dodaj 15–40 slika</h3>'
       + '<div id="ltDrop" class="lt-drop" tabindex="0" role="button" aria-label="Povuci slike ovdje">'
       + '<b>Povuci slike ovdje</b><span>ili</span><button type="button" class="btn" id="ltPick">Odaberi slike</button>'
       + '<input type="file" id="ltFile" accept="image/jpeg,image/png,image/webp" multiple hidden /></div>'
-      + '<div class="lt-row"><button type="button" class="btn" id="ltImport">Uvezi iz galerije osobe</button>'
+      + '<div class="lt-row"><button type="button" class="btn" id="ltImportGood">Uvezi ocijenjene „Dobra”</button><button type="button" class="btn" id="ltImport">Uvezi iz galerije osobe</button>'
       + '<span id="ltCount" class="lt-count"></span><span class="lt-grow"></span>'
       + '<button type="button" class="btn ghost" id="ltClear">Obriši sve slike</button></div>'
       + '<div id="ltUpMsg" class="hint"></div>'
@@ -90,6 +92,11 @@
     ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
     drop.addEventListener("drop", (e) => { const f = Array.from((e.dataTransfer && e.dataTransfer.files) || []); upload(f); });
     $("ltImport").addEventListener("click", importFromPersona);
+    $("ltImportGood").addEventListener("click", importGood);
+    $("ltAutoSync").addEventListener("change", async () => {
+      try { await post("/api/lora-trainer/settings", { auto_sync_good: $("ltAutoSync").checked }); toast($("ltAutoSync").checked ? "„Dobra” slike će se same dodavati u dataset." : "Automatsko dodavanje „Dobra” slika je isključeno."); }
+      catch (err) { toast(err.message, true); }
+    });
     $("ltClear").addEventListener("click", clearDataset);
     $("ltGrid").addEventListener("click", (e) => {
       const b = e.target.closest("[data-del]");
@@ -254,6 +261,7 @@
     const g = ds.guidance || {};
     cnt.className = "lt-count " + (g.color || "");
     cnt.textContent = ds.count + " " + (ds.count === 1 ? "slika" : (ds.count % 10 >= 2 && ds.count % 10 <= 4 && (ds.count % 100 < 12 || ds.count % 100 > 14) ? "slike" : "slika")) + " · " + (g.message || "");
+    renderReady(ds);
     grid.innerHTML = (ds.items || []).map((it) => '<figure class="lt-shot"><img loading="lazy" src="' + esc(it.thumb_url) + '" alt="" title="' + esc(it.original_name || "") + '" />'
       + '<button type="button" class="lt-del" data-del="' + it.id + '" title="Ukloni iz dataseta" aria-label="Ukloni">×</button></figure>').join("")
       || '<div class="hint">Još nema slika. Najbolje je 15–40 raznolikih slika iste osobe: različiti kadrovi, svjetlo i odjeća, lice dobro vidljivo.</div>';
@@ -261,13 +269,30 @@
       + '<input type="text" data-cap="' + it.id + '" maxlength="600" value="' + esc(it.caption_custom || "") + '" placeholder="' + esc(it.caption_auto || "") + '" /></div>').join("");
     renderStart();
   }
+  function renderReady(ds) {
+    const r = $("ltReady"), g = $("ltGood"), sync = $("ltAutoSync"), ib = $("ltImportGood");
+    if (!r) return;
+    const n = ds ? Number(ds.count || 0) : 0;
+    const st = !ds ? ["", "—"] : n >= 15 ? ["ok", n >= 40 ? "Spremno · " + n + " slika (max 40 se koristi)" : "Spremno za treniranje"] : n >= 8 ? ["warn", "Još " + (15 - n) + " do preporučenih 15"] : ["bad", "Premalo slika (" + n + ")"];
+    r.className = "lt-ready " + st[0];
+    r.textContent = st[1];
+    if (!ds) { if (g) g.textContent = ""; return; }
+    const good = Number(ds.good_in_dataset || 0), man = Number(ds.manual_in_dataset != null ? ds.manual_in_dataset : Math.max(0, n - good));
+    const miss = Number(ds.good_missing || 0);
+    if (g) g.innerHTML = '<span class="lt-chip good">Dobra ' + good + "</span>" + '<span class="lt-chip">ručno ' + man + "</span>"
+      + (Number(ds.good_rated || 0) ? '<span class="lt-chip muted">ocijenjeno Dobra ' + Number(ds.good_rated) + "</span>" : "")
+      + (Number(ds.bad_rated || 0) ? '<span class="lt-chip bad">Loša ' + Number(ds.bad_rated) + "</span>" : "");
+    if (sync && ds.auto_sync_good != null) sync.checked = !!ds.auto_sync_good;
+    if (ib) { ib.textContent = miss ? "Uvezi ocijenjene „Dobra” (" + miss + ")" : "Uvezi ocijenjene „Dobra”"; ib.classList.toggle("primary", miss > 0); }
+  }
+  const PRESET_SHORT = { fast: "Brzo", balanced: "Preporučeno", detailed: "Detaljno" };
   function renderPresets() {
     const el = $("ltPresets");
     if (!el) return;
     const list = (L.status && L.status.presets) || [
       { id: "fast", label: "Brzi test", hint: "" }, { id: "balanced", label: "Preporučeno za RX 6600", hint: "" }, { id: "detailed", label: "Detaljnije", hint: "" }];
     el.innerHTML = list.map((p) => '<button type="button" role="radio" aria-checked="' + (p.id === L.preset) + '" class="lt-preset' + (p.id === L.preset ? " on" : "") + '" data-preset="' + p.id + '">'
-      + "<b>" + esc(p.label) + "</b><span>" + esc(p.hint || "") + "</span></button>").join("");
+      + '<b title="' + esc(p.label) + '">' + esc(PRESET_SHORT[p.id] || p.label) + "</b><span>" + esc(p.hint || p.label || "") + "</span></button>").join("");
   }
   function advanced() {
     const adv = {};
@@ -348,6 +373,19 @@
     L.uploading = false;
     msg.innerHTML = "Dodano: " + added + "." + (skipped.length ? ' <span class="lt-warn-inline">Preskočeno ' + skipped.length + ": " + esc(skipped.slice(0, 4).join(" · ")) + (skipped.length > 4 ? " …" : "") + "</span>" : "");
     await loadPersonas();
+    renderPlan();
+  }
+  async function importGood() {
+    if (!L.pid) return;
+    const b = $("ltImportGood"); b.disabled = true;
+    $("ltUpMsg").textContent = "Uvozim slike ocijenjene „Dobra”…";
+    try {
+      const d = await post("/api/lora-trainer/dataset/" + L.pid + "/import-good", {});
+      L.ds = d.dataset; renderDataset();
+      const n = (d.added || []).length;
+      $("ltUpMsg").textContent = n ? "Uvezeno „Dobra” slika: " + n + "." : "Nema novih „Dobra” slika — ocijeni slike u Generiranju (gumb Dobra).";
+    } catch (e) { $("ltUpMsg").textContent = e.message; }
+    b.disabled = false;
     renderPlan();
   }
   async function importFromPersona() {
@@ -502,6 +540,11 @@
     // Aktivno treniranje se prati i kad je otvorena druga kartica.
     get("/api/lora-trainer/jobs?limit=1").then((d) => { if (d.active_job) { if (!L.built) build(); L.pid = d.active_job.profile_id; refreshJob(); } }).catch(() => {});
   }
+  // 1.3.0: ocjena „Dobra/Loša” u Generiranju odmah osvježi dataset otvorene osobe
+  document.addEventListener("studio:rated", (e) => {
+    const it = e.detail && e.detail.item;
+    if (L.built && L.pid && it && Number(it.persona_id) === Number(L.pid)) loadDataset().then(renderPlan).catch(() => {});
+  });
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
   else boot();
 })();

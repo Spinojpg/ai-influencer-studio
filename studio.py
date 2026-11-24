@@ -683,6 +683,9 @@ def plan_image_generation(
 
     override = (body.get("model_type") or (prof or {}).get("model_type") or "")
     arch = image_gen.detect_model_arch(model, override)
+    # 1.3.0: RX 6600 profil kvalitete (popunjava samo nepostavljena polja) + prirodniji zadani negativ.
+    body, rx_info = generation_service.prepare_rx6600(body, arch)
+    negative = generation_service.natural_negative(negative, rx_info)
     quality_on = body.get("quality_prefix")
     if quality_on is None:
         quality_on = inbox.get_setting("quality_prefix", "1") != "0"
@@ -702,6 +705,7 @@ def plan_image_generation(
         quality=bool(quality_on),
         adult_term=adult_term,
         appearance_weight=appearance_weight,
+        quality_text=rx_info.get("quality_text"),
     )
     prompt = built["prompt"]
 
@@ -847,7 +851,7 @@ def plan_image_generation(
                 "need_lora": spec["id"],
             }
         steps = spec["steps"]
-        cfg = spec["cfg"]
+        cfg = rx_info.get("turbo_cfg") or spec["cfg"]
         sampler_name = spec["sampler_name"]
         scheduler = spec["scheduler"]
         hires = False
@@ -935,6 +939,28 @@ def plan_image_generation(
             else:
                 return err
 
+    # 1.3.0: SFW detail LoRA-e (brzi prekidači) i 8 GB zaštita (samo uz profil kvalitete ili eksplicitni vram_guard).
+    rx_notes = list(rx_info.get("notes") or [])
+    fd_params = generation_service.face_detailer_params(body)
+    if arch in {"sdxl", "sd15"} and body.get("detail_loras"):
+        lora_stack, dl_notes = generation_service.add_detail_loras(lora_stack, body, arch, turbo=bool(turbo))
+        rx_notes += dl_notes
+    guard_on = character.truthy(body.get("vram_guard"), bool(rx_info.get("profile")))
+    if guard_on and arch in {"sdxl", "sd15"}:
+        guarded, g_notes = generation_service.vram_guard({
+            "width": width, "height": height, "output_width": output_width, "output_height": output_height,
+            "batch": batch, "hires": hires, "hires_scale": hires_scale if hires_scale is not None else 1.5,
+            "instantid": bool(instantid_image), "face_detailer": bool(face_detailer), "vae_mode": vae_mode, "fd": fd_params or {},
+        }, arch=arch)
+        hires = bool(guarded["hires"])
+        if hires:
+            hires_scale = guarded["hires_scale"]
+        batch = int(guarded["batch"])
+        vae_mode = guarded["vae_mode"]
+        if fd_params:
+            fd_params = guarded.get("fd") or fd_params
+        rx_notes += g_notes
+
     workflow = build_workflow(
         prompt=prompt,
         negative=negative,
@@ -968,7 +994,7 @@ def plan_image_generation(
         vae_tile_size=vae_tile,
         instantid_image=instantid_image if arch == "sdxl" else "",
         instantid_weight=instantid_weight,
-        face_detailer_params=generation_service.face_detailer_params(body),
+        face_detailer_params=fd_params,
     )
     return {
         "ok": True,
@@ -1010,6 +1036,9 @@ def plan_image_generation(
             "ref_mode": "instantid" if instantid_image else ("ipadapter" if ipadapter_images else ref_mode),
             "hires_scale": hires_scale if hires else None,
             "hires_denoise": hires_denoise if hires else None,
+            "quality_profile": rx_info.get("profile") or "",
+            "rx_notes": rx_notes,
+            "detail_loras": [x.get("detail") for x in lora_stack if x.get("detail")],
             "persona_id": (prof or {}).get("id"),
             "template_id": body.get("template_id"),
             "template_tier": body.get("template_tier"),

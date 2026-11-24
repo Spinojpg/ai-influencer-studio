@@ -1,4 +1,4 @@
-# AI Influencer Studio 1.2.0 — dokumentacija
+# AI Influencer Studio 1.3.0 — dokumentacija
 
 Lokalni studio za fiktivne odrasle AI influencere: generiranje slika preko ComfyUI-ja, osobe (persone), red čekanja, galerija, kalendar objava i Inbox i CRM. Sve radi na tvom računalu na `http://127.0.0.1:7860`. Ključevi i tokeni stoje samo u `data/.env`.
 
@@ -10,8 +10,8 @@ Ciljani setup: Windows, AMD RX 6600 (8 GB), Ryzen 7 5700X, 16 GB RAM-a, ComfyUI-
 
 | Kartica | Što radi |
 |---|---|
-| **Pregled** | Brzi formati (IG Portret 4:5, IG Kvadrat 1:1, IG Story 9:16), brze radnje, brojke (red čekanja, galerija, objave, poruke), sljedeće objave. |
-| **Generiranje** | Jednostavan ekran: odabir osobe (avatari), opis scene, format i Generiraj. Sve tehničke postavke, predlošci i red čekanja su u zatvorenom dijelu „Napredno”. Desno su nove slike i galerija s ocjenama. |
+| **Početna** (prije Pregled) | 4 KPI kartice (Prihodi i Slike sa sparkline grafom za 14 dana, Aktivne osobe i Zakazano s prstenom), brzi formati (IG Portret 4:5, IG Kvadrat 1:1, IG Story 9:16), brze radnje, brojke (red čekanja, galerija, objave, poruke), sljedeće objave. |
+| **Generiranje** | Dva stupca: lijevo odabir osobe (avatari), opis scene, format, profil kvalitete (Realizam / Brzo / Turbo) i Generiraj; desno nove slike s gumbima Dobra / Loša, živa GPU traka i galerija s filtrom ocjena. Tehničke postavke su u „Napredno” (5 kartica s objašnjenjima). |
 | **Osobe** | Kartice osoba (avatar, ime, dob, kratki opis, oznake LoRA i referentnih slika, brze radnje Generiraj / Uredi / LoRA trener), uređivanje profila, LoRA stack, način rada referenci (IP-Adapter / InstantID), Character Sheet, izvoz LoRA dataseta i LoRA trener. |
 | **Video** | AnimateDiff video (kao u 1.0.20). |
 | **Kalendar** | Mjesečni prikaz objava; nacrt, zakazivanje i objava na Instagram, Facebook, Telegram i Premium API. |
@@ -40,6 +40,45 @@ Izgled je prerađen, a funkcije su ostale iste: sve kontrole, prečaci i API-ji 
 
 ---
 
+## 1b. Novo u 1.3.0
+
+### Profili kvalitete za RX 6600 (Generiranje → Kvaliteta i brzina)
+
+| Profil | Što radi | Kad ga koristiti |
+|---|---|---|
+| **Realizam** (zadano) | SDXL: manja baza (npr. 768×960 za IG 4:5) + brzi drugi prolaz (hires 1,33×, denoise 0,35, 8 koraka), 24 koraka, CFG 4,3, dpmpp_2m_sde + karras. SD 1.5: CFG 5,0. | Najprirodnija koža i oštrina uz najmanje VRAM-a. |
+| **Brzo** | 20 koraka, jedan prolaz, CFG 4,0, dpmpp_2m + karras, baza do 1024 px. | Brze probe kompozicije. |
+| **Turbo 1024** | Hyper-SDXL LoRA, 8 koraka, CFG 2,2, euler + sgm_uniform, baza 1024 px, bez hiresa. Samo SDXL. | Najbrže (cilj ispod ~3 min po slici na RX 6600). |
+
+- Profil popunjava samo polja koja nisi sam postavio: ručni CFG („Ručno”), sampler, koraci ili hires iz „Napredno” uvijek imaju prednost. Klik na profil postavi i polja u „Napredno” da vidiš što se koristi.
+- **Prirodan izgled**: uz profil se na kraj prompta dodaju foto oznake (`candid photo, natural skin texture, visible pores, soft natural light, subtle film grain, 35mm photograph`), a zadani negativni prompt dobiva `plastic skin, airbrushed, overly smooth skin, waxy skin, doll-like, cgi, 3d render, oversaturated, overexposed, hdr`. Ako upišeš vlastiti negativni prompt, ostaje točno kakav jest.
+- Zašto ne dpmpp_sde: on radi 2 prolaza modela po koraku, pa je na RX 6600 dvostruko sporiji.
+
+### Napredno: 5 kartica s objašnjenjima
+
+1. **Model i sampler**: model, LoRA osobe i jačina, sampler, scheduler, CFG (auto ili ručno), FreeU_V2.
+2. **Format i hires**: broj slika, Hires pass i njegove postavke (skala 1,2–1,6, denoise 0,25–0,5, koraci 4–16).
+3. **Lice i konzistencija**: jačina referentne slike (IP-Adapter), Face Detailer i njegove postavke, IP-Adapter / InstantID i jačina, **8 GB zaštita**.
+4. **LoRA i detalji**: 1 klik SFW detail LoRA-e (Prirodna koža 0,5 · Fini detalji 0,4 · Prirodni kontrast 0,35; preuzimaju se u Modeli → Preporučene SDXL LoRA-e, a ako nedostaju, preskaču se uz poruku) i LoRA stack (do 5).
+5. **Prompt, seed i ostalo**: Dodatno uz izgled, težina izgleda, seed, negativni prompt, oznake kvalitete, predložak sadržaja i serija u redu čekanja.
+
+Uz svaku opciju je „?”: prijeđi mišem, fokusiraj tipkovnicom ili klikni za kratko objašnjenje (Escape zatvara).
+
+**8 GB zaštita** (zadano uključena uz profile): hires se ograniči na ~1,35 MP (1,1 MP uz InstantID) ili preskoči kad je baza već blizu cilja; InstantID + Face Detailer + Hires na SDXL-u → hires isključen; uz SDXL + hires/InstantID generira se 1 slika po pokretanju (za više koristi red čekanja); VAE ide na tiled; Face Detailer denoise ≤ 0,5, guide ≤ 512, max ≤ 768, ≤ 12 koraka. Poruke o tome što je promijenjeno pojave se ispod gumba Generiraj.
+
+### Ocjene Dobra / Loša → LoRA dataset
+
+- Na svakoj novoj slici, u povijesti i u galeriji su gumbi **Dobra** i **Loša** (ponovni klik briše ocjenu). Galerija ima filtar **Sve / Dobra / Loša / Character sheet**.
+- **Dobra** odmah doda sliku u LoRA dataset osobe kojoj slika pripada (bez duplikata). **Loša** ili brisanje ocjene makne tu sliku iz dataseta; ručno dodane slike i referentne slike ostaju.
+- U LoRA treneru: kvačica „Slike ocijenjene „Dobra” automatski idu u dataset” (zadano uključena) i gumb **„Uvezi ocijenjene „Dobra””** (za slike ocijenjene dok je automatika bila isključena ili dok je trajao trening). Dok osoba trenira, njezin dataset se ne mijenja.
+- Baza se nadograđuje sama (stupci `rating`, `rated_at`, indeks `idx_gallery_rating`); migracija je sigurna za ponovno pokretanje.
+
+### Živa GPU traka
+
+Tijekom generiranja (desno, iznad rezultata) i treniranja (u LoRA treneru) prikazuje se: **opterećenje GPU-a** u %, **temperatura** (zeleno do 80°C, žuto do 88°C, crveno iznad), **VRAM** zauzeto / ukupno i **trenutni korak**. Na Windowsu se čitaju GPU brojači (`Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine` i `GPUAdapterMemory`, isto što koristi Upravitelj zadataka), rezerva su amd-smi / rocm-smi / nvidia-smi, a VRAM iz ComfyUI-ja ima prednost. Mjerenje ide u pozadini s kešom od 2,5 s; ako brojač nije dostupan, piše „n/d”. API: `GET /api/gpu-live`.
+
+---
+
 ## 2. Hardver (Postavke → Hardver)
 
 - **Detekcija GPU-a**: Studio prepoznaje grafičku karticu (Windows CIM/wmic, nvidia-smi, rocm-smi) i VRAM.
@@ -60,7 +99,7 @@ Studio šalje samo zastavice koje tvoja verzija ComfyUI-ja stvarno podržava (č
 Zadane postavke (SDXL, 8 GB):
 
 - Sampler `dpmpp_2m_sde`, scheduler `karras`.
-- **Hires fix**: faktor 1,4–1,5, denoise 0,35–0,45, 12–15 koraka, dekodiranje preko `VAEDecodeTiled`.
+- **Hires**: od 1.3.0 zadano 1,33×, denoise 0,35, 8 koraka (brzi drugi prolaz preko manje baze), dekodiranje preko `VAEDecodeTiled`; raspon u Napredno 1,2–1,6 / 0,25–0,5 / 4–16.
 - **FreeU_V2**: b1 1,3 · b2 1,4 · s1 0,9 · s2 0,2 (uključi/isključi).
 - **Face Detailer** (Impact Pack + Subpack): jačina (denoise), guide size, koraci. Ako čvorovi nisu instalirani, predlošci ga preskoče umjesto da javljaju grešku.
 - **Multi-LoRA**: do 5 LoRA-a s vlastitim jačinama (stack osobe + ručno dodane).
@@ -86,7 +125,7 @@ Ako u predlošku nešto nije postavljeno, vrijedi ono iz forme. Ako u formi eksp
 
 ### Galerija
 
-Galerija prikazuje sve slike iz reda, filtrira ih po osobi, ocjeni i izvoru, a slike se učitavaju lijeno („Učitaj još”). Ocjene **Dobra** i **Loša** možeš dati i u lightboxu.
+Galerija prikazuje sve slike iz reda, filtrira ih po osobi, ocjeni (Sve / Dobra / Loša) i izvoru, a slike se učitavaju lijeno („Učitaj još”). Ocjene **Dobra** i **Loša** daješ izravno na slici ili u lightboxu; „Dobra” ide u LoRA dataset osobe (vidi 1b).
 
 ---
 
@@ -106,7 +145,7 @@ Vlastita LoRA lica osobe, istrenirana izravno u Studiju i prilagođena za **RX 6
 
 1. **Odaberi osobu**: vidi se trenutna LoRA, okidač (npr. `chr_ana`) i istrenirane verzije (gumb „Koristi ovu”).
 2. **Dodaj 15–40 slika**: povuci slike, „Odaberi slike” ili „Uvezi iz galerije osobe” (referentne slike + slike ocijenjene „Dobra”). Brojač je zelen kod 15–40 („Idealno”), žut ispod 15 ili iznad 40, a ispod 5 ili iznad 60 treniranje nije moguće. Studio sam ispravi EXIF rotaciju, pretvori u RGB, odbaci slike manje od 256 px i duplikate, izreže kvadrat (SDXL 768, SD 1.5 512, SDXL 1024 opcionalno) i napiše opis za svaku sliku (`<okidač>, adult woman, <dob> years old, izgled, kadar, svjetlo`). Opisi se mogu urediti pod „Pregled opisa”.
-3. **Pokreni treniranje**: profili *Brzi test*, *Preporučeno za RX 6600* (zadano) i *Detaljnije*. Pod „Napredno”: bazni model, rezolucija, rank, epohe, koraci i temperatura auto-stopa.
+3. **Pokreni treniranje**: profili **Brzo**, **Preporučeno** (zadano, za RX 6600) i **Detaljno** kao pill gumbi i jedan gumb „Pokreni treniranje”. Oznaka spremnosti pokazuje je li dataset spreman (15–40 slika), a brojač koliko je slika iz ocjena „Dobra”, a koliko ručno dodano. Pod „Napredno”: bazni model, rezolucija, rank, epohe, koraci i temperatura auto-stopa.
 
 **Sigurne postavke za 8 GB (uvijek uključene):** batch 1, fp16, gradient checkpointing, cache latents na disk (SDXL i izlazi text encodera na disk, trenira se samo UNet), network dim 16 / alpha 8, Adafactor (`scale_parameter=False, relative_step=False, warmup_init=False`), `constant_with_warmup`, SDPA (nikad xformers), `no_half_vae`, bez bitsandbytes. Okruženje treninga: `TORCH_BACKENDS_CUDNN_ENABLED=0`, `PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128`, `PYTHONUTF8=1`. Prije starta Studio pozove ComfyUI `/free` (istovari modele), a dok trening traje generiranje slika i videa čeka (HTTP 409 / red čekanja stoji). Istovremeno može raditi samo jedno treniranje.
 
@@ -189,7 +228,8 @@ Unose se u **Postavke → Ključevi** ili ručno u `data/.env` (predložak `.env
 ## 9. Rješavanje problema
 
 - **ComfyUI visi na „Compilation is in progress”**: provjeri da je „Isključi cuDNN” uključen (`TORCH_BACKENDS_CUDNN_ENABLED=0`) i restartaj ComfyUI iz Postavki.
-- **Out of memory**: uključi 8 GB siguran način, tiled VAE, smanji hires na 1,4 ili isključi Face Detailer.
+- **Out of memory**: ostavi uključenu 8 GB zaštitu (Napredno → Lice i konzistencija), koristi profil Realizam ili Turbo, smanji hires skalu ili isključi Face Detailer.
+- **GPU traka pokazuje „n/d”**: Windows GPU brojači nisu dostupni (stari driver ili isključene performanse) i nema amd-smi; generiranje radi normalno.
 - **Instagram javlja grešku s URL-om**: `PUBLIC_MEDIA_BASE_URL` mora biti javni HTTPS tunel koji radi.
 - **InstantID / Face Detailer bedž je siv**: čvorovi nisu učitani; instaliraj ih u kartici Modeli i restartaj ComfyUI.
 - **LoRA trener javi out of memory**: zatvori druge programe koji koriste GPU, ostavi 768 (SDXL) / 512 (SD 1.5), probaj „Brzi test” ili rank 8.
@@ -199,6 +239,6 @@ Unose se u **Postavke → Ključevi** ili ručno u `data/.env` (predložak `.env
 
 ## 10. Za razvoj
 
-- Struktura: `studio.py` (HTTP server), `api_v11.py` (1.1 API), `api_lora.py` (`/api/lora-trainer/*`), `services/` (hardware, generation, posting, crm, lora_trainer), `static/v11.js`, `static/v11.css`, `static/lora_trainer.js`, `static/lora_trainer.css` te `static/ui_v120.css` i `static/ui_v120.js` (izgled 1.2.0: tema, avatari osoba, kartice osoba, sažetak „Napredno”).
-- Testovi: `python3 tools/test_v110.py`, `python3 tools/test_lora_trainer.py` i `python3 tools/test_ui_v120.py` (uz `PW_PYTHON=/tmp/pwenv/bin/python` za headless UI), te `python3 tools/check_ui_js.py`. LoRA trener se testira bez GPU-a: `STUDIO_LORA_TRAINER_CMD` (lažni trener `tools/fixtures/fake_lora_trainer.py`), `STUDIO_GPU_TEMP` / `STUDIO_GPU_TEMP_FILE` za temperaturu.
+- Struktura: `studio.py` (HTTP server), `api_v11.py` (1.1 API), `api_lora.py` (`/api/lora-trainer/*`), `services/` (hardware, generation, posting, crm, lora_trainer), `static/v11.js`, `static/v11.css`, `static/lora_trainer.js`, `static/lora_trainer.css` te `static/ui_v120.css` i `static/ui_v120.js` (izgled 1.2.0: avatari osoba, kartice osoba, sažetak „Napredno”) i `static/ui_v130.css` / `static/ui_v130.js` (1.3.0: glass tema, puna širina, ? objašnjenja, profili kvalitete, živa GPU traka; učitavaju se zadnji).
+- Testovi: `python3 tools/test_v110.py`, `python3 tools/test_lora_trainer.py` , `python3 tools/test_ui_v120.py`, `python3 tools/test_v130.py` i `python3 tools/test_ui_v130.py` (uz `PW_PYTHON=/tmp/pwenv/bin/python` za headless UI; `UI_V130_SHOTS=/mapa` sprema snimke zaslona), te `python3 tools/check_ui_js.py`. LoRA trener se testira bez GPU-a: `STUDIO_LORA_TRAINER_CMD` (lažni trener `tools/fixtures/fake_lora_trainer.py`), `STUDIO_GPU_TEMP` / `STUDIO_GPU_TEMP_FILE` za temperaturu, `STUDIO_GPU_USAGE`, `STUDIO_GPU_VRAM_USED_MB` i `STUDIO_GPU_VRAM_TOTAL_MB` za živu GPU traku.
 - Izdanje: `bash tools/make_release.sh minor "opis"`.

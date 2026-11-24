@@ -218,6 +218,7 @@ def ensure_schema() -> None:
             ("bio", "TEXT DEFAULT ''"),
         ):
             inbox._ensure_column(c, "profiles", col, decl)
+        inbox.ensure_gallery_rating_schema(c)
         n = c.execute("SELECT COUNT(*) FROM content_templates WHERE builtin=1").fetchone()[0]
         if n == 0:
             t = now()
@@ -477,14 +478,218 @@ def resolve_ref_mode(body: dict, profile: dict | None) -> str:
 
 
 def safe_canvas(body: dict, arch: str, canvas: dict) -> dict:
-    """8 GB siguran mod (samo kad ga klijent eksplicitno pošalje): niža bazna rezolucija + upscale na cilj."""
+    """8 GB siguran mod (samo kad ga klijent eksplicitno pošalje): niža bazna rezolucija + upscale na cilj.
+
+    1.3.0: RX 6600 profil kvalitete može zadati dulju stranicu baze (rx_base_long, npr. 1024 za Turbo 1024)."""
     if not truthy(body.get("safe_mode"), False) or arch not in {"sdxl", "sd15"}:
         return canvas
     tw, th = int(canvas["output_width"]), int(canvas["output_height"])
-    bw, bh = hardware_service.safe_base_for(arch, tw, th)
+    long_side = clamp_int(body.get("rx_base_long"), 0, 1536, 0) if arch == "sdxl" else 0
+    if long_side:
+        bw, bh = hardware_service.rx_base_for(arch, tw, th, long_side)
+    else:
+        bw, bh = hardware_service.safe_base_for(arch, tw, th)
     if (bw, bh) == (int(canvas["width"]), int(canvas["height"])) or bw * bh >= int(canvas["width"]) * int(canvas["height"]):
         return {**canvas, "safe_mode": False}
     return {**canvas, "width": bw, "height": bh, "output_width": tw, "output_height": th, "safe_mode": True}
+
+
+# ---------- 1.3.0: RX 6600 profili kvalitete, 8 GB zaštita i SFW detail LoRA-e ----------
+#
+# Profili se primjenjuju samo kad klijent pošalje quality_profile (novo sučelje to radi). Popunjavaju SAMO
+# polja koja nisu poslana — sve što korisnik ručno postavi u Naprednom ima prednost. Stari klijenti i API
+# pozivi bez quality_profile rade točno kao prije.
+
+RX_PROFILES = {
+    "realism": {
+        "label": "Realizam", "badge": "Preporučeno",
+        "hint": "Manja baza (768×960) + brzi hires 1,33× (8 koraka, denoise 0,35). CFG 4,3 za prirodnu kožu i svjetlo.",
+        "steps": 24, "cfg_sdxl": 4.3, "cfg_sd15": 5.0, "sampler": "dpmpp_2m_sde", "scheduler": "karras",
+        "hires": True, "hires_scale": 1.33, "hires_denoise": 0.35, "hires_steps": 8, "base_long": 960,
+        "natural": True, "turbo": False,
+    },
+    "fast": {
+        "label": "Brzo", "badge": "",
+        "hint": "Jedan prolaz, 20 koraka, baza do 1024 px. Dobar omjer brzine i kvalitete bez Turbo LoRA-e.",
+        "steps": 20, "cfg_sdxl": 4.0, "cfg_sd15": 4.8, "sampler": "dpmpp_2m", "scheduler": "karras",
+        "hires": False, "hires_scale": 1.33, "hires_denoise": 0.35, "hires_steps": 8, "base_long": 1024,
+        "natural": True, "turbo": False,
+    },
+    "turbo": {
+        "label": "Turbo 1024", "badge": "Najbrže",
+        "hint": "Hyper-SDXL 8 koraka, CFG 2,2 (manje „prepečen” izgled), euler + sgm_uniform, baza 1024 px, bez hiresa.",
+        "steps": 8, "cfg_sdxl": 2.2, "cfg_sd15": 2.2, "sampler": "euler", "scheduler": "sgm_uniform",
+        "hires": False, "hires_scale": 1.25, "hires_denoise": 0.32, "hires_steps": 4, "base_long": 1024,
+        "natural": True, "turbo": True,
+    },
+}
+DEFAULT_RX_PROFILE = "realism"
+UI_HIRES_SCALE = 1.33
+UI_HIRES_DENOISE = 0.35
+UI_HIRES_STEPS = 8
+
+# 8 GB zaštita (RX 6600): granice koje sprječavaju OOM bez gašenja korisnikovih opcija bez razloga.
+VRAM_GUARD = {
+    "hires_max_mp": 1.35,          # najveća površina nakon hiresa (megapikseli)
+    "hires_max_mp_instantid": 1.1,  # uz InstantID (ControlNet + InsightFace)
+    "hires_min_scale": 1.15,
+    "fd_max_denoise": 0.5,
+    "fd_max_guide": 512,
+    "fd_max_size": 768,
+    "fd_max_steps": 12,
+    "detail_max_weight": 0.6,
+    "detail_max_turbo": 2,
+}
+
+# Kurirane SFW detail LoRA-e (iste datoteke kao u kartici Modeli → „Preporučene SDXL LoRA-e”).
+DETAIL_LORA_PRESETS = [
+    {"key": "skin", "label": "Prirodna koža", "lora": "ostris_photorealistic_slider_xl.safetensors", "weight": 0.5,
+     "hint": "Photorealistic slider: prirodnija tekstura kože i izgled prave fotografije."},
+    {"key": "detail", "label": "Fini detalji", "lora": "add_detail_xl.safetensors", "weight": 0.4,
+     "hint": "Detail Tweaker XL: oštrije oči, kosa i tkanina. Više od 0,6 zna izgledati umjetno."},
+    {"key": "light", "label": "Prirodni kontrast", "lora": "sdxl_offset_example_lora_1.0.safetensors", "weight": 0.35,
+     "hint": "Offset noise (Stability AI): dublje sjene i manje „ravno” AI svjetlo."},
+]
+
+
+def rx_profile(key) -> dict | None:
+    return RX_PROFILES.get(str(key or "").strip().lower())
+
+
+def _hires_cap(width: int, height: int, scale: float, max_mp: float, out_long: int = 0) -> float:
+    area = max(1, int(width) * int(height))
+    cap = (max_mp * 1_000_000 / area) ** 0.5
+    if out_long:
+        cap = min(cap, max(out_long / max(int(width), int(height)), 1.0) * 1.02)
+    return round(min(scale, cap), 3)
+
+
+def prepare_rx6600(body: dict, arch: str) -> tuple[dict, dict]:
+    """Primijeni RX 6600 profil kvalitete (samo nepostavljena polja). Vraća (novo tijelo, rx_info)."""
+    out = dict(body or {})
+    prof = rx_profile(out.get("quality_profile"))
+    info: dict = {"profile": "", "notes": [], "quality_text": None, "natural": False, "turbo_cfg": None}
+    if not prof or arch not in {"sdxl", "sd15"}:
+        return out, info
+    key = str(out.get("quality_profile")).strip().lower()
+    info["profile"] = key
+    manual_cfg = out.get("cfg") not in (None, "")
+    if prof["turbo"] and arch == "sdxl":
+        out.setdefault("turbo", True)
+        if not manual_cfg:
+            info["turbo_cfg"] = float(prof["cfg_sdxl"])
+    if out.get("steps") in (None, ""):
+        out["steps"] = prof["steps"]
+    if not manual_cfg and not prof["turbo"]:
+        out["cfg"] = prof["cfg_sdxl"] if arch == "sdxl" else prof["cfg_sd15"]
+    if not (out.get("sampler") or out.get("sampler_name")):
+        out["sampler"] = prof["sampler"]
+    if not out.get("scheduler"):
+        out["scheduler"] = prof["scheduler"]
+    if "hires" not in out:
+        out["hires"] = bool(prof["hires"])
+    for k in ("hires_scale", "hires_denoise", "hires_steps"):
+        if out.get(k) in (None, ""):
+            out[k] = prof[k]
+    if arch == "sdxl" and out.get("rx_base_long") in (None, ""):
+        out["rx_base_long"] = prof["base_long"]
+    if prof["natural"]:
+        info["natural"] = True
+        info["quality_text"] = image_gen.NATURAL_QUALITY
+    if truthy(out.get("face_detailer"), False) and out.get("fd_steps") in (None, ""):
+        out["fd_steps"] = min(int(out.get("steps") or prof["steps"]), VRAM_GUARD["fd_max_steps"])
+    return out, info
+
+
+def natural_negative(negative: str, info: dict) -> str:
+    """Zadani negativni prompt -> verzija protiv plastičnog izgleda. Korisnikov vlastiti tekst ostaje netaknut."""
+    neg = (negative or "").strip()
+    if info.get("natural") and (not neg or neg == image_gen.DEFAULT_NEGATIVE.strip()):
+        return image_gen.NATURAL_NEGATIVE
+    return negative
+
+
+def vram_guard(settings: dict, *, arch: str, enabled: bool = True) -> tuple[dict, list[str]]:
+    """8 GB zaštita za RX 6600. settings: width, height, output_width, output_height, batch, hires, hires_scale,
+    instantid, face_detailer, vae_mode, fd (dict). Vraća (prilagođeno, poruke). Ne baca iznimke."""
+    s = dict(settings)
+    notes: list[str] = []
+    if not enabled or arch not in {"sdxl", "sd15"}:
+        return s, notes
+    w, h = int(s.get("width") or 0), int(s.get("height") or 0)
+    out_long = max(int(s.get("output_width") or w), int(s.get("output_height") or h))
+    iid = bool(s.get("instantid"))
+    fd = bool(s.get("face_detailer"))
+    if arch == "sdxl" and s.get("hires") and iid and fd:
+        s["hires"] = False
+        notes.append("8 GB zaštita: Hires je isključen jer su uključeni i InstantID i Face Detailer (zajedno ne stanu u 8 GB).")
+    if s.get("hires") and w and h:
+        max_mp = VRAM_GUARD["hires_max_mp_instantid"] if iid else VRAM_GUARD["hires_max_mp"]
+        if arch == "sd15":
+            max_mp = 1.1
+        req = float(s.get("hires_scale") or 1.5)
+        capped = _hires_cap(w, h, req, max_mp, out_long)
+        if capped < VRAM_GUARD["hires_min_scale"]:
+            s["hires"] = False
+            notes.append("8 GB zaštita: Hires preskočen jer je baza već blizu ciljne veličine.")
+        elif capped < req - 1e-3:
+            s["hires_scale"] = round(capped, 2)
+            notes.append(f"8 GB zaštita: Hires skala smanjena na {capped:.2f}× (najviše ~{max_mp:.2f} MP).")
+    if arch == "sdxl" and int(s.get("batch") or 1) > 1 and (s.get("hires") or iid):
+        s["batch"] = 1
+        notes.append("8 GB zaštita: uz Hires/InstantID na SDXL-u generira se 1 slika po pokretanju (za više koristi red čekanja).")
+    if arch == "sdxl" and (s.get("hires") or iid) and str(s.get("vae_mode") or "standard") == "standard":
+        s["vae_mode"] = "tiled"
+        notes.append("8 GB zaštita: VAE dekodiranje prebačeno na „tiled” zbog veće slike.")
+    fdp = dict(s.get("fd") or {})
+    if fd and fdp:
+        caps = (("denoise", VRAM_GUARD["fd_max_denoise"]), ("guide_size", VRAM_GUARD["fd_max_guide"]),
+                ("max_size", VRAM_GUARD["fd_max_size"]), ("steps", VRAM_GUARD["fd_max_steps"]))
+        changed = False
+        for k, mx in caps:
+            try:
+                if k in fdp and float(fdp[k]) > mx:
+                    fdp[k] = mx
+                    changed = True
+            except (TypeError, ValueError):
+                fdp.pop(k, None)
+        if changed:
+            notes.append("8 GB zaštita: Face Detailer ograničen (denoise ≤ 0,5, guide ≤ 512, max ≤ 768) za prirodno lice bez OOM-a.")
+        s["fd"] = fdp
+    return s, notes
+
+
+def add_detail_loras(stack: list[dict], body: dict, arch: str, *, turbo: bool = False, available=None) -> tuple[list[dict], list[str]]:
+    """Brzi prekidači za kurirane SFW detail LoRA-e (body.detail_loras = ["skin", "detail", ...])."""
+    keys = body.get("detail_loras")
+    if isinstance(keys, str):
+        keys = [k.strip() for k in keys.split(",") if k.strip()]
+    if not keys or arch != "sdxl":
+        return list(stack or []), ([] if not keys else ["Detail LoRA-e su za SDXL modele — preskočene."])
+    available = available or image_gen.lora_available
+    out = list(stack or [])
+    notes: list[str] = []
+    names = {x["name"] for x in out}
+    limit = VRAM_GUARD["detail_max_turbo"] if turbo else len(DETAIL_LORA_PRESETS)
+    used = 0
+    for preset in DETAIL_LORA_PRESETS:
+        if preset["key"] not in keys or used >= limit:
+            continue
+        name = preset["lora"]
+        if name in names:
+            used += 1
+            continue
+        if not available(name):
+            notes.append(f"Detail LoRA „{preset['label']}” nije preuzeta (Modeli → Preporučene SDXL LoRA-e) — preskočena.")
+            continue
+        if len(out) >= image_gen.MAX_LORA_STACK:
+            notes.append("LoRA stack je pun (najviše 5) — detail LoRA preskočena.")
+            break
+        wgt = min(float(preset["weight"]), VRAM_GUARD["detail_max_weight"]) * (0.8 if turbo else 1.0)
+        out.append({"name": name, "strength_model": round(wgt, 2), "strength_clip": round(wgt, 2), "enabled": True, "detail": preset["key"]})
+        names.add(name)
+        used += 1
+    return out, notes
 
 
 def ui_options() -> dict:
@@ -494,12 +699,23 @@ def ui_options() -> dict:
         "schedulers": list(SCHEDULERS),
         "defaults": {
             "sampler": DEFAULT_SAMPLER, "scheduler": DEFAULT_SCHEDULER, "steps": 30, "cfg_sdxl": 5.0, "cfg_sd15": 5.5,
-            "hires_scale": DEFAULT_HIRES_SCALE, "hires_denoise": DEFAULT_HIRES_DENOISE, "hires_steps": DEFAULT_HIRES_STEPS,
+            "hires_scale": UI_HIRES_SCALE, "hires_denoise": UI_HIRES_DENOISE, "hires_steps": UI_HIRES_STEPS,
+            "quality_profile": DEFAULT_RX_PROFILE,
             "freeu": image_gen.FREEU_V2_SDXL, "face_detailer": {k: character.FACE_DETAILER_DEFAULTS[k] for k in ("denoise", "guide_size", "max_size", "bbox_threshold")},
             **hw,
         },
         "max_loras": image_gen.MAX_LORA_STACK,
+        "quality_profiles": [{"key": k, **{f: v for f, v in p.items()}} for k, p in RX_PROFILES.items()],
+        "detail_loras": [{**d, "available": _lora_ok(d["lora"])} for d in DETAIL_LORA_PRESETS],
+        "vram_guard": dict(VRAM_GUARD),
     }
+
+
+def _lora_ok(name: str) -> bool:
+    try:
+        return bool(image_gen.lora_available(name))
+    except Exception:
+        return False
 
 
 def default_body_options() -> dict:
@@ -884,10 +1100,17 @@ def rate_image(*, gallery_id=None, filename: str = "", subfolder: str = "", type
                             persona_id=persona_id, source="history")
         item = gallery_item(ids[0])
     with conn() as c:
-        c.execute("UPDATE gallery_items SET rating=? WHERE id=?", (rating, item["id"]))
+        c.execute("UPDATE gallery_items SET rating=?, rated_at=? WHERE id=?", (rating, now(), item["id"]))
         if persona_id not in (None, "") and not item.get("persona_id"):
             c.execute("UPDATE gallery_items SET persona_id=? WHERE id=?", (int(persona_id), item["id"]))
-    return gallery_item(item["id"])
+    out = gallery_item(item["id"])
+    # 1.3.0: ocjena izravno puni / čisti LoRA dataset osobe (Dobra -> dodaj, Loša/bez ocjene -> makni ako je došla iz galerije).
+    try:
+        from . import lora_trainer_service
+        out["lora_sync"] = lora_trainer_service.sync_gallery_rating(out)
+    except Exception as exc:  # ocjena se uvijek sprema, sinkronizacija je dodatak
+        out["lora_sync"] = {"action": "error", "message": str(exc)[:300]}
+    return out
 
 
 def delete_gallery_item(gid: int) -> None:

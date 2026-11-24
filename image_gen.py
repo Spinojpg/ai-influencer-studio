@@ -14,6 +14,13 @@ DEFAULT_NEGATIVE = (
     "(worst quality, low quality:1.4), deformed, bad anatomy, bad hands, "
     "extra fingers, blurry, cartoon, child, teen"
 )
+# 1.3.0: "prirodna fotografija" (manje plastičnog AI izgleda). Koristi se samo uz RX 6600 profile kvalitete
+# i samo kad korisnik nije sam upisao negativni prompt (njegov tekst se nikad ne mijenja ni ne filtrira).
+NATURAL_QUALITY = "candid photo, natural skin texture, visible pores, soft natural light, subtle film grain, 35mm photograph"
+NATURAL_NEGATIVE = (
+    DEFAULT_NEGATIVE + ", plastic skin, airbrushed, overly smooth skin, waxy skin, doll-like, cgi, 3d render, "
+    "oversaturated, overexposed, hdr"
+)
 
 SD15_PRESETS = [
     {"id": "portrait", "label": "Portret", "width": 512, "height": 768},
@@ -638,6 +645,7 @@ def build_positive_prompt(
     quality: bool = True,
     adult_term: str = ADULT_TERM,
     appearance_weight: float = 1.3,
+    quality_text: str | None = None,
 ) -> dict:
     """
     Složi pozitivni prompt tako da CLIP vidi scenu.
@@ -648,7 +656,7 @@ def build_positive_prompt(
     """
     scene = (scene or "").strip()
     appearance = sanitize_appearance(appearance or "", drop_conflicts=bool(scene))
-    quality_text = QUALITY_PREFIX if quality else ""
+    quality_text = ((quality_text or QUALITY_PREFIX) if quality else "").strip()
 
     head_parts: list[str] = []
     used_adult = ""

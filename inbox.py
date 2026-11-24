@@ -182,6 +182,19 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, decl: str)
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
+def ensure_gallery_rating_schema(conn: sqlite3.Connection) -> None:
+    """1.3.0: idempotentna migracija ocjena slika (Dobra = 1, Loša = -1, neocijenjeno = 0) za postojeće data/studio.db.
+
+    Sigurno za stare baze: samo ALTER TABLE ... ADD COLUMN ako stupac nedostaje + indeks za filtre galerije."""
+    exists = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='gallery_items'").fetchone()
+    if not exists:
+        return
+    _ensure_column(conn, "gallery_items", "rating", "INTEGER DEFAULT 0")
+    _ensure_column(conn, "gallery_items", "rated_at", "REAL")
+    conn.execute("UPDATE gallery_items SET rating=0 WHERE rating IS NULL OR rating NOT IN (-1, 0, 1)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_gallery_rating ON gallery_items(persona_id, rating)")
+
+
 def init_db() -> None:
     if not _PATHS_READY:
         configure_paths()
