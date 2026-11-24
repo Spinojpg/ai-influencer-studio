@@ -875,9 +875,6 @@ def build_training_config(plan: dict, *, base_path, output_dir, output_name: str
         "train_batch_size": 1,
         "gradient_checkpointing": True,
         "mixed_precision": "fp16",
-        # full_fp16: i LoRA težine u fp16. Na ZLUDA-i autocast ne pokrije uvijek LoRA sloj,
-        # pa bez ovoga trening pukne na koraku 0 ("expected m1 and m2 ... Half != float").
-        "full_fp16": True,
         "cache_latents": True,
         "cache_latents_to_disk": True,
         "optimizer_type": "Adafactor",
@@ -1201,6 +1198,35 @@ try:
     print("STUDIO: GPU", name or "nije pronađen", flush=True)
 except Exception as exc:
     print("STUDIO: torch upozorenje:", exc, flush=True)
+# Na ZLUDA-i accelerate ponekad ne uključi fp16 AMP (scaler=None, autocast isključen) pa trening
+# pukne na koraku 0 ("expected m1 and m2 ... Half != float"). Ovdje ga prisilno uključimo.
+try:
+    import torch, accelerate
+    _orig_init = accelerate.Accelerator.__init__
+    def _studio_init(self, *a, **k):
+        _orig_init(self, *a, **k)
+        try:
+            if str(getattr(self.state, "mixed_precision", "")) == "fp16" and torch.cuda.is_available():
+                if getattr(self, "scaler", None) is None:
+                    try:
+                        self.scaler = torch.amp.GradScaler("cuda")
+                    except Exception:
+                        self.scaler = torch.cuda.amp.GradScaler()
+                    print("STUDIO: fp16 GradScaler prisilno uključen (ZLUDA)", flush=True)
+                if not getattr(self, "native_amp", False):
+                    self.native_amp = True
+                    print("STUDIO: fp16 autocast prisilno uključen (ZLUDA)", flush=True)
+                if getattr(self, "autocast_handler", None) is None:
+                    try:
+                        from accelerate.utils import AutocastKwargs
+                        self.autocast_handler = AutocastKwargs(enabled=True)
+                    except Exception:
+                        pass
+        except Exception as exc:
+            print("STUDIO: AMP upozorenje:", exc, flush=True)
+    accelerate.Accelerator.__init__ = _studio_init
+except Exception as exc:
+    print("STUDIO: accelerate upozorenje:", exc, flush=True)
 script = os.path.abspath(sys.argv[1])
 sys.argv = sys.argv[1:]
 sys.path.insert(0, os.path.dirname(script))
@@ -1457,6 +1483,10 @@ def _build_command(cfg_path, ds_path, output_file, arch: str) -> list:
             return [a.replace("{config}", str(cfg_path)).replace("{dataset}", str(ds_path)).replace("{output}", str(output_file)) for a in override]
         return [*override, "--config_file", str(cfg_path), "--dataset_config", str(ds_path)]
     script = sd_scripts_dir() / ("sdxl_train_network.py" if arch == "sdxl" else "train_network.py")
+    try:  # uvijek najnoviji pokretač (popravci dolaze s ažuriranjem Studija, bez ponovne instalacije)
+        (trainer_root() / "launch_trainer.py").write_text(LAUNCHER_SOURCE, encoding="utf-8")
+    except Exception:
+        pass
     return [str(trainer_python()), str(trainer_root() / "launch_trainer.py"), str(script), "--config_file", str(cfg_path), "--dataset_config", str(ds_path)]
 
 

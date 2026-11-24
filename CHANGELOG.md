@@ -1,5 +1,8 @@
 # Promjene
 
+## 1.3.2 — 2026-11-24
+- Popravak LoRA treniranja na AMD/ZLUDA: accelerate nije uključivao fp16 način (greške 'Half != float' i 'scaler _unscale_grads_'). Pokretač ga sada prisilno uključuje i osvježava se kod svakog treninga.
+
 ## 1.3.1 — 2026-11-24
 - Popravak LoRA treniranja: greška 'expected m1 and m2 to have the same dtype (Half != float)' na koraku 0 na AMD/ZLUDA. Trener sada koristi full_fp16.
 
