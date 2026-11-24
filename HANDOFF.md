@@ -1,11 +1,11 @@
 # AI Influencer Studio — handoff za Claudea
 
-**Datum:** 22. studenoga 2026. (Europa/Zagreb, UTC+1)  
+**Datum:** 24. studenoga 2026. (Europa/Zagreb, UTC+1) — dopunjeno nakon izdanja v1.2.0  
 **Repo:** privatni GitHub `Spinojpg/ai-influencer-studio` (grana `main`)  
-**Objavljena verzija aplikacije:** **v1.1.0** (commit `ee901068357a73f2a1ff4ed22f3fb20cee8dbab9`, tag `v1.1.0`) — **nije bilo bumpa verzije ni novog releasea od tada.**  
-**studio.zip sha256 (v1.1.0):** `a19fee2ca5de4549965c0e86b3cdbacd888adda6a6c93c7179d039c652c85804` (579 003 bajtova)  
-**Izdanje:** https://github.com/Spinojpg/ai-influencer-studio/releases/tag/v1.1.0  
-**main nakon dokumentacijskih commita:** vidi poglavlje 10 (suradnja) i zadnji commit na `origin/main`. Na mainu su nakon taga v1.1.0 samo dokumentacija i priprema okruženja (`HANDOFF.md`, `tools/setup_dev_windows.ps1`), bez izmjena koda aplikacije.
+**Objavljena verzija aplikacije:** **v1.2.0** (commit `127e98d52c0b4f22dd7ebe4964176fbf0953e73a`, tag `v1.2.0`) — character LoRA trener za RX 6600 + pojednostavljeno, modernizirano sučelje.  
+**studio.zip sha256 (v1.2.0):** `fc8c0c2a8b2e05a307cef1af1350f7807caffaabde92ae38ae23a066e4f48af8` (660 850 bajtova)  
+**Izdanje:** https://github.com/Spinojpg/ai-influencer-studio/releases/tag/v1.2.0  
+**main:** release commit `127e98d` (tag v1.2.0) + odmah iza njega dokumentacijski commit s ovim `HANDOFF.md` (bez izmjena koda). Detalji: poglavlje 10.8.
 
 Ovaj dokument je sastavljen da Claude može privremeno preuzeti posao na aplikaciji dok Sven nema usage na Grok Botu. **Kod u repou ima prednost nad ovim sažetkom.** Ako se nešto ne slaže, vjeruj kodu (`DOKUMENTACIJA.md`, `services/`, `api_v11.py`, `image_gen.py`, `video.py`, `static/v11.js`).
 
@@ -23,7 +23,7 @@ Kopiraj sve između crta i zalijepi kao prvu poruku.
 
 Ti preuzimaš razvoj i održavanje aplikacije **AI Influencer Studio**, lokalnog Windows studija za fiktivne odrasle AI influencere. Vlasnik je **Sven Benko**. Do sada je posao radio Grok Bot; Sven je ostao bez usagea pa te privremeno koristi. Imaš isti pristup: privatni GitHub repo `Spinojpg/ai-influencer-studio` i njegov PC.
 
-Najprije pročitaj `HANDOFF.md` u korijenu repoa (ovaj dokument, uključujući **poglavlje 10. Suradnja Grok + Claude**), zatim `DOKUMENTACIJA.md`, `.env.example`, `CHANGELOG.md`, `version.json` i `tools/make_release.sh`. Kod ima prednost nad handoffom. Objavljena verzija aplikacije je **v1.1.0** (tag/commit `ee90106`). Na `main` mogu biti noviji dokumentacijski commiti bez bumpa verzije — provjeri `git log` i poglavlje 10.
+Najprije pročitaj `HANDOFF.md` u korijenu repoa (ovaj dokument, uključujući **poglavlje 10. Suradnja Grok + Claude**), zatim `DOKUMENTACIJA.md`, `.env.example`, `CHANGELOG.md`, `version.json` i `tools/make_release.sh`. Kod ima prednost nad handoffom. Objavljena verzija aplikacije je **v1.2.0** (tag/commit `127e98d`). Na `main` mogu biti noviji dokumentacijski commiti bez bumpa verzije — provjeri `git log` i poglavlje 10.
 
 **Tko je Sven i kako komuniciraš**
 - Odgovaraj na **hrvatskom**, ležernim tonom, na „ti“.
@@ -41,13 +41,10 @@ Najprije pročitaj `HANDOFF.md` u korijenu repoa (ovaj dokument, uključujući *
 - Na jednom zadatku radi samo jedan agent; prije rada `git pull`, nakon rada `push`. Release radi samo agent koji je napravio izmjenu. Detalji: poglavlje 10.
 
 **Što je gotovo**
-v1.1.0 je objavljen 20. 11. 2026. (modularni `services/`, kartice, hardver/RX 6600, predlošci, red čekanja, galerija s ocjenama, osobe, Character Sheet, izvoz LoRA dataseta, Kalendar/objave, Inbox i CRM). v1.0.20 pokriva SDXL AnimateDiff motion module. To **nije** još potvrđeno na njegovom Windowsu — čekamo feedback i logove ako nešto pukne.
+v1.2.0 je objavljen 24. 11. 2026.: **character LoRA trener** u kartici Osobe (RX 6600, 8 GB, ZLUDA; 15–40 slika, automatska priprema, sigurne 8 GB postavke, praćenje napretka i temperature, gotova LoRA se sama doda osobi) i **pojednostavljeno, modernizirano sučelje** (glavni ekran: osoba + scena + Generiraj, sve tehničko u zatvorenom „Napredno”, kartice osoba). v1.1.0 (20. 11.) je donio `services/`, kartice, hardver/RX 6600, predloške, red čekanja, galeriju, Kalendar, Inbox i CRM; v1.0.20 SDXL AnimateDiff motion module. Ništa od toga **nije** još potvrđeno na njegovom Windowsu — čekamo feedback i logove ako nešto pukne.
 
 **Što je otvoreno — ne počinji bez potvrde**
-Predloženi sljedeći prompt (još nije krenuo):
-1) jednostavan character LoRA trainer za RX 6600;
-2) pojednostavljenje UI-ja (glavni ekran: osoba + scena + Generiraj, ostalo pod „Napredno“, bez promjene funkcionalnosti).
-Ostalo otvoreno: Instagram setup, treniranje face LoRA-e (izvoz dataseta već postoji), opcijski xAI ključ, ideja „Dodatni ComfyUI“ za dijeljenje poslova na dva PC-a, poznati nedostatak da odabir predloška vizualno ne popuni kontrole forme.
+LoRA trener i pojednostavljenje UI-ja su **gotovi u v1.2.0**. Otvoreno: test v1.2.0 na Windowsu, prvo stvarno treniranje na RX 6600 (priprema sd-scripts venva), provjera očitanja temperature AMD GPU-a, Instagram setup, opcijski xAI ključ, ideja „Dodatni ComfyUI“ za dijeljenje poslova na dva PC-a, poznati nedostatak da odabir predloška vizualno ne popuni kontrole forme.
 
 **Pravila sadržaja (dogovoreno sa Svenom)**
 - Osobe su samo odrasle i fiktivne: prompt počinje s `adult woman, <dob>` (18+); `child, teen` idu u negativni prompt. Samo izmišljena lica, ne lica stvarnih ljudi.
@@ -126,13 +123,13 @@ Ovo je cijeli posao koji je Grok Bot radio na ovom projektu, i koji sada preuzim
    Kod je u privatnom repou `Spinojpg/ai-influencer-studio`, grana `main`. Lokalni rad: na boxu `/workspace/simple-studio`, na Svenovom PC-u `C:\Users\svenb\dev\ai-influencer-studio`. Ne commitaj korisničke podatke, `.env`, bazu ni `dist/`. `HANDOFF.md` i `tools/setup_dev_windows.ps1` ostaju u repou, ali ne u `studio.zip`. Pravila suradnje: poglavlje 10.
 
 2. **Izrada značajki**  
-   Kad Sven potvrdi zadatak: implementiraj, uskladi UI (`index.html`, `static/v11.js`, `static/v11.css`) i backend (`studio.py`, `api_v11.py`, `services/`, postojeći moduli), dopuni `DOKUMENTACIJA.md` / `CHANGELOG.md` po potrebi, napiši ili proširi testove, pa idi na tok izdanja (poglavlje 6).
+   Kad Sven potvrdi zadatak: implementiraj, uskladi UI (`index.html`, `static/v11.js`, `static/v11.css`, `static/ui_v120.css`/`.js`, `static/lora_trainer.*`) i backend (`studio.py`, `api_v11.py`, `services/`, postojeći moduli), dopuni `DOKUMENTACIJA.md` / `CHANGELOG.md` po potrebi, napiši ili proširi testove, pa idi na tok izdanja (poglavlje 6).
 
 3. **Izdanja**  
    Strogo prati postupak u poglavlju 6. Ne radi release „usput“ i ne bumpaj verziju bez namjere da ide na GitHub Releases (jer se auto-update hrani time). Nakon `gh release create` korisnik na Windowsu dobiva update u aplikaciji.
 
 4. **Debugging s Windowsa**  
-   v1.1.0 i v1.0.20 **još nisu potvrđeni** na njegovom PC-u. Ako nešto pukne, zatraži relevantne logove (`comfyui.log`, `studio.log`, `launcher.log`, `updater.log`) i točan korak koji je radio. Tipične stvari: ZLUDA/cuDNN visak, OOM na 8 GB, čvorovi koji se nisu učitali, updater koji nije zamijenio datoteke, prazno sučelje zbog JS greške (zato `tools/check_ui_js.py` mora proći prije pakiranja).
+   v1.2.0, v1.1.0 i v1.0.20 **još nisu potvrđeni** na njegovom PC-u. Ako nešto pukne, zatraži relevantne logove (`comfyui.log`, `studio.log`, `launcher.log`, `updater.log`) i točan korak koji je radio. Tipične stvari: ZLUDA/cuDNN visak, OOM na 8 GB, čvorovi koji se nisu učitali, updater koji nije zamijenio datoteke, prazno sučelje zbog JS greške (zato `tools/check_ui_js.py` mora proći prije pakiranja).
 
 5. **Modeli, LoRA-e i workflowi**  
    Kartica Modeli već umije preuzeti checkpointe, LoRA-e, čvorove i AnimateDiff motion module. Pomozi mu oko odabira i 8 GB postavki, instalacije čvorova (IP-Adapter, InstantID, Impact Pack, AnimateDiff-Evolved, VHS) i vlastitih LoRA-a/workflowa. Ne cenzuriraj ono što sam ubaci. Ugrađene preporuke i predlošci ostaju SFW. Osobe uvijek odrasle i fiktivne.
@@ -148,52 +145,29 @@ Ovo je cijeli posao koji je Grok Bot radio na ovom projektu, i koji sada preuzim
 - 22. 11. 2026.: u repo dodani ovaj dokument (prvi `HANDOFF.md`) i kasnije **poglavlje 10** plus `tools/setup_dev_windows.ps1`. Nema bumpa verzije, nema `gh release create`, kod aplikacije nije diran. Objavljena verzija i dalje je v1.1.0.
 - Cilj te pripreme: Claude na Svenovom PC-u dobije isti razvojni tok (checkout izvan instalacijske mape, git/gh, testovi, `make_release.sh` pod Git Bashom) i da oba agenta objavljuju izdanja preko GitHub Releases, ali **ne istovremeno** i uz obavezan `git pull` + `gh release list` prije releasea.
 
+- 24. 11. 2026.: Sven je potvrdio oboje („radi slobodno … sam delaj“). Grok je napravio **LoRA trener** (commit `d15422f`) i **pojednostavljeno sučelje**, pa objavio **v1.2.0** (commit `127e98d`). Detalji u 4.2 A i 10.8.
+
 ### 4.2 Otvorene i čekajuće stavke — status i kako nastaviti
 
-#### A) Predloženi sljedeći prompt: LoRA trainer + pojednostavljenje UI-ja — **NIJE POČETO, čeka potvrdu**
+#### A) LoRA trener + pojednostavljenje UI-ja — **GOTOVO, objavljeno u v1.2.0** (čeka test na Windowsu)
 
-Sven je poslao prompt s dvije stavke, zatim izričito rekao da se ne radi ništa dok ne potvrdi, i tražio samo grubu procjenu potrošnje. **Nijedna stavka nije implementirana.** Još nije rekao hoće li stavku 1, stavku 2 ili oboje.
+**Stavka 1 — character LoRA trener (commit `d15422f`)**
+- `services/lora_trainer_service.py`, `api_lora.py` (`/api/lora-trainer/*`), `static/lora_trainer.js`/`.css`, kartica Osobe → LoRA trener (3 koraka).
+- Dataset po osobi (15–40 slika: upload, povuci-ispusti, uvoz iz galerije osobe), Pillow priprema (EXIF, RGB, izrez 768/512), opisi s okidačem i „adult woman”, Kohya struktura.
+- Sigurne 8 GB postavke: batch 1, fp16, gradient checkpointing, cache latents na disk, Adafactor, SDPA bez xformersa/bitsandbytes, cuDNN=0. Profili Brzi test / Preporučeno za RX 6600 / Detaljnije, ostalo pod „Napredno”.
+- Praćenje: korak, epoha, ETA, loss, log, temperatura GPU-a (ADL / LibreHardwareMonitor / smi alati; bez lažnih brojeva), upozorenje 80°C, auto-stop 92°C.
+- Gotova LoRA `char_<osoba>_vN.safetensors` ide u `ComfyUI/models/loras` i sama se doda osobi (0.8 + okidač). Generiranje čeka dok trening traje.
+- Jednokratna priprema okruženja: kohya sd-scripts v0.13.1 u `data/trainer`, venv koji koristi PyTorch iz ComfyUI-Zlude.
 
-**Stavka 1 — jednostavan character LoRA trainer za RX 6600**
+**Stavka 2 — pojednostavljeno, modernizirano sučelje (commit `127e98d`)**
+- Samo izgled i raspored: svi ID-jevi, događaji i API-ji su isti (provjerava `tools/test_ui_v120.py` + svi stari testovi).
+- `static/ui_v120.css` (učitava se zadnji): tamna tema `#0b0d12`, kartice `#12161f`/`#171c28`, tanki rubovi, jedan indigo naglasak `#7c8cff`, semantičke boje samo za stanja; stari „zlatni” naglasak prebačen u indigo i u `index.html`/`v11.css`/`lora_trainer.css`. Globalno `[hidden] { display: none !important; }`.
+- `static/ui_v120.js` (samo prikaz, koristi `window.StudioCore`): avatari osoba na Generiranju (klik postavlja `#osoba` i šalje `change`), status „LoRA aktivna / Bez LoRA-e” + broj ref. slika, sažetak u naslovu „Napredno”, kartice osoba u Osobama (Generiraj / Uredi / LoRA trener — „Uredi” klikne skriveni red u `#profileList`, pa sve staro radi), automatsko učitavanje aktivne osobe u prazan obrazac.
+- Generiranje: glavni ekran = osoba (avatari) + opis scene + brzi stilovi + format + brzina + Generiraj + mali hardverski red. `<details class="adv">` „Napredno” (zatvoreno) ima grupe *Model i stil* (model, LoRA, Dodatno uz izgled, težina izgleda, broj slika, seed, negativni prompt, kvaliteta, napomene), *Dosljednost i detalji* (IP-Adapter jačina, Face Detailer, Hires fix) i ugniježđeni `#v11GenBox` (predložak, sampler, scheduler, CFG, hires parametri, FreeU, InstantID, Face Detailer postavke, LoRA stack, serija u redu čekanja).
+- Osobe: kartice osoba; obrazac s osnovnim poljima na vrhu (ime, dob/vibe, izgled, referentne slike, osobnost), sklopivo „Model, LoRA i tehničke postavke” (`#pfTech`) i „Stil poruka i chat” (`#pfChat`); desno `#v11Persona`; dolje LoRA trener.
+- Testna ograničenja za daljnji UI rad: `test_v112` traži da su `#activeModelLine` i `#go` prije prvog `<details class="adv">` (točno taj string, bez dodatnih atributa); `test_v109`/`test_v114` traže model/seed/negativni/kvaliteta/hires unutar tog bloka i `#lora` između `id="model"` i „Broj slika”; `test_v117` traži „IG Portret” u vidljivom tekstu (zato je `#sizes` na glavnom ekranu); `test_v110` čita `#v11HwQuick` innerText (zato je izvan zatvorenog „Napredno”).
 
-Što je tražio:
-
-- upload 15–40 slika
-- automatski resize i caption
-- postavke za 8 GB: gradient checkpointing, mali batch, fp16, cache latents
-- progres i upozorenje na temperaturu GPU-a
-- nakon treniranja automatski dodati LoRA na osobu
-- jednostavan UI, podrška za više osoba
-
-Što već postoji (nemoj duplicirati): u v1.1.0 kartica Osobe ima **izvoz LoRA dataseta** — slike ocijenjene „Dobra“ idu u `data/lora_datasets/<osoba>_<vrijeme>/` s caption `.txt`, `UPUTE.txt` i konfiguracijama `kohya_sdxl_lora_8gb.json` i `onetrainer_sdxl_lora_8gb.json` (batch 1, gradient checkpointing, mixed precision). To je priprema za vanjski Kohya/OneTrainer, **nije** ugrađeni trainer.
-
-Kako nastaviti, **tek kad kaže da radiš stavku 1**:
-
-1. Ponovi kratku procjenu truda i čekaj potvrdu ako već nije jasna za ovu stavku.
-2. Predloži i uskladi pristup koji stane na RX 6600 8 GB + ZLUDA (realno: omotač oko Kohya ili sličnog, ne težak custom trainer od nule ako to ne stane na stroj). Reci mu što točno planiraš prije pisanja većeg koda, ako plan nije očit iz prompta.
-3. UI: upload, pregled, progres, upozorenje na temperaturu, rezultat se veže na odabranu osobu (`lora_stack`, do 5). Više osoba = odabir osobe, ne jedan globalni model.
-4. Testovi + dokumentacija, zatim tok izdanja (npr. minor ako je nova značajka).
-5. Na Windowsu provjeriti OOM, putanje i da se nova LoRA vidi u izborniku.
-
-**Stavka 2 — pojednostavljenje i modernizacija UI-ja**
-
-Što je tražio:
-
-- minimalan glavni ekran: **osoba + scena + Generiraj**
-- napredne postavke pod **„Napredno“**
-- jasniji profili
-- **ne mijenjati funkcionalnost** — samo organizacija i preglednost
-
-Kako nastaviti, **tek kad kaže da radiš stavku 2**:
-
-1. Procjena, pa potvrda.
-2. Zadrži sve kartice i API-je; premjesti gustoću s kartice Generiranje. Zadani tab i dalje može biti Generiranje, ali prvi pogled treba biti osoba, scena/prompt i gumb Generiraj.
-3. Sampler, hires, FreeU, Face Detailer, LoRA stack, reference, VAE itd. pod „Napredno“ (dio toga već je u Napredno — treba dodatno stanjiti glavni ekran).
-4. Profili/Osobe: pregledniji prikaz, bez gubitka polja (LoRA stack, reference, način slanja, character sheet, izvoz dataseta).
-5. Vizualna regresija: Playwright (`PW_PYTHON=/tmp/pwenv/bin/python`) + `tools/check_ui_js.py` + `tools/test_v110.py`. Posebno pripazi na stari bug iz 1.0.16 (sintaksna greška u JS-u je ubila cijeli UI).
-6. Poželjno uz to popraviti poznati nedostatak da odabir predloška **ne popuni kontrole forme** (vrijednosti se primijene na serveru). To nije bilo u originalnom promptu — spomeni i pitaj smije li ući u isti UI rad, ne ubacuj tiho ako on želi strogo „samo layout“.
-
-Ako kaže „napravi oboje“, prvo uskladi redoslijed (često je UI prvi jer trainer dodaje novi ekran; ili trainer pa UI oko njega) i opet kratko potvrdi plan.
+**Što još treba (otvoreno):** test v1.2.0 na Windowsu (izgled u Braveu, auto-update s v1.1.0), prvo stvarno treniranje na RX 6600 (gumb „Pripremi okruženje za treniranje”, provjera da venv vidi ZLUDA PyTorch, OOM / vrijeme po profilu), provjera očitanja temperature AMD GPU-a (ADL / LibreHardwareMonitor; bez senzora UI kaže da senzor nije dostupan). Sitnica: trener na prazan dataset zove `/api/lora-trainer/plan` koji vrati 400 (samo crveni zapis u konzoli preglednika, UI radi).
 
 #### B) „Dodatni ComfyUI“ — dijeljenje poslova na dva PC-a — **samo ideja, nije početo**
 
@@ -207,21 +181,21 @@ Kod za Graph API već postoji (container `/media` pa `media_publish`; slika mora
 
 Kako nastaviti: vodi ga kroz Postavke i `.env.example` / `DOKUMENTACIJA.md` poglavlje 6 i 8. On unosi tajne kod sebe. Kad zapne, traži poruku greške iz UI-ja/logova, ne token.
 
-#### D) Treniranje face LoRA-e — **djelomično pokriveno, trainer nije ugrađen**
+#### D) Treniranje face LoRA-e — **ugrađeno u v1.2.0 (LoRA trener), čeka prvi stvarni trening na RX 6600**
 
-Konzistentnost lica već ima: do 8 referentnih slika, IP-Adapter Plus Face, InstantID, LoRA stack po osobi, Character Sheet 2×2, izvoz dataseta iz ocjena „Dobra“. Samo treniranje u aplikaciji je stavka 1 iz točke A i čeka potvrdu. Do tada mu možeš reći da označi dobre slike i izveze dataset pa trenira u Kohyi/OneTraineru prema `UPUTE.txt` iz izvoza.
+Konzistentnost lica već ima: do 8 referentnih slika, IP-Adapter Plus Face, InstantID, LoRA stack po osobi, Character Sheet 2×2, izvoz dataseta iz ocjena „Dobra“. Od v1.2.0 treniranje radi u aplikaciji (Osobe → LoRA trener, vidi 4.2 A). Izvoz dataseta za vanjski Kohya/OneTrainer i dalje postoji.
 
 #### E) xAI ključ za CRM chat — **opcijski, nije postavljen**
 
 CRM radi bez njega: `auto` ide Ollama → LM Studio/OpenAI-compat → xAI → pravila. Način „pravila“ omogućuje simulaciju bez ključa. Ako želi Grok u CRM-u, sam upisuje `XAI_API_KEY` i `XAI_MODEL` (u `.env.example` je predložen `grok-4`) u Postavkama. Ne lijepi ključ u chat. Nije blokirajuće za ostali rad.
 
-#### F) Feedback s Windowsa za v1.1.0 i v1.0.20 — **čeka Svena**
+#### F) Feedback s Windowsa za v1.2.0, v1.1.0 i v1.0.20 — **čeka Svena**
 
 Ako javi da nešto ne radi: verzija iz `version.json` (vidi se u UI-ju), što je kliknuo, i logovi. Za video: je li skinut pravi motion modul (`mm_sd_v15_v2` vs `mm_sdxl_v10_beta`). Za OOM: 8 GB siguran način, tiled VAE, manji hires, isključiti Face Detailer; za SDXL video 512×512, max 16 sličica (zadano 12).
 
 #### G) Poznati nedostatak: predložak ne popunjava formu — **poznato, nije zasebno naručeno**
 
-Odabir predloška primijeni vrijednosti na serveru pri generiranju, ali kontrole u formi vizualno ne skoče na te vrijednosti. Popravi kad radiš UI (uz njegovu suglasnost) ili ako to posebno zatraži.
+Odabir predloška primijeni vrijednosti na serveru pri generiranju, ali kontrole u formi vizualno ne skoče na te vrijednosti. Nije dirano u v1.2.0 (zadatak je bio samo izgled). Popravi uz njegovu suglasnost ili ako to posebno zatraži.
 
 #### H) Ocjenjivanje Dobra/Loša — **već u v1.1.0, nije otvoren zadatak**
 
@@ -233,11 +207,11 @@ Postojala je ponuda da Researcher rjeđe vrti Alibaba RFQ rutinu. To nije dio ov
 
 ### 4.3 Što sada NE radiš
 
-- Ne počinješ trainer ni UI refactor dok ne kaže koju stavku.
+- Ne počinješ novi feature dok ga Sven ne potvrdi (trainer i UI su gotovi u v1.2.0).
 - Ne objavljuješ novo izdanje samo zbog ovog dokumenta (handoff nije release).
 - Ne dodaješ filtere sadržaja na njegove promptove, workflowe ili lokalne LoRA-e.
 - Ne tražiš tajne u chatu.
-- Ne tvrdiš da je v1.1.0 provjeren na njegovom Windowsu — nije.
+- Ne tvrdiš da su v1.2.0 / v1.1.0 provjereni na njegovom Windowsu — nisu.
 
 ---
 
@@ -245,7 +219,7 @@ Postojala je ponuda da Researcher rjeđe vrti Alibaba RFQ rutinu. To nije dio ov
 
 Cilj: lokalni studio za fiktivne odrasle AI influencere — generiranje preko ComfyUI-ja, konzistentnost lika (LoRA / reference), red čekanja, galerija, kalendar objava, Inbox i CRM. Sve na `http://127.0.0.1:7860`.
 
-### 5.1 Struktura koda (v1.1.0)
+### 5.1 Struktura koda (v1.2.0)
 
 | Dio | Uloga |
 |---|---|
@@ -256,7 +230,9 @@ Cilj: lokalni studio za fiktivne odrasle AI influencere — generiranje preko Co
 | `services/posting_service.py` | IG/FB/Telegram/Premium, kalendar, scheduler (svakih 30 s) |
 | `services/crm_service.py` | inbox, način slanja, LLM, memorija, narudžbe, analitika, webhook |
 | `services/common.py`, `services/__init__.py` | zajedničko; `init_schema()`, `start_workers()`, `stop_workers()` |
-| `static/v11.js`, `static/v11.css` | sučelje 1.1 |
+| `static/v11.js`, `static/v11.css` | sučelje 1.1 (Pregled, Kalendar, CRM, Postavke, red čekanja, galerija) |
+| `static/ui_v120.css`, `static/ui_v120.js` | izgled 1.2.0: tema, avatari osoba, kartice osoba, sažetak „Napredno” |
+| `api_lora.py`, `services/lora_trainer_service.py`, `static/lora_trainer.js`, `static/lora_trainer.css` | LoRA trener (1.2.0) |
 | `index.html` | školjka UI-ja (inline + static) |
 | `image_gen.py` | txt2img workflow (SD 1.5 / SDXL / Krea 2), prompt, CLIP, LoRA, hires, FreeU |
 | `video.py`, `video_install.py` | AnimateDiff video, izbor motion modula, instalacija čvorova |
@@ -271,7 +247,7 @@ Cilj: lokalni studio za fiktivne odrasle AI influencere — generiranje preko Co
 
 Stari moduli i dalje rade i delegiraju u `services/`.
 
-**Kartice (v1.1.0):** Pregled, **Generiranje** (zadani tab), Osobe, Video, Kalendar, Inbox i CRM, Modeli, Postavke.
+**Kartice (v1.2.0):** Pregled, **Generiranje** (zadani tab; osoba + scena + Generiraj, ostalo u „Napredno”), Osobe (kartice + LoRA trener), Video, Kalendar, Inbox i CRM, Modeli, Postavke.
 
 ### 5.2 Hardver
 
@@ -309,6 +285,7 @@ Zadano za SDXL / 8 GB:
 - LoRA stack do 5, način referenci, način slanja CRM-a po osobi (naslijedi / automatsko / nacrt).
 - Character Sheet 2×2: sprijeda, tri četvrtine, profil, vani candid; isti seed; spajanje u jedan PNG (Pillow, ili čisti Python ako Pillow nema).
 - Izvoz LoRA dataseta: vidi 4.2 D.
+- LoRA trener (v1.2.0): vidi 4.2 A.
 
 ### 5.5 Preporučene SDXL LoRA-e (kartica Modeli, sve SFW, kvaliteta slike)
 
@@ -369,7 +346,8 @@ Ključevi i varijable okoline navedeni su u `.env.example` i `DOKUMENTACIJA.md` 
 ### 5.10 Poznati nedostaci
 
 - Odabir predloška ne popunjava vizualno kontrole forme (vrijednosti se primijene na serveru).
-- v1.1.0 (i v1.0.20) još nisu potvrđeni testom na Svenovom Windowsu.
+- v1.2.0, v1.1.0 (i v1.0.20) još nisu potvrđeni testom na Svenovom Windowsu.
+- LoRA trener još nije stvarno trenirao na RX 6600; očitanje temperature AMD GPU-a nije provjereno na njegovom PC-u.
 
 ---
 
@@ -380,7 +358,8 @@ Radi iz svježeg checkouta `main`: na boxu `/workspace/simple-studio`, na Svenov
 1. Napravi izmjene i dopuni dokumentaciju po potrebi.
 2. **Testovi** (prilagodi skup onome što si dirao; za puni release vrti relevantne):
    - `python3 tools/check_ui_js.py` — obavezno (provjerava inline JS u `index.html` **i** `static/*.js` preko `node --check`). `make_release.sh` ovo sam pokrene ako postoji `node`.
-   - `python3 tools/test_v109.py` … `python3 tools/test_v120.py` (uključujući `test_v110.py` za 1.1.0 i `test_v120.py` za video/motion module)
+   - `python3 tools/test_v102.py`, `test_v105.py`, `test_v107.py` … `python3 tools/test_v120.py` (uključujući `test_v110.py` za 1.1.0 i `test_v120.py` za video/motion module)
+   - `python3 tools/test_lora_trainer.py` (LoRA trener), `python3 tools/test_ui_v120.py` (sučelje 1.2.0), `python3 tools/test_pythonw_stdio.py`
    - `python3 tools/test_updater.py`
    - Playwright: na boxu `PW_PYTHON=/tmp/pwenv/bin/python` (npr. unutar `tools/test_v110.py` za headless UI). Na Windowsu taj path ne postoji; testovi sami preskoče Playwright ako nije instaliran.
 3. `bash tools/make_release.sh patch|minor "bilješke"`  
@@ -406,7 +385,8 @@ Ne radi korak 7 dok testovi ne prođu i dok Sven želi izdanje (za bugfix koji j
 
 | Verzija | Tag / commit | Napomena |
 |---|---|---|
-| **v1.1.0** | `ee901068357a73f2a1ff4ed22f3fb20cee8dbab9` (20. 11. 2026., ~04:49 Europa/Zagreb) | trenutni `main`, sha256 `a19fee2c…c85804` |
+| **v1.2.0** | `127e98d52c0b4f22dd7ebe4964176fbf0953e73a` (24. 11. 2026., ~05:00 Europa/Zagreb) | LoRA trener + novo sučelje, sha256 `fc8c0c2a…f48af8` |
+| **v1.1.0** | `ee901068357a73f2a1ff4ed22f3fb20cee8dbab9` (20. 11. 2026., ~04:49 Europa/Zagreb) | sha256 `a19fee2c…c85804` |
 | **v1.0.20** | `81e067a1e08486af3f8acd1b96541e5d2c5aa69d` (19. 11. 2026., ~03:59 Europa/Zagreb) | SDXL motion modul |
 
 ---
@@ -446,17 +426,18 @@ Sve je izašlo u kratkom rasponu (18.–20. studenoga 2026.). Detalji su u `CHAN
 - **1.0.19** — LoRA izbornik vidi sve LoRA-e s diska (i podmape), popravak instalacije IP-Adapter/Impact čvorova, dijagnostika iz `comfyui.log`, svjež ComfyUI pri paljenju, gumb „Popravi“.
 - **1.0.20** — SDXL AnimateDiff motion modul u aplikaciji, auto-odabir po arhitekturi, 8 GB video postavke, `tools/test_v120.py`.
 - **1.1.0** — modularni servisi, novo sučelje s 8 kartica, hardver/RX 6600, predlošci, red čekanja, galerija s ocjenama, Character Sheet, izvoz dataseta, Kalendar, Inbox i CRM, dokumentacija.
+- **1.2.0** — character LoRA trener za RX 6600 (8 GB) u kartici Osobe; pojednostavljeno, modernizirano sučelje (osoba + scena + Generiraj, „Napredno”, kartice osoba), `tools/test_lora_trainer.py`, `tools/test_ui_v120.py`.
 
 ---
 
 ## 9. Što prvo otvoriti
 
 1. Ovaj `HANDOFF.md` (posebno poglavlje 10 ako preuzimaš posao uz Groka)
-2. `DOKUMENTACIJA.md` — korisnički opis 1.1.0
+2. `DOKUMENTACIJA.md` — korisnički opis 1.2.0 (uključujući poglavlje 1a: sučelje)
 3. `.env.example` — imena varijabli (bez vrijednosti)
 4. `CHANGELOG.md` i `version.json`
 5. `tools/make_release.sh`, `tools/check_ui_js.py` i `tools/setup_dev_windows.ps1`
-6. `services/`, `api_v11.py`, `static/v11.js`, `image_gen.py`, `video.py`
+6. `services/`, `api_v11.py`, `api_lora.py`, `static/v11.js`, `static/ui_v120.js`, `static/lora_trainer.js`, `image_gen.py`, `video.py`
 
 Ako nešto u ovom dokumentu odstupa od koda, **ispravi ponašanje prema kodu** i po želji dopuni ovaj handoff u istom commitu.
 
@@ -530,9 +511,17 @@ Bez toga sljedeći agent ne može pouzdano preuzeti posao.
 - **Sigurnost:** nikad tokene ni ključeve u repo, u ovaj dokument, u chat ili u izvještaj setup skripte. Sven ih ne lijepi. `gh auth login` radi on sam.
 - **Sadržaj:** osobe samo odrasle i fiktivne; ugrađeni predlošci i kurirane LoRA-e ostaju SFW; nema filtera ključnih riječi na njegove vlastite promptove, workflowe ili lokalne LoRA-e. Detalji ostaju u poglavlju 7.
 
-### 10.7 Stanje ovog commita (22. 11. 2026., Europa/Zagreb)
+### 10.7 Stanje nakon pripreme suradnje (22. 11. 2026., Europa/Zagreb) — povijesno
 
 - Dodani `tools/setup_dev_windows.ps1` i ovo poglavlje. `make_release.sh` isključuje tu skriptu iz `studio.zip`.
 - Kod aplikacije nije mijenjan. Verzija **nije** bumpana. Release **nije** rađen. Objavljeno je i dalje **v1.1.0**.
 - Otvoreno ostaje isto kao u poglavlju 4.2: LoRA trainer + pojednostavljenje UI-ja čeka Svenovu potvrdu; feedback za v1.1.0/v1.0.20 na Windowsu; Instagram setup, face LoRA, opcijski xAI ključ, ideja „Dodatni ComfyUI“.
 
+### 10.8 Stanje nakon izdanja v1.2.0 (24. 11. 2026., Europa/Zagreb)
+
+- Radio: **Grok** (na boxu, `/workspace/simple-studio`). Sven je potvrdio oba dijela zadatka.
+- **Objavljeno: v1.2.0**, tag `v1.2.0` na release commitu `127e98d52c0b4f22dd7ebe4964176fbf0953e73a`. Izdanje: https://github.com/Spinojpg/ai-influencer-studio/releases/tag/v1.2.0 (assets `studio.zip` + `studio.zip.sha256`).
+- `studio.zip`: 660 850 bajtova, sha256 `fc8c0c2a8b2e05a307cef1af1350f7807caffaabde92ae38ae23a066e4f48af8`.
+- Napravljeno: LoRA trener (`d15422f`) + pojednostavljeno, modernizirano sučelje (`127e98d`), `DOKUMENTACIJA.md` (poglavlje 1a), `CHANGELOG.md` (jedan unos `## 1.2.0`), `make_release.sh` traži i `static/ui_v120.*`. Nakon toga samo dokumentacijski commit s ovim poglavljem (zadnji commit na `origin/main`).
+- Testovi prije objave (box, `PW_PYTHON=/tmp/pwenv/bin/python`): `check_ui_js`, `test_lora_trainer`, `test_ui_v120`, `test_v102`, `test_v105`, `test_v107`–`test_v120`, `test_updater`, `test_pythonw_stdio` — **svi prošli (21/21)**.
+- Otvoreno: test v1.2.0 na Windowsu (auto-update s v1.1.0, izgled u Braveu); prvo stvarno treniranje na RX 6600 i provjera sd-scripts venva; provjera očitanja temperature AMD GPU-a; Instagram setup; opcijski xAI ključ; ideja „Dodatni ComfyUI” / dva PC-a; poznati nedostatak da predložak vizualno ne popuni formu.
