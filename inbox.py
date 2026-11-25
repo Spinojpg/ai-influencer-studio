@@ -18,6 +18,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import character
+
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 DB_PATH = DATA_DIR / "studio.db"
@@ -266,6 +268,13 @@ def init_db() -> None:
         _ensure_column(conn, "profiles", "face_detailer", "INTEGER DEFAULT 0")
         _ensure_column(conn, "profiles", "lock_seed", "INTEGER DEFAULT 0")
         _ensure_column(conn, "profiles", "locked_seed", "TEXT DEFAULT ''")
+        # 1.4.0: konzistentnost lica (end_at, Face Detailer detalji). Postojeći retci dobiju ove zadane.
+        _ensure_column(conn, "profiles", "instantid_end_at", "TEXT DEFAULT '0.8'")
+        _ensure_column(conn, "profiles", "ipadapter_end_at", "TEXT DEFAULT '1.0'")
+        _ensure_column(conn, "profiles", "fd_denoise", "TEXT DEFAULT '0.25'")
+        _ensure_column(conn, "profiles", "fd_guide_size", "TEXT DEFAULT '384'")
+        _ensure_column(conn, "profiles", "fd_max_size", "TEXT DEFAULT '768'")
+        _ensure_column(conn, "profiles", "fd_bbox_threshold", "TEXT DEFAULT '0.5'")
         defaults = {
             "active_profile_id": "",
             "send_mode": "approve",
@@ -515,8 +524,8 @@ def _row_profile(row: sqlite3.Row) -> dict:
         "has_reference": bool(enabled_n),
         "reference_count": len(refs),
         "reference_enabled_count": enabled_n,
-        "ipadapter_weight": _float_field(row["ipadapter_weight"] if "ipadapter_weight" in keys else 0.8, 0.8),
-        "appearance_weight": _float_field(row["appearance_weight"] if "appearance_weight" in keys else 1.3, 1.3),
+        "ipadapter_weight": _float_field(row["ipadapter_weight"] if "ipadapter_weight" in keys else character.DEFAULT_IPADAPTER_WEIGHT, character.DEFAULT_IPADAPTER_WEIGHT),
+        "appearance_weight": _float_field(row["appearance_weight"] if "appearance_weight" in keys else character.DEFAULT_APPEARANCE_WEIGHT, character.DEFAULT_APPEARANCE_WEIGHT),
         "preferred_lora": (row["preferred_lora"] if "preferred_lora" in keys else "") or "",
         "preferred_lora_strength": _float_field(row["preferred_lora_strength"] if "preferred_lora_strength" in keys else 0.8, 0.8),
         "face_detailer": _bool_field(row["face_detailer"] if "face_detailer" in keys else 0, False),
@@ -524,7 +533,13 @@ def _row_profile(row: sqlite3.Row) -> dict:
         "locked_seed": (row["locked_seed"] if "locked_seed" in keys else "") or "",
         "lora_stack": _parse_json_list(row["lora_stack"]) if "lora_stack" in keys else [],
         "ref_mode": (row["ref_mode"] if "ref_mode" in keys else "auto") or "auto",
-        "instantid_weight": _float_field(row["instantid_weight"] if "instantid_weight" in keys else 0.8, 0.8),
+        "instantid_weight": _float_field(row["instantid_weight"] if "instantid_weight" in keys else character.DEFAULT_INSTANTID_WEIGHT, character.DEFAULT_INSTANTID_WEIGHT),
+        "instantid_end_at": _float_field(row["instantid_end_at"] if "instantid_end_at" in keys else 0.8, 0.8),
+        "ipadapter_end_at": _float_field(row["ipadapter_end_at"] if "ipadapter_end_at" in keys else 1.0, 1.0),
+        "fd_denoise": _float_field(row["fd_denoise"] if "fd_denoise" in keys else character.FACE_DETAILER_DEFAULTS["denoise"], character.FACE_DETAILER_DEFAULTS["denoise"]),
+        "fd_guide_size": _float_field(row["fd_guide_size"] if "fd_guide_size" in keys else character.FACE_DETAILER_DEFAULTS["guide_size"], character.FACE_DETAILER_DEFAULTS["guide_size"]),
+        "fd_max_size": _float_field(row["fd_max_size"] if "fd_max_size" in keys else character.FACE_DETAILER_DEFAULTS["max_size"], character.FACE_DETAILER_DEFAULTS["max_size"]),
+        "fd_bbox_threshold": _float_field(row["fd_bbox_threshold"] if "fd_bbox_threshold" in keys else character.FACE_DETAILER_DEFAULTS["bbox_threshold"], character.FACE_DETAILER_DEFAULTS["bbox_threshold"]),
         "send_mode": (row["send_mode"] if "send_mode" in keys else "") or "",
         "bio": (row["bio"] if "bio" in keys else "") or "",
         "lora_trigger": (row["lora_trigger"] if "lora_trigger" in keys else "") or "",
@@ -609,9 +624,26 @@ def upsert_profile(payload: dict, pid: int | None = None) -> dict:
         "updated_at": time.time(),
     }
     if "ipadapter_weight" in payload:
-        fields["ipadapter_weight"] = str(_float_field(payload.get("ipadapter_weight"), 0.8))[:16]
+        fields["ipadapter_weight"] = str(_float_field(payload.get("ipadapter_weight"), character.DEFAULT_IPADAPTER_WEIGHT))[:16]
     if "appearance_weight" in payload:
-        fields["appearance_weight"] = str(_float_field(payload.get("appearance_weight"), 1.3))[:16]
+        fields["appearance_weight"] = str(_float_field(payload.get("appearance_weight"), character.DEFAULT_APPEARANCE_WEIGHT))[:16]
+    if "instantid_weight" in payload:
+        fields["instantid_weight"] = str(_float_field(payload.get("instantid_weight"), character.DEFAULT_INSTANTID_WEIGHT))[:16]
+    if "instantid_end_at" in payload:
+        fields["instantid_end_at"] = str(_float_field(payload.get("instantid_end_at"), 0.8))[:16]
+    if "ipadapter_end_at" in payload:
+        fields["ipadapter_end_at"] = str(_float_field(payload.get("ipadapter_end_at"), 1.0))[:16]
+    if "fd_denoise" in payload:
+        fields["fd_denoise"] = str(_float_field(payload.get("fd_denoise"), character.FACE_DETAILER_DEFAULTS["denoise"]))[:16]
+    if "fd_guide_size" in payload:
+        fields["fd_guide_size"] = str(_float_field(payload.get("fd_guide_size"), character.FACE_DETAILER_DEFAULTS["guide_size"]))[:16]
+    if "fd_max_size" in payload:
+        fields["fd_max_size"] = str(_float_field(payload.get("fd_max_size"), character.FACE_DETAILER_DEFAULTS["max_size"]))[:16]
+    if "fd_bbox_threshold" in payload:
+        fields["fd_bbox_threshold"] = str(_float_field(payload.get("fd_bbox_threshold"), character.FACE_DETAILER_DEFAULTS["bbox_threshold"]))[:16]
+    if "ref_mode" in payload:
+        mode = str(payload.get("ref_mode") or "auto").lower()
+        fields["ref_mode"] = mode if mode in {"auto", "ipadapter", "instantid"} else "auto"
     if "preferred_lora" in payload:
         fields["preferred_lora"] = str(payload.get("preferred_lora") or "")[:300]
     if "preferred_lora_strength" in payload:
@@ -638,8 +670,16 @@ def upsert_profile(payload: dict, pid: int | None = None) -> dict:
             new_id = int(pid)
         else:
             insert = {
-                "ipadapter_weight": str(_float_field(payload.get("ipadapter_weight"), 0.8))[:16],
-                "appearance_weight": str(_float_field(payload.get("appearance_weight"), 1.3))[:16],
+                "ipadapter_weight": str(_float_field(payload.get("ipadapter_weight"), character.DEFAULT_IPADAPTER_WEIGHT))[:16],
+                "appearance_weight": str(_float_field(payload.get("appearance_weight"), character.DEFAULT_APPEARANCE_WEIGHT))[:16],
+                "instantid_weight": str(_float_field(payload.get("instantid_weight"), character.DEFAULT_INSTANTID_WEIGHT))[:16],
+                "instantid_end_at": str(_float_field(payload.get("instantid_end_at"), 0.8))[:16],
+                "ipadapter_end_at": str(_float_field(payload.get("ipadapter_end_at"), 1.0))[:16],
+                "fd_denoise": str(_float_field(payload.get("fd_denoise"), character.FACE_DETAILER_DEFAULTS["denoise"]))[:16],
+                "fd_guide_size": str(_float_field(payload.get("fd_guide_size"), character.FACE_DETAILER_DEFAULTS["guide_size"]))[:16],
+                "fd_max_size": str(_float_field(payload.get("fd_max_size"), character.FACE_DETAILER_DEFAULTS["max_size"]))[:16],
+                "fd_bbox_threshold": str(_float_field(payload.get("fd_bbox_threshold"), character.FACE_DETAILER_DEFAULTS["bbox_threshold"]))[:16],
+                "ref_mode": (lambda m: m if m in {"auto", "ipadapter", "instantid"} else "auto")(str(payload.get("ref_mode") or "auto").lower()),
                 "preferred_lora": str(payload.get("preferred_lora") or "")[:300],
                 "preferred_lora_strength": str(_float_field(payload.get("preferred_lora_strength"), 0.8))[:16],
                 "face_detailer": 1 if _bool_field(payload.get("face_detailer"), False) else 0,
@@ -661,7 +701,12 @@ def upsert_profile(payload: dict, pid: int | None = None) -> dict:
                 )
         conn.commit()
         conn.close()
-    extra_keys = {"lora_stack", "ref_mode", "instantid_weight", "send_mode", "bio"}
+    extra_keys = {
+        "lora_stack", "ref_mode", "instantid_weight", "send_mode", "bio",
+        "appearance_weight", "ipadapter_weight", "face_detailer",
+        "instantid_end_at", "ipadapter_end_at",
+        "fd_denoise", "fd_guide_size", "fd_max_size", "fd_bbox_threshold",
+    }
     if extra_keys & set(payload):
         # 1.1.0: LoRA stack, IP-Adapter/InstantID način, način slanja i bio
         from services import generation_service

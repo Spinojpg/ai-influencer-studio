@@ -1,5 +1,8 @@
 # Promjene
 
+## 1.4.0 — 2026-11-25
+- Konzistentnost lica (InstantID, IP-Adapter, Face Detailer, težina izgleda, kraj utjecaja) sada živi samo na profilu osobe, ne u Naprednom. Postavke se spremaju i učitavaju nakon ponovnog pokretanja. Kad je osoba odabrana, te vrijednosti dolaze isključivo s njezina profila. Novi defaulti: InstantID 0,40, težina izgleda 1,10, jačina reference 0,40 (postojeći spremljeni brojevi ostaju). Promjena osobe na kartici Osobe osvježava sve panele (LoRA trener, dataset, status). Na Generiranju piše „Konzistentnost lica ide s profila osobe”. Odabir predloška popunjava kontrole u Naprednom. Ako odabrani checkpoint nije instaliran, koristi se prvi instalirani uz upozorenje. LoRA trener: čišćenje VRAM-a između epoha, prikaz VRAM-a (Windows GPU brojači, bez novih paketa), jasnija poruka o zastoju i gumb „Nastavi od zadnje epohe”, a balanced ostaje na 768 px za 8 GB.
+
 ## 1.3.9 — 2026-11-25
 - Popravak: IP-Adapter s 5+ referentnih slika više ne javlja grešku 'weight_type standard' (sada linear).
 

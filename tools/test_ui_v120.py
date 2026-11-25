@@ -29,20 +29,17 @@ FAILED = 0
 # zabranjeni nazivi modela (rot13, da se ne pojavljuju doslovno u kodu)
 BANNED_WORDS = [codecs.decode(w, "rot13") for w in ("yhfgvsl", "fabsf")]
 
-ADVANCED_IDS = ["model", "lora", "loraStrength", "appearExtra", "appearWeight", "batch", "seed", "negative",
-                "qualityPrefix", "hiresFix", "ipaWeight", "faceDetailer", "v11GenBox", "v11Gen"]
+ADVANCED_IDS = ["model", "lora", "loraStrength", "appearExtra", "batch", "seed", "negative",
+                "qualityPrefix", "hiresFix", "v11GenBox", "v11Gen"]
 # ID-jevi koje stari kod i testovi koriste – moraju ostati
 KEEP_IDS = ["form", "osoba", "appearSummary", "appearText", "appearMeta", "appearExtra", "prompt", "tokenRow", "tokenCount",
             "tokenWarn", "styleChips", "sizes", "sizeHint", "quality", "turboHint", "kreaHint", "activeModelLine",
             "activeModelName", "activeTurboBadge", "go", "firstRunHint", "err", "model", "loraField", "lora", "loraRefresh",
-            "loraStrengthRow", "loraStrength", "loraStrengthVal", "loraHint", "appearWeightField", "appearWeight",
-            "appearWeightVal", "ipaField", "ipaWeight", "ipaWeightVal", "ipaHint", "ipaInstallRow", "installIpaAdv",
-            "repairIpaAdv", "faceDetailerField", "faceDetailer", "faceHint", "faceInstallRow", "installFaceAdv",
-            "repairFaceAdv", "batch", "qualityPrefix", "hiresFix", "hiresHint", "archHint", "seed", "randSeed", "seedHint",
+            "loraStrengthRow", "loraStrength", "loraStrengthVal", "loraHint", "batch", "qualityPrefix", "hiresFix", "hiresHint", "archHint", "seed", "randSeed", "seedHint",
             "negative", "v11HwQuick", "v11GenBox", "v11Gen", "progWrap", "results", "history", "v11Queue", "v11Gallery",
             "v11GalFilter", "v11GalMore", "profileList", "newProfile", "profileForm", "pId", "pName", "pAppear", "pNeg",
             "pModel", "pLoraField", "pLora", "pLoraStrength", "pModelType", "pStyle", "pVibe", "pWriteChips",
-            "pSlangChips", "pEmojiChips", "pLangChips", "pAvoid", "pExamples", "addExample", "pAppearWeight", "pRefHint",
+            "pSlangChips", "pEmojiChips", "pLangChips", "pAvoid", "pExamples", "addExample", "pAppearWeight", "pRefMode", "pIid", "pIidEnd", "pIpaEnd", "pFdDenoise", "pfCons", "personaConsNote", "pRefHint",
             "pRefDrop", "pRefList", "pRef", "pIpaWeight", "pFaceDetailer", "pLockSeed", "pLockedSeed", "pRandSeed",
             "delProfile", "pOk", "pErr", "v11Persona", "loraTrainer", "activeProfile", "status", "grokStatus",
             "checkUpdate", "appVersionLabel"]
@@ -138,7 +135,7 @@ import json, sys
 from playwright.sync_api import sync_playwright
 url, exe = sys.argv[1], sys.argv[2] or None
 ids = json.loads(sys.argv[3])
-ADV = ["model", "seed", "negative", "ipaWeight", "hiresFix", "appearExtra", "v11Sampler", "v11Cfg", "v11Freeu", "v11Tpl"]
+ADV = ["model", "seed", "negative", "hiresFix", "appearExtra", "v11Sampler", "v11Cfg", "v11Freeu", "v11Tpl"]
 tabs = ["pregled", "slike", "influenceri", "video", "kalendar", "poruke", "modeli", "postavke"]
 out = {}
 with sync_playwright() as p:

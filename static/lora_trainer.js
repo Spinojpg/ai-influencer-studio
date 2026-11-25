@@ -123,6 +123,7 @@
       if (b.dataset.act === "stop") stopJob(Number(b.dataset.id));
       if (b.dataset.act === "gen") generateWith(Number(b.dataset.pid));
       if (b.dataset.act === "retry") { const s = $("ltStart"); if (s) s.scrollIntoView({ behavior: "smooth", block: "center" }); }
+      if (b.dataset.act === "resume") resumeFromLastEpoch();
     });
     $("ltVersions").addEventListener("click", async (e) => {
       const b = e.target.closest("[data-activate]");
@@ -157,10 +158,13 @@
     try { const d = await get("/api/lora-trainer/personas"); L.personas = d.personas || []; } catch (e) { L.personas = []; }
     const sel = $("ltPersona");
     if (!sel) return;
-    if (!L.pid || !L.personas.some((p) => p.id === L.pid)) {
-      const c = C();
-      const pref = c ? (c.editingId() || (c.state() || {}).active_profile_id) : null;
-      L.pid = (L.personas.find((p) => p.id === pref) || L.personas[0] || {}).id || null;
+    const c = C();
+    const pref = c ? (c.editingId() || (c.state() || {}).active_profile_id) : null;
+    const prefN = pref != null && pref !== "" ? Number(pref) : null;
+    if (prefN && L.personas.some((p) => Number(p.id) === prefN)) {
+      L.pid = prefN;
+    } else if (!L.pid || !L.personas.some((p) => Number(p.id) === Number(L.pid))) {
+      L.pid = (L.personas[0] || {}).id || null;
     }
     sel.innerHTML = L.personas.map((p) => '<option value="' + p.id + '"' + (p.id === L.pid ? " selected" : "") + ">" + esc(p.name) + (p.active_lora ? " · ima LoRA-u" : "") + "</option>").join("");
     renderPersonaInfo();
@@ -185,13 +189,33 @@
   }
 
   /* ---------- prikaz ---------- */
+  function vramLabel(live, job) {
+    const used = (job && (job.gpu_vram_reserved_mb != null || job.gpu_vram_used_mb != null))
+      ? (job.gpu_vram_reserved_mb != null ? job.gpu_vram_reserved_mb : job.gpu_vram_used_mb)
+      : (live && live.vram_used_mb);
+    const total = (job && job.gpu_vram_total_mb != null) ? job.gpu_vram_total_mb : (live && live.vram_total_mb);
+    if (used == null && total == null) return "";
+    const u = used != null ? Math.round(used) : "?";
+    const tot = total != null ? Math.round(total) : "?";
+    return "VRAM " + u + " / " + tot + " MB";
+  }
   function renderTempHead() {
     const el = $("ltTemp");
     if (!el) return;
     const g = (L.status && L.status.gpu_temp) || {};
+    const live = (L.status && L.status.gpu_live) || {};
     const st = g.available ? g.status : "unavailable";
     el.className = "lt-temp " + st;
-    el.innerHTML = '<span class="lt-dot"></span>' + esc(tempLabel(g.temp_c, st));
+    let txt = tempLabel(g.temp_c, st);
+    const vr = vramLabel(live, L.job);
+    if (vr) txt += " · " + vr;
+    else if (live.message) txt += " · " + live.message;
+    el.innerHTML = '<span class="lt-dot"></span>' + esc(txt);
+    const gpu = $("ltGpu");
+    if (gpu) {
+      if (vr) { gpu.hidden = false; gpu.textContent = vr; }
+      else { gpu.hidden = true; gpu.textContent = ""; }
+    }
   }
   function renderSetup() {
     const el = $("ltSetup");
@@ -428,6 +452,20 @@
   }
 
   /* ---------- treniranje ---------- */
+  async function resumeFromLastEpoch() {
+    if (!L.pid) return;
+    const wrap = $("ltResumeWrap");
+    const box = $("ltResume");
+    if (wrap) wrap.hidden = false;
+    if (box) box.checked = true;
+    await renderPlan();
+    if ($("ltResumeLabel") && L.job && L.job.resume && L.job.resume.epoch) {
+      $("ltResumeLabel").textContent = "Nastavi od epohe " + L.job.resume.epoch;
+    }
+    const s = $("ltStart");
+    if (s) s.scrollIntoView({ behavior: "smooth", block: "center" });
+    await startTraining();
+  }
   async function startTraining() {
     if (!L.pid) return;
     const b = $("ltStart"); b.disabled = true;
@@ -501,9 +539,11 @@
         + (j.loss != null ? "<span>Loss " + Number(j.loss).toFixed(4) + "</span>" : "")
         + "<span>Trajanje " + fmtDur(j.elapsed_seconds) + "</span></div>";
       html += '<div class="lt-temp-row ' + tst + '"><span class="lt-dot"></span>' + esc(tempLabel(j.gpu_temp_c, tst))
-        + (j.gpu_temp_peak_c != null ? ' <span class="hint">(najviše ' + Math.round(j.gpu_temp_peak_c) + "°C)</span>" : "") + "</div>";
+        + (j.gpu_temp_peak_c != null ? ' <span class="hint">(najviše ' + Math.round(j.gpu_temp_peak_c) + "°C)</span>" : "")
+        + (vramLabel((L.status && L.status.gpu_live) || {}, j) ? " · " + esc(vramLabel((L.status && L.status.gpu_live) || {}, j)) : "")
+        + "</div>";
       if (j.gpu_warning_message && (tst === "warn" || tst === "critical")) html += '<div class="lt-alert ' + tst + '">' + esc(j.gpu_warning_message) + "</div>";
-      if (j.stall_warning && j.stall_message) html += '<div class="lt-alert warn">' + esc(j.stall_message) + "</div>";
+      if (j.stall_warning && j.stall_message) html += '<div class="lt-alert warn">' + esc(j.stall_message) + ' <button type="button" class="btn" data-act="resume">Nastavi od zadnje epohe</button></div>';
       html += '<div class="hint">Ne zatvaraj Studio dok traje treniranje. Generiranje slika čeka u redu dok trening ne završi.</div>';
       html += '<div class="actions"><button type="button" class="btn danger" data-act="stop" data-id="' + j.id + '">Zaustavi</button></div>';
     } else if (j.status === "completed") {
@@ -512,8 +552,12 @@
         + (j.gpu_temp_peak_c != null ? '<div class="hint">Najviša temperatura GPU-a: ' + Math.round(j.gpu_temp_peak_c) + "°C · trajanje " + fmtDur(j.elapsed_seconds) + "</div>" : "")
         + '<div class="actions"><button type="button" class="btn primary" data-act="gen" data-pid="' + j.profile_id + '">Generiraj s ovom osobom</button></div>';
     } else {
-      html += '<div class="lt-alert ' + (j.status === "paused_overheat" ? "critical" : "warn") + '">' + esc(j.error_message || j.status_label) + "</div>"
-        + '<div class="actions"><button type="button" class="btn" data-act="retry">Pokušaj ponovno</button></div>';
+      const canResume = j.resume && j.resume.available;
+      html += '<div class="lt-alert ' + (j.status === "paused_overheat" ? "critical" : "warn") + '">' + esc(j.error_message || j.stall_message || j.status_label)
+        + (canResume ? " Možeš nastaviti od epohe " + j.resume.epoch + "." : "") + "</div>"
+        + '<div class="actions">'
+        + (canResume || j.stall_warning ? '<button type="button" class="btn primary" data-act="resume">Nastavi od zadnje epohe</button>' : "")
+        + '<button type="button" class="btn" data-act="retry">Pokušaj ponovno</button></div>';
     }
     html += '<details class="lt-details"><summary>Prikaži log</summary><pre class="v11-pre lt-log">' + esc((j.log_lines || []).join("\n")) + "</pre></details>";
     const open = el.querySelector("details[open]");
@@ -541,11 +585,14 @@
   }
 
   // Prati osobu odabranu lijevo (osim dok traje treniranje).
-  function follow(pid) {
-    pid = Number(pid) || null;
-    if (!L.built || !pid || pid === L.pid || (L.job && L.job.active)) return;
-    if (!L.personas.some((p) => p.id === pid)) return;
-    if ($("ltPersona")) $("ltPersona").value = String(pid);
+  function follow(pid, force) {
+    pid = pid ? Number(pid) : null;
+    if (!L.built) return;
+    if (L.job && L.job.active && pid && Number(L.pid) === pid && !force) return;
+    if (pid && Number(L.pid) === pid && !force) {
+      // svejedno osvježi panele kad korisnik klikne tu osobu
+    }
+    if (pid && $("ltPersona")) $("ltPersona").value = String(pid);
     selectPersona(pid);
   }
 

@@ -173,7 +173,9 @@ def _route(h, method: str, path: str, query: dict, body: dict, ctx: dict) -> boo
         return True
     if method == "GET" and path == "/api/lora-trainer/jobs":
         pid = _q(query, "profile_id")
-        J(200, {"ok": True, "jobs": lt.list_jobs(pid or None, limit=_int(_q(query, "limit", "20"), 20) or 20), "active_job": lt.active_job()})
+        jobs = lt.attach_resume(lt.list_jobs(pid or None, limit=_int(_q(query, "limit", "20"), 20) or 20))
+        active = lt.active_job()
+        J(200, {"ok": True, "jobs": jobs, "active_job": active})
         return True
     m = re.fullmatch(r"/api/lora-trainer/jobs/(\d+)(/cancel)?", path)
     if m:

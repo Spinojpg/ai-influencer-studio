@@ -27,15 +27,15 @@ Izgled je prerađen, a funkcije su ostale iste: sve kontrole, prečaci i API-ji 
 
 - **Tamna minimalistička tema**: mirna tamna podloga, kartice s tankim rubovima, jedan indigo naglasak, a zelena, narančasta i crvena samo za stvarna stanja (spojeno, upozorenje, greška). Gornja traka ima kartice s podcrtom, kompaktne statuse i izbornik influencera.
 - **Generiranje – glavni ekran**: samo ono što treba za sliku.
-  1. **Osoba**: avatari svih osoba i na vrhu opcija **Bez osobe** (za testiranje promptova: bez LoRA-e osobe, okidača i referenci lica; LoRA stack, VAE i ostale opće postavke i dalje vrijede). Odabrana ima obrub, zelena točka znači da osoba ima LoRA-u. Ispod piše „LoRA aktivna” / „Bez LoRA-e”, broj referentnih slika i kratki opis izgleda. „Uredi profil” vodi u karticu Osobe, a „+ Nova” otvara novi profil.
+  1. **Osoba**: avatari svih osoba i na vrhu opcija **Bez osobe** (za testiranje promptova: bez LoRA-e osobe, okidača i referenci lica; LoRA stack, VAE i ostale opće postavke i dalje vrijede). Kad je osoba odabrana, ispod piše „Konzistentnost lica ide s profila osobe”. Odabrana ima obrub, zelena točka znači da osoba ima LoRA-u. Ispod piše „LoRA aktivna” / „Bez LoRA-e”, broj referentnih slika i kratki opis izgleda. „Uredi profil” vodi u karticu Osobe, a „+ Nova” otvara novi profil.
   2. **Opis scene**: veliko polje (Ctrl+Enter pokreće) i brzi stilovi.
   3. **Format** i **Brzina** (Turbo / Kvaliteta) kao mali gumbi, uz naziv aktivnog modela.
   4. **Generiraj**. Ispod je kratki red s 8 GB sigurnim modom, VAE načinom i GPU-om.
 - **„Napredno”** je po zadanom zatvoreno. Kad je zatvoreno, u naslovu se vidi sažetak (model, predložak, sampler). Unutra su grupe:
-  - **Model i stil**: model, LoRA i jačina, „Dodatno uz izgled”, težina opisa izgleda, broj slika, seed, negativni prompt, oznake kvalitete i napomene o formatu / Turbu / Krea 2.
-  - **Dosljednost i detalji**: jačina referentne slike lica (IP-Adapter), Face Detailer, Hires fix.
-  - **Parametri, predlošci, LoRA stack i red čekanja**: predložak sadržaja, sampler, scheduler, CFG, postavke Hires fixa, FreeU_V2, konzistentnost lica (InstantID / IP-Adapter i jačina InstantID-a), postavke Face Detailera, LoRA stack i serija u redu čekanja.
-- **Osobe**: na vrhu su kartice osoba s brzim radnjama. Ispod lijevo je **Uređivanje profila** (ime, dob / vibe, izgled, referentne slike i osobnost na vrhu; „Model, LoRA i tehničke postavke” i „Stil poruka i chat” su sklopivi), desno LoRA stack, konzistentnost lica, Character Sheet i dataset, a na dnu **LoRA trener** u istom stilu.
+  - **Model i stil**: model, LoRA i jačina, „Dodatno uz izgled”, broj slika, seed, negativni prompt, oznake kvalitete i napomene o formatu / Turbu / Krea 2.
+  - **Format i hires**: broj slika, Hires fix i 8 GB baza.
+  - **Parametri, predlošci, LoRA stack i red čekanja**: predložak sadržaja, sampler, scheduler, CFG, postavke Hires fixa, FreeU_V2, VAE, LoRA stack, 8 GB zaštita i serija u redu čekanja. Konzistentnost lica (InstantID, IP-Adapter, Face Detailer, težina izgleda) više nije ovdje — živi samo na profilu osobe.
+- **Osobe**: na vrhu su kartice osoba s brzim radnjama. Ispod je **Uređivanje profila** (ime, dob / vibe, izgled, referentne slike i osobnost na vrhu; sklopivo **Konzistentnost lica** s težinom izgleda, IP-Adapterom, InstantID-om, krajem utjecaja i Face Detailerom; zatim „Model, LoRA i tehničke postavke” i „Stil poruka i chat”). Desno su LoRA stack, Character Sheet i dataset, a na dnu **LoRA trener**. Promjena osobe osvježava sve panele (trener, dataset, status).
 - Ostale kartice (Pregled, Video, Kalendar, Inbox i CRM, Modeli, Postavke) imaju iste razmake, kartice, gumbe i polja.
 
 ---
@@ -57,10 +57,11 @@ Izgled je prerađen, a funkcije su ostale iste: sve kontrole, prečaci i API-ji 
 ### Napredno: 5 kartica s objašnjenjima
 
 1. **Model i sampler**: model, LoRA osobe i jačina, sampler, scheduler, CFG (auto ili ručno), FreeU_V2 (po zadanom isključen), padajući izbornik **VAE** (Iz checkpointa, sdxl_vae, sdxl-vae-fp16-fix; vae-ft-mse-840000 samo za SD 1.5).
-2. **Format i hires**: broj slika, Hires pass i njegove postavke (skala 1,2–1,6, denoise 0,25–0,5, koraci 4–16).
-3. **Lice i konzistencija**: jačina referentne slike (IP-Adapter, od 0,2), klizač **Kraj utjecaja** (end_at, InstantID zadano 0,8 / IP-Adapter 1,0), Face Detailer (zadani denoise 0,25) i njegove postavke, InstantID jačina, **8 GB zaštita**.
-4. **LoRA i detalji**: 1 klik SFW detail LoRA-e s klizačem jačine 0–1,5 (zadano: Prirodna koža 0,5 · Fini detalji 0,4 · Prirodni kontrast 0,35 · Realistična koža 0,5; preuzimaju se u Modeli → Preporučene SDXL LoRA-e, a ako nedostaju, preskaču se uz poruku). Uz uključenu Realističnu kožu Studio jednom doda okidač `Detailed natural skin and blemishes without-makeup and acne`. LoRA stack (do 5, jačina od −2 do 2) je isti i na glavnom ekranu Generiranja (odjeljak **LoRA**, gumb **+ Dodaj LoRA**) i stiže u workflow i kad Napredno nije otvoreno.
-5. **Prompt, seed i ostalo**: Dodatno uz izgled, težina izgleda, seed, negativni prompt, oznake kvalitete, predložak sadržaja i serija u redu čekanja.
+2. **Format i hires**: broj slika, Hires pass i njegove postavke (skala 1,2–1,6, denoise 0,25–0,5, koraci 4–16), **8 GB zaštita**.
+3. **LoRA i detalji**: 1 klik SFW detail LoRA-e s klizačem jačine 0–1,5 (zadano: Prirodna koža 0,5 · Fini detalji 0,4 · Prirodni kontrast 0,35 · Realistična koža 0,5; preuzimaju se u Modeli → Preporučene SDXL LoRA-e, a ako nedostaju, preskaču se uz poruku). Uz uključenu Realističnu kožu Studio jednom doda okidač `Detailed natural skin and blemishes without-makeup and acne`. LoRA stack (do 5, jačina od −2 do 2) je isti i na glavnom ekranu Generiranja (odjeljak **LoRA**, gumb **+ Dodaj LoRA**) i stiže u workflow i kad Napredno nije otvoreno.
+4. **Prompt, seed i ostalo**: Dodatno uz izgled, seed, negativni prompt, oznake kvalitete, predložak sadržaja i serija u redu čekanja.
+
+**Konzistentnost lica** (jačina referentne slike od 0,2, kraj utjecaja, InstantID, Face Detailer i težina opisa izgleda) živi samo na kartici **Osobe**, u sklopivom odjeljku na profilu. Zadane vrijednosti za nove profile: InstantID 0,40, težina izgleda 1,10, jačina reference 0,40. Postojeći spremljeni brojevi ostaju. Kad je osoba odabrana na Generiranju, te vrijednosti dolaze isključivo s njezina profila.
 
 Uz svaku opciju je „?”: prijeđi mišem, fokusiraj tipkovnicom ili klikni za kratko objašnjenje (Escape zatvara).
 
@@ -230,7 +231,7 @@ Unose se u **Postavke → Ključevi** ili ručno u `data/.env` (predložak `.env
 ## 9. Rješavanje problema
 
 - **ComfyUI visi na „Compilation is in progress”**: provjeri da je „Isključi cuDNN” uključen (`TORCH_BACKENDS_CUDNN_ENABLED=0`) i restartaj ComfyUI iz Postavki.
-- **Out of memory**: ostavi uključenu 8 GB zaštitu (Napredno → Lice i konzistencija), koristi profil Realizam ili Turbo, smanji hires skalu ili isključi Face Detailer.
+- **Out of memory**: ostavi uključenu 8 GB zaštitu (Napredno → Format i hires), koristi profil Realizam ili Turbo, smanji hires skalu ili isključi Face Detailer na profilu osobe.
 - **GPU traka pokazuje „n/d”**: Windows GPU brojači nisu dostupni (stari driver ili isključene performanse) i nema amd-smi; generiranje radi normalno.
 - **Instagram javlja grešku s URL-om**: `PUBLIC_MEDIA_BASE_URL` mora biti javni HTTPS tunel koji radi.
 - **InstantID / Face Detailer bedž je siv**: čvorovi nisu učitani; instaliraj ih u kartici Modeli i restartaj ComfyUI.

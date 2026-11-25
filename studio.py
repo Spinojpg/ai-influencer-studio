@@ -116,6 +116,44 @@ def parse_ckpt_list(data) -> list[str]:
     return []
 
 
+
+def _checkpoint_in_list(name: str, names: list[str]) -> bool:
+    if not name:
+        return False
+    raw = str(name).replace("\\", "/").strip()
+    base = raw.rsplit("/", 1)[-1].lower()
+    for n in names:
+        s = str(n).replace("\\", "/").strip()
+        if s == raw or s.rsplit("/", 1)[-1].lower() == base:
+            return True
+    return False
+
+
+def resolve_installed_checkpoint(model: str) -> tuple[str, str | None]:
+    """Ako odabrani checkpoint nije instaliran, uzmi prvi instalirani i vrati upozorenje.
+
+    Kad popis instaliranih nije dostupan (prazan), ostavi traženi model — kao i dosad.
+    """
+    model = (model or "").strip()
+    try:
+        names = list_checkpoint_models() or []
+    except Exception:
+        names = []
+    if not names:
+        return model, None
+    if _checkpoint_in_list(model, names):
+        return model, None
+    fallback = names[0]
+    if model:
+        note = (
+            f"Checkpoint „{model}” nije instaliran u ComfyUI-ju. "
+            f"Koristim prvi instalirani model: „{fallback}”."
+        )
+    else:
+        note = f"Nije odabran checkpoint. Koristim prvi instalirani model: „{fallback}”."
+    return fallback, note
+
+
 def list_models() -> list[str]:
     names = list_checkpoint_models()
     for n in list_diffusion_models():
@@ -714,6 +752,7 @@ def plan_image_generation(
         model = (prof.get("preferred_model") or "").strip()
     if not model:
         model = DEFAULT_MODEL
+    model, ckpt_note = resolve_installed_checkpoint(model)
 
     override = (body.get("model_type") or (prof or {}).get("model_type") or "")
     arch = image_gen.detect_model_arch(model, override)
@@ -727,12 +766,8 @@ def plan_image_generation(
     # Trenirana LoRA osobe: okidač (chr_ime) ide u prompt ako generiranje koristi njezinu LoRA-u.
     lora_trigger = lora_trainer_service.trigger_for_generation(prof, body, arch)
     scene = lora_trainer_service.apply_trigger(scene, lora_trigger)
-    if "appearance_weight" in body and body.get("appearance_weight") not in (None, ""):
-        appearance_weight = character.clamp_appearance_weight(body.get("appearance_weight"))
-    elif prof and prof.get("appearance_weight") not in (None, ""):
-        appearance_weight = character.clamp_appearance_weight(prof.get("appearance_weight"))
-    else:
-        appearance_weight = character.DEFAULT_APPEARANCE_WEIGHT
+    cons = generation_service.resolve_consistency(prof, body, from_profile_only=bool(prof))
+    appearance_weight = cons["appearance_weight"]
     built = image_gen.build_positive_prompt(
         scene=scene,
         appearance=appearance,
@@ -822,14 +857,8 @@ def plan_image_generation(
         body.get("vae") if body.get("vae") not in (None, "") else body.get("vae_name"),
         arch,
     )
-    instantid_end_at = clamp_float(
-        body.get("instantid_end_at") if body.get("instantid_end_at") not in (None, "") else image_gen.INSTANTID_DEFAULT_END_AT,
-        0.0, 1.0, image_gen.INSTANTID_DEFAULT_END_AT,
-    )
-    ipadapter_end_at = clamp_float(
-        body.get("ipadapter_end_at") if body.get("ipadapter_end_at") not in (None, "") else image_gen.IPADAPTER_DEFAULT_END_AT,
-        0.0, 1.0, image_gen.IPADAPTER_DEFAULT_END_AT,
-    )
+    instantid_end_at = cons["instantid_end_at"]
+    ipadapter_end_at = cons["ipadapter_end_at"]
     lora_stack = generation_service.resolve_lora_stack(body, prof, arch)
 
     if arch == "krea2":
@@ -902,24 +931,16 @@ def plan_image_generation(
         scheduler = spec["scheduler"]
         hires = False
 
-    if "ipadapter_weight" in body and body.get("ipadapter_weight") not in (None, ""):
-        ipadapter_weight = character.clamp_ipadapter_weight(body.get("ipadapter_weight"))
-    elif prof and prof.get("ipadapter_weight") not in (None, ""):
-        ipadapter_weight = character.clamp_ipadapter_weight(prof.get("ipadapter_weight"))
-    else:
-        ipadapter_weight = character.DEFAULT_IPADAPTER_WEIGHT
+    ipadapter_weight = cons["ipadapter_weight"]
 
-    face_detailer = character.truthy(body.get("face_detailer"), character.truthy((prof or {}).get("face_detailer"), False))
+    face_detailer = cons["face_detailer"]
     if arch == "krea2":
         face_detailer = False
 
-    ref_mode = generation_service.resolve_ref_mode(body, prof)
+    ref_mode = cons["ref_mode"]
     use_instantid = False
     instantid_image = ""
-    instantid_weight = clamp_float(
-        body.get("instantid_weight") if body.get("instantid_weight") not in (None, "") else ((prof or {}).get("instantid_weight") if (prof or {}).get("instantid_weight") not in (None, "") else generation_service.profile_extras((prof or {}).get("id")).get("instantid_weight", 0.8)),
-        0.0, 1.5, 0.8,
-    )
+    instantid_weight = cons["instantid_weight"]
     if prof and arch == "sdxl" and ref_mode in {"instantid", "auto"}:
         iid_ok = image_gen.instantid_available(object_info)
         ipa_state = character.ipadapter_nodes_ok(object_info)
@@ -993,7 +1014,15 @@ def plan_image_generation(
 
     # 1.3.0: SFW detail LoRA-e (brzi prekidači) i 8 GB zaštita (samo uz profil kvalitete ili eksplicitni vram_guard).
     rx_notes = list(rx_info.get("notes") or [])
-    fd_params = generation_service.face_detailer_params(body)
+    if ckpt_note:
+        rx_notes.append(ckpt_note)
+    warnings = [ckpt_note] if ckpt_note else []
+    if prof:
+        fd_params = generation_service.face_detailer_params_from_consistency(cons)
+    else:
+        fd_params = generation_service.face_detailer_params(body)
+        if not fd_params:
+            fd_params = generation_service.face_detailer_params_from_consistency(cons)
     if arch in {"sdxl", "sd15"} and body.get("detail_loras"):
         lora_stack, dl_notes = generation_service.add_detail_loras(lora_stack, body, arch, turbo=bool(turbo))
         rx_notes += dl_notes
@@ -1123,6 +1152,7 @@ def plan_image_generation(
             "hires_denoise": hires_denoise if hires else None,
             "quality_profile": rx_info.get("profile") or "",
             "rx_notes": rx_notes,
+            "warnings": warnings,
             "detail_loras": [x.get("detail") for x in lora_stack if x.get("detail")],
             "persona_id": (prof or {}).get("id"),
             "template_id": body.get("template_id"),
@@ -2078,12 +2108,8 @@ class StudioHandler(BaseHTTPRequestHandler):
         if quality_on is None:
             quality_on = inbox.get_setting("quality_prefix", "1") != "0"
         adult_term = image_gen.adult_term_for_profile(prof, appearance=appearance, scene=scene)
-        if "appearance_weight" in body and body.get("appearance_weight") not in (None, ""):
-            appearance_weight = character.clamp_appearance_weight(body.get("appearance_weight"))
-        elif prof and prof.get("appearance_weight") not in (None, ""):
-            appearance_weight = character.clamp_appearance_weight(prof.get("appearance_weight"))
-        else:
-            appearance_weight = character.DEFAULT_APPEARANCE_WEIGHT
+        cons = generation_service.resolve_consistency(prof, body, from_profile_only=bool(prof))
+        appearance_weight = cons["appearance_weight"]
         return image_gen.build_positive_prompt(
             scene=scene,
             appearance=appearance,

@@ -257,6 +257,8 @@ def test_plan_ipadapter_and_ig():
         "age_vibe": "26",
         "preferred_model": "RealVisXL_V5.0_fp16.safetensors",
         "reference_images": ["profiles/5/ref_1.jpg"],
+        "ipadapter_weight": 0.9,
+        "face_detailer": True,
     }
     orig_err = character.ipadapter_error
     orig_face = character.face_detailer_error
@@ -408,9 +410,9 @@ def test_ui():
         ("id=\"pRefList\"", "lista referentnih slika"),
         ("id=\"installIpa\"", "gumb Instaliraj IP-Adapter"),
         ("id=\"installFace\"", "gumb Instaliraj Face Detailer"),
-        ("id=\"appearWeight\"", "klizač težine izgleda u Napredno"),
-        ("id=\"ipaWeight\"", "klizač jačine reference u Napredno"),
-        ("id=\"faceDetailer\"", "Face Detailer u Napredno"),
+        ("id=\"pAppearWeight\"", "klizač težine izgleda na profilu osobe"),
+        ("id=\"pIpaWeight\"", "klizač jačine reference na profilu osobe"),
+        ("id=\"pFaceDetailer\"", "Face Detailer na profilu osobe"),
         ("output_width: outputWidth", "payload šalje IG izlaz"),
         ("dataset.ow", "botuni formata nose izlazne IG dimenzije"),
         ("IG formati", "napomena o IG formatima"),

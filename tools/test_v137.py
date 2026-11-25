@@ -380,9 +380,9 @@ def test_static_ui():
     css = (ROOT / "static" / "ui_v130.css").read_text(encoding="utf-8")
     check('id="v11VaeFile"' in v11 and "Iz checkpointa" in v11, "UI padajući izbornik VAE s 'Iz checkpointa'")
     check("id=\"v11Freeu\"" in v11 and 'id="v11Freeu" checked' not in v11, "FreeU nije checked po zadanom")
-    check("v11IidEnd" in v11 and "Kraj utjecaja" in v11, "InstantID klizač Kraj utjecaja")
-    check('id="ipaEndAt"' in html and 'min="0.5"' in html.split('id="ipaEndAt"', 1)[1][:200], "IP-Adapter Kraj utjecaja 0,5–1,0")
-    check('id="ipaWeight" min="0.2"' in html and 'id="pIpaWeight" min="0.2"' in html, "IP-Adapter jačina od 0,2")
+    check('id="pIidEnd"' in html and "Kraj utjecaja InstantID" in html, "InstantID klizač Kraj utjecaja je na profilu osobe")
+    check('id="pIpaEnd"' in html and 'min="0.5"' in html.split('id="pIpaEnd"', 1)[1][:200], "IP-Adapter Kraj utjecaja 0,5–1,0 je na profilu osobe")
+    check('id="pIpaWeight" min="0.2"' in html, "IP-Adapter jačina od 0,2 je na profilu osobe")
     check('class="dt-w"' in v11 and 'max="1.5"' in v11 and "detail_lora_weights" in v11, "detail LoRA klizači 0–1,5 i šalju weights")
     check("if (!$(\"v11Sampler\")) return out;" in v11, "Napredno i dalje može biti neučitano")
     # loras se skupljaju PRIJE tog returna

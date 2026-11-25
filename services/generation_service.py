@@ -213,9 +213,15 @@ def ensure_schema() -> None:
         for col, decl in (
             ("lora_stack", "TEXT DEFAULT '[]'"),
             ("ref_mode", "TEXT DEFAULT 'auto'"),
-            ("instantid_weight", "TEXT DEFAULT '0.8'"),
+            ("instantid_weight", "TEXT DEFAULT '0.8'"),  # postojeći retci zadržavaju spremljeno; novi profili idu preko upserta
             ("send_mode", "TEXT DEFAULT ''"),
             ("bio", "TEXT DEFAULT ''"),
+            ("instantid_end_at", "TEXT DEFAULT '0.8'"),
+            ("ipadapter_end_at", "TEXT DEFAULT '1.0'"),
+            ("fd_denoise", "TEXT DEFAULT '0.25'"),
+            ("fd_guide_size", "TEXT DEFAULT '384'"),
+            ("fd_max_size", "TEXT DEFAULT '768'"),
+            ("fd_bbox_threshold", "TEXT DEFAULT '0.5'"),
         ):
             inbox._ensure_column(c, "profiles", col, decl)
         inbox.ensure_gallery_rating_schema(c)
@@ -267,9 +273,25 @@ def profile_extras(pid: int | None) -> dict:
     return {
         "lora_stack": jload(row["lora_stack"] if "lora_stack" in keys else "[]", []) or [],
         "ref_mode": (row["ref_mode"] if "ref_mode" in keys else "auto") or "auto",
-        "instantid_weight": clamp_float(row["instantid_weight"] if "instantid_weight" in keys else 0.8, 0.0, 1.5, 0.8),
+        "instantid_weight": clamp_float(
+            row["instantid_weight"] if "instantid_weight" in keys else character.DEFAULT_INSTANTID_WEIGHT,
+            0.0, 1.5, character.DEFAULT_INSTANTID_WEIGHT,
+        ),
         "send_mode": (row["send_mode"] if "send_mode" in keys else "") or "",
         "bio": (row["bio"] if "bio" in keys else "") or "",
+        "appearance_weight": character.clamp_appearance_weight(
+            row["appearance_weight"] if "appearance_weight" in keys else character.DEFAULT_APPEARANCE_WEIGHT
+        ),
+        "ipadapter_weight": character.clamp_ipadapter_weight(
+            row["ipadapter_weight"] if "ipadapter_weight" in keys else character.DEFAULT_IPADAPTER_WEIGHT
+        ),
+        "face_detailer": truthy(row["face_detailer"] if "face_detailer" in keys else 0, False),
+        "instantid_end_at": clamp_float(row["instantid_end_at"] if "instantid_end_at" in keys else 0.8, 0.0, 1.0, 0.8),
+        "ipadapter_end_at": clamp_float(row["ipadapter_end_at"] if "ipadapter_end_at" in keys else 1.0, 0.0, 1.0, 1.0),
+        "fd_denoise": clamp_float(row["fd_denoise"] if "fd_denoise" in keys else 0.25, 0.1, 0.8, 0.25),
+        "fd_guide_size": clamp_float(row["fd_guide_size"] if "fd_guide_size" in keys else 384, 256, 768, 384),
+        "fd_max_size": clamp_float(row["fd_max_size"] if "fd_max_size" in keys else 768, 512, 1024, 768),
+        "fd_bbox_threshold": clamp_float(row["fd_bbox_threshold"] if "fd_bbox_threshold" in keys else 0.5, 0.2, 0.9, 0.5),
     }
 
 
@@ -301,7 +323,25 @@ def save_profile_extras(pid: int, payload: dict) -> dict:
         mode = str(payload.get("ref_mode") or "auto").lower()
         sets["ref_mode"] = mode if mode in {"auto", "ipadapter", "instantid"} else "auto"
     if "instantid_weight" in payload:
-        sets["instantid_weight"] = str(clamp_float(payload.get("instantid_weight"), 0.0, 1.5, 0.8))
+        sets["instantid_weight"] = str(clamp_float(payload.get("instantid_weight"), 0.0, 1.5, character.DEFAULT_INSTANTID_WEIGHT))
+    if "appearance_weight" in payload:
+        sets["appearance_weight"] = str(character.clamp_appearance_weight(payload.get("appearance_weight")))
+    if "ipadapter_weight" in payload:
+        sets["ipadapter_weight"] = str(character.clamp_ipadapter_weight(payload.get("ipadapter_weight")))
+    if "face_detailer" in payload:
+        sets["face_detailer"] = 1 if truthy(payload.get("face_detailer"), False) else 0
+    if "instantid_end_at" in payload:
+        sets["instantid_end_at"] = str(clamp_float(payload.get("instantid_end_at"), 0.0, 1.0, image_gen.INSTANTID_DEFAULT_END_AT))
+    if "ipadapter_end_at" in payload:
+        sets["ipadapter_end_at"] = str(clamp_float(payload.get("ipadapter_end_at"), 0.0, 1.0, image_gen.IPADAPTER_DEFAULT_END_AT))
+    if "fd_denoise" in payload:
+        sets["fd_denoise"] = str(clamp_float(payload.get("fd_denoise"), 0.1, 0.8, 0.25))
+    if "fd_guide_size" in payload:
+        sets["fd_guide_size"] = str(clamp_float(payload.get("fd_guide_size"), 256, 768, 384))
+    if "fd_max_size" in payload:
+        sets["fd_max_size"] = str(clamp_float(payload.get("fd_max_size"), 512, 1024, 768))
+    if "fd_bbox_threshold" in payload:
+        sets["fd_bbox_threshold"] = str(clamp_float(payload.get("fd_bbox_threshold"), 0.2, 0.9, 0.5))
     if "send_mode" in payload:
         mode = str(payload.get("send_mode") or "").lower()
         sets["send_mode"] = mode if mode in {"", "auto", "approve"} else ""
@@ -311,6 +351,83 @@ def save_profile_extras(pid: int, payload: dict) -> dict:
         with conn() as c:
             c.execute(f"UPDATE profiles SET {', '.join(k + '=?' for k in sets)} WHERE id=?", [*sets.values(), int(pid)])
     return profile_extras(pid)
+
+
+
+# ---------- 1.4.0: konzistentnost lica (samo s profila osobe) ----------
+
+def consistency_defaults() -> dict:
+    return {
+        "appearance_weight": character.DEFAULT_APPEARANCE_WEIGHT,
+        "ipadapter_weight": character.DEFAULT_IPADAPTER_WEIGHT,
+        "instantid_weight": character.DEFAULT_INSTANTID_WEIGHT,
+        "instantid_end_at": image_gen.INSTANTID_DEFAULT_END_AT,
+        "ipadapter_end_at": image_gen.IPADAPTER_DEFAULT_END_AT,
+        "face_detailer": False,
+        "ref_mode": "auto",
+        "fd_denoise": character.FACE_DETAILER_DEFAULTS["denoise"],
+        "fd_guide_size": character.FACE_DETAILER_DEFAULTS["guide_size"],
+        "fd_max_size": character.FACE_DETAILER_DEFAULTS["max_size"],
+        "fd_bbox_threshold": character.FACE_DETAILER_DEFAULTS["bbox_threshold"],
+    }
+
+
+def _pick_consistency(src: dict | None, key: str, default):
+    if not src:
+        return default
+    val = src.get(key)
+    if val in (None, ""):
+        return default
+    return val
+
+
+def resolve_consistency(profile: dict | None, body: dict | None = None, *, from_profile_only: bool = False) -> dict:
+    """Vrijednosti konzistentnosti lica.
+
+    Kad je osoba odabrana (from_profile_only=True), uzima se ISKLJUČIVO profil, zatim zadane
+    vrijednosti — polja iz bodyja / Naprednog se ignoriraju. Bez osobe ostaje stara putanja
+    (body pa zadano).
+    """
+    d = consistency_defaults()
+    extras = profile_extras((profile or {}).get("id")) if profile and profile.get("id") is not None else {}
+    src_profile = {}
+    if extras:
+        src_profile.update(extras)
+    if profile:
+        src_profile.update({k: profile[k] for k in d if k in profile and profile.get(k) not in (None, "")})
+    if from_profile_only:
+        src = src_profile
+    else:
+        src = dict(src_profile)
+        if body:
+            src.update({k: body[k] for k in d if k in body and body.get(k) not in (None, "")})
+    out = {
+        "appearance_weight": character.clamp_appearance_weight(_pick_consistency(src, "appearance_weight", d["appearance_weight"])),
+        "ipadapter_weight": character.clamp_ipadapter_weight(_pick_consistency(src, "ipadapter_weight", d["ipadapter_weight"])),
+        "instantid_weight": clamp_float(_pick_consistency(src, "instantid_weight", d["instantid_weight"]), 0.0, 1.5, d["instantid_weight"]),
+        "instantid_end_at": clamp_float(_pick_consistency(src, "instantid_end_at", d["instantid_end_at"]), 0.0, 1.0, d["instantid_end_at"]),
+        "ipadapter_end_at": clamp_float(_pick_consistency(src, "ipadapter_end_at", d["ipadapter_end_at"]), 0.0, 1.0, d["ipadapter_end_at"]),
+        "face_detailer": truthy(_pick_consistency(src, "face_detailer", d["face_detailer"]), d["face_detailer"]),
+        "ref_mode": str(_pick_consistency(src, "ref_mode", d["ref_mode"]) or "auto").lower(),
+        "fd_denoise": clamp_float(_pick_consistency(src, "fd_denoise", d["fd_denoise"]), 0.1, 0.8, d["fd_denoise"]),
+        "fd_guide_size": clamp_float(_pick_consistency(src, "fd_guide_size", d["fd_guide_size"]), 256, 768, d["fd_guide_size"]),
+        "fd_max_size": clamp_float(_pick_consistency(src, "fd_max_size", d["fd_max_size"]), 512, 1024, d["fd_max_size"]),
+        "fd_bbox_threshold": clamp_float(_pick_consistency(src, "fd_bbox_threshold", d["fd_bbox_threshold"]), 0.2, 0.9, d["fd_bbox_threshold"]),
+    }
+    if out["ref_mode"] not in {"auto", "ipadapter", "instantid"}:
+        out["ref_mode"] = "auto"
+    return out
+
+
+def face_detailer_params_from_consistency(cons: dict | None) -> dict | None:
+    if not cons:
+        return None
+    return {
+        "denoise": cons["fd_denoise"],
+        "guide_size": cons["fd_guide_size"],
+        "max_size": cons["fd_max_size"],
+        "bbox_threshold": cons["fd_bbox_threshold"],
+    }
 
 
 # ---------- predlošci ----------

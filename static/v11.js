@@ -194,20 +194,8 @@
       + rangeLabel("Denoise", "v11HiresDenoise", "v11HdVal", 0.25, 0.5, 0.01, num(d.hires_denoise, 0.35), 2, TIPS.hiresDenoise)
       + rangeLabel("Koraci", "v11HiresSteps", "v11HstVal", 4, 16, 1, num(d.hires_steps, 8), 0, TIPS.hiresSteps)
       + '</div><div class="hint">Drugi prolaz ide kroz VAEDecodeTiled kad je VAE način „tiled”.</div></div>';
-    const faceHtml = '<div class="field"><label class="lbl" for="v11RefMode">Konzistentnost lica ' + tip(TIPS.refMode, "Konzistentnost lica") + "</label>"
-      + '<div class="v11-inline"><select id="v11RefMode"><option value="">Kao na profilu osobe</option><option value="auto">Automatski</option><option value="ipadapter">IP-Adapter</option><option value="instantid">InstantID</option></select>'
-      + "IP-Adapter " + badge(n.ipadapter, "spreman", "nedostaje") + " InstantID " + badge(n.instantid, "spreman", "nedostaje") + "</div>"
-      + rangeLabel("Jačina InstantID", "v11IidWeight", "v11IidVal", 0.3, 1.2, 0.05, 0.8, 2, TIPS.iid)
-      + rangeLabel("Kraj utjecaja", "v11IidEnd", "v11IidEndVal", 0.5, 1.0, 0.05, num(d.instantid_end_at, 0.8), 2, TIPS.iidEnd)
-      + '<div class="hint">Automatski: IP-Adapter ako je instaliran, inače InstantID (SDXL, treba ComfyUI_InstantID + antelopev2). Na AMD-u InsightFace radi na CPU-u. Kraj utjecaja 0,8 je prirodniji od 1,0.</div></div>'
-      + '<div class="field"><label class="lbl">Face Detailer postavke (kad je uključen)</label><div class="v11-grid2">'
-      + rangeLabel("Denoise", "v11FdDenoise", "v11FdDVal", 0.1, 0.8, 0.02, num(fd.denoise, 0.25), 2, TIPS.fdDenoise)
-      + rangeLabel("Guide size", "v11FdGuide", "v11FdGVal", 256, 768, 32, num(fd.guide_size, 384), 0, TIPS.fdGuide)
-      + rangeLabel("Max size", "v11FdMax", "v11FdMVal", 512, 1024, 64, num(fd.max_size, 768), 0, TIPS.fdMax)
-      + rangeLabel("Prag detekcije", "v11FdBbox", "v11FdBVal", 0.2, 0.9, 0.05, num(fd.bbox_threshold, 0.5), 2, TIPS.fdBbox)
-      + "</div></div>"
-      + '<div class="field guard-field"><label class="lbl"><input type="checkbox" id="v11VramGuard" checked /> 8 GB zaštita (RX 6600) ' + tip(TIPS.guard, "8 GB zaštita") + "</label>"
-      + '<div class="hint">Face Detailer + InstantID + Hires zajedno? Zaštita sama složi kombinaciju koja stane u 8 GB i javi što je promijenila.</div></div>';
+    const guardHtml = '<div class="field guard-field"><label class="lbl"><input type="checkbox" id="v11VramGuard" checked /> 8 GB zaštita (RX 6600) ' + tip(TIPS.guard, "8 GB zaštita") + "</label>"
+      + '<div class="hint">Face Detailer + InstantID + Hires zajedno? Zaštita sama složi kombinaciju koja stane u 8 GB i javi što je promijenila. Konzistentnost lica sada se podešava na profilu osobe.</div></div>';
     const dl = o.detail_loras || [];
     const loraHtml = '<div class="field"><label class="lbl">Detail LoRA-e (SFW, 1 klik) ' + tip(TIPS.detail, "Detail LoRA-e") + "</label>"
       + '<div class="detail-toggles" id="v11DetailLoras">' + (dl.length ? dl.map((x) => '<label class="dtoggle' + (x.available ? "" : " missing") + '" title="' + esc(x.hint || "") + '">'
@@ -231,7 +219,7 @@
       + V.templates.map((t) => '<label class="chip"><input type="checkbox" value="' + t.id + '" /> ' + esc(t.name) + "</label>").join("") + "</div>"
       + '<div class="actions"><button type="button" class="btn primary" id="v11Enqueue">Dodaj u red</button></div>'
       + '<div class="hint">Red radi u pozadini jedan po jedan posao i preživi restart Studija.</div></div>';
-    const parts = [["v11GenModel", modelHtml], ["v11GenHires", hiresHtml], ["v11GenFace", faceHtml], ["v11GenLora", loraHtml]];
+    const parts = [["v11GenModel", modelHtml], ["v11GenHires", hiresHtml + guardHtml], ["v11GenLora", loraHtml]];
     const own = parts.filter((p) => $(p[0])).map((p) => { $(p[0]).innerHTML = p[1]; return p[0]; });
     box.innerHTML = parts.filter((p) => own.indexOf(p[0]) < 0).map((p) => p[1]).join("") + miscHtml;
     syncStackFromPersona(true);
@@ -267,15 +255,11 @@
     V.stackPersona = pid;
     V.stackTouched = false;
     V.stack = (p && Array.isArray(p.lora_stack) ? p.lora_stack : []).map((x) => ({ name: x.name, strength_model: x.strength_model, strength_clip: x.strength_clip }));
-    if ($("v11RefMode")) $("v11RefMode").value = "";
-    if (p && $("v11IidWeight")) { $("v11IidWeight").value = num(p.instantid_weight, 0.8); $("v11IidVal").textContent = num(p.instantid_weight, 0.8).toFixed(2); }
     renderStackUi();
   }
   let genBound = false;
   function bindGen() {
-    const pairs = [["v11HiresScale", "v11HsVal", 2], ["v11HiresDenoise", "v11HdVal", 2], ["v11HiresSteps", "v11HstVal", 0], ["v11IidWeight", "v11IidVal", 2],
-      ["v11IidEnd", "v11IidEndVal", 2],
-      ["v11FdDenoise", "v11FdDVal", 2], ["v11FdGuide", "v11FdGVal", 0], ["v11FdMax", "v11FdMVal", 0], ["v11FdBbox", "v11FdBVal", 2], ["v11Cfg", "v11CfgVal", 1]];
+    const pairs = [["v11HiresScale", "v11HsVal", 2], ["v11HiresDenoise", "v11HdVal", 2], ["v11HiresSteps", "v11HstVal", 0], ["v11Cfg", "v11CfgVal", 1]];
     pairs.forEach((pr) => { const el = $(pr[0]); if (el) el.addEventListener("input", () => { $(pr[1]).textContent = num(el.value, 0).toFixed(pr[2]); }); });
     const dbox = $("v11DetailLoras");
     if (dbox && dbox.dataset.wBound !== "1") {
@@ -297,7 +281,7 @@
     $("v11Tpl").addEventListener("change", () => {
       const t = V.templates.find((x) => String(x.id) === $("v11Tpl").value);
       $("v11TplHint").textContent = t ? (t.description || t.name) + (t.size_preset ? " · format " + t.size_preset : "") : "Bez predloška: vrijedi samo tvoj opis scene.";
-      if (t && t.size_preset && C()) C().pickSize(t.size_preset);
+      applyTemplateToForm(t);
       if (!$("v11TplEditor").hidden) renderTplEditor();
     });
     if (!genBound) {
@@ -307,6 +291,36 @@
       if (osoba) osoba.addEventListener("change", () => setTimeout(() => syncStackFromPersona(false), 0));
     }
     stackMounts().forEach((el) => bindStack(el, "gst", applyGenStack));
+  }
+  function setRangeAndLabel(id, valId, value, dp) {
+    const el = $(id);
+    if (!el || value == null || value === "") return;
+    el.value = String(value);
+    if ($(valId)) $(valId).textContent = num(value, 0).toFixed(dp);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  function applyTemplateToForm(t) {
+    if (!t) return;
+    if (t.size_preset && C() && C().pickSize) C().pickSize(t.size_preset);
+    if (t.sampler && $("v11Sampler")) $("v11Sampler").value = t.sampler;
+    if (t.scheduler && $("v11Scheduler")) $("v11Scheduler").value = t.scheduler;
+    if (t.cfg != null && t.cfg !== "" && $("v11Cfg")) {
+      if ($("v11CfgOn") && !$("v11CfgOn").checked) {
+        $("v11CfgOn").checked = true;
+        $("v11CfgOn").dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      $("v11Cfg").value = String(t.cfg);
+      if ($("v11CfgVal")) $("v11CfgVal").textContent = num(t.cfg, 4.3).toFixed(1);
+    }
+    if (typeof t.hires !== "undefined" && $("hiresFix")) {
+      $("hiresFix").checked = !!t.hires;
+      $("hiresFix").dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    if (t.hires_scale != null) setRangeAndLabel("v11HiresScale", "v11HsVal", t.hires_scale, 2);
+    if (t.hires_denoise != null) setRangeAndLabel("v11HiresDenoise", "v11HdVal", t.hires_denoise, 2);
+    if (t.hires_steps != null) setRangeAndLabel("v11HiresSteps", "v11HstVal", t.hires_steps, 0);
+    if (typeof t.freeu !== "undefined" && $("v11Freeu")) $("v11Freeu").checked = !!t.freeu;
+    if ((t.negative || "") && $("negative") && !($("negative").value || "").trim()) $("negative").value = t.negative;
   }
   function renderTplEditor(selId) {
     const ed = $("v11TplEditor");
@@ -391,7 +405,6 @@
     if (dl.keys.length) { out.detail_loras = dl.keys; out.detail_lora_weights = dl.weights; }
     if ($("v11VaeFile")) out.vae = $("v11VaeFile").value;
     else out.vae = loadVaeChoice();
-    if ($("ipaEndAt")) out.ipadapter_end_at = num($("ipaEndAt").value, 1.0);
     if ($("v11VramGuard")) out.vram_guard = $("v11VramGuard").checked;
     if (!$("v11Sampler")) return out;
     out.sampler = $("v11Sampler").value;
@@ -401,13 +414,6 @@
     out.hires_denoise = num($("v11HiresDenoise").value, 0.38);
     out.hires_steps = num($("v11HiresSteps").value, 14);
     out.freeu = $("v11Freeu").checked;
-    if ($("v11RefMode").value) out.ref_mode = $("v11RefMode").value;
-    out.instantid_weight = num($("v11IidWeight").value, 0.8);
-    if ($("v11IidEnd")) out.instantid_end_at = num($("v11IidEnd").value, 0.8);
-    out.fd_denoise = num($("v11FdDenoise").value, 0.25);
-    out.fd_guide_size = num($("v11FdGuide").value, 384);
-    out.fd_max_size = num($("v11FdMax").value, 768);
-    out.fd_bbox_threshold = num($("v11FdBbox").value, 0.5);
     const tpl = $("v11Tpl").value;
     if (tpl) out.template_id = Number(tpl);
     return out;
@@ -722,8 +728,6 @@
     el.innerHTML = '<h2 class="sec" style="margin-top:0">' + esc(p.name) + " · LoRA, lice, slanje i dataset</h2>"
       + '<div class="v11-grid2"><div>'
       + '<div class="field"><label class="lbl">LoRA stack osobe (do 5)</label><div id="pStackBox">' + stackEditorHtml("pst", V.pStack) + "</div></div>"
-      + '<div class="field"><label class="lbl" for="pRefMode">Konzistentnost lica</label><select id="pRefMode">' + opt([["auto", "Automatski"], ["ipadapter", "IP-Adapter"], ["instantid", "InstantID"]], p.ref_mode || "auto") + "</select>"
-      + rangeLabel("Jačina InstantID", "pIid", "pIidVal", 0.3, 1.2, 0.05, num(p.instantid_weight, 0.8), 2) + "</div>"
       + '<div class="field"><label class="lbl" for="pSendMode">Slanje poruka za ovu osobu</label><select id="pSendMode">' + opt([["", "Kao globalno / kanal"], ["approve", "Nacrt za odobrenje"], ["auto", "Automatsko slanje odmah"]], p.send_mode || "") + "</select></div>"
       + '<div class="field"><label class="lbl" for="pBio">Kratki bio (za objave i CRM)</label><textarea id="pBio" style="min-height:60px" maxlength="2000">' + esc(p.bio || "") + "</textarea></div>"
       + '<div class="actions"><button type="button" class="btn primary" id="pExtrasSave">Spremi</button></div>'
@@ -743,10 +747,25 @@
       personaBoxBound = true;
       bindStack(el, "pst", (st, rerender) => { V.pStack = st; if (rerender) $("pStackBox").innerHTML = stackEditorHtml("pst", V.pStack); });
     }
-    $("pIid").addEventListener("input", () => { $("pIidVal").textContent = num($("pIid").value, 0.8).toFixed(2); });
+    if ($("pIid") && !$("pIid").dataset.boundV11) {
+      $("pIid").dataset.boundV11 = "1";
+      $("pIid").addEventListener("input", () => { if ($("pIidVal")) $("pIidVal").textContent = num($("pIid").value, 0.4).toFixed(2); });
+    }
     $("pExtrasSave").onclick = async () => {
       try {
-        await post("/api/profiles/" + p.id + "/extras", { lora_stack: V.pStack.filter((x) => x.name), ref_mode: $("pRefMode").value, instantid_weight: num($("pIid").value, 0.8), send_mode: $("pSendMode").value, bio: $("pBio").value });
+        const extras = { lora_stack: V.pStack.filter((x) => x.name), send_mode: $("pSendMode").value, bio: $("pBio").value };
+        if ($("pRefMode")) extras.ref_mode = $("pRefMode").value;
+        if ($("pIid")) extras.instantid_weight = num($("pIid").value, 0.4);
+        if ($("pIidEnd")) extras.instantid_end_at = num($("pIidEnd").value, 0.8);
+        if ($("pIpaWeight")) extras.ipadapter_weight = num($("pIpaWeight").value, 0.4);
+        if ($("pIpaEnd")) extras.ipadapter_end_at = num($("pIpaEnd").value, 1.0);
+        if ($("pAppearWeight")) extras.appearance_weight = num($("pAppearWeight").value, 1.1);
+        if ($("pFaceDetailer")) extras.face_detailer = !!$("pFaceDetailer").checked;
+        if ($("pFdDenoise")) extras.fd_denoise = num($("pFdDenoise").value, 0.25);
+        if ($("pFdGuide")) extras.fd_guide_size = num($("pFdGuide").value, 384);
+        if ($("pFdMax")) extras.fd_max_size = num($("pFdMax").value, 768);
+        if ($("pFdBbox")) extras.fd_bbox_threshold = num($("pFdBbox").value, 0.5);
+        await post("/api/profiles/" + p.id + "/extras", extras);
         await c.loadState();
         syncStackFromPersona(true);
         V.sendState = null;
@@ -1177,7 +1196,7 @@
     if (c && c.currentTab() !== "slike") onTab(c.currentTab());
   }
 
-  window.StudioV11 = { genExtras: genExtras, onTab: onTab, refreshQueue: refreshQueue, loadGallery: loadGallery, ratingOf: ratingOf, renderStackUi: renderStackUi, getStack: function () { return (V.stack || []).slice(); }, onArch: fillVaeOptions, version: "1.3.7" };
+  window.StudioV11 = { genExtras: genExtras, onTab: onTab, refreshQueue: refreshQueue, loadGallery: loadGallery, ratingOf: ratingOf, renderStackUi: renderStackUi, getStack: function () { return (V.stack || []).slice(); }, onArch: fillVaeOptions, refreshPersona: renderPersona, applyTemplateToForm: applyTemplateToForm, version: "1.4.0" };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
   else boot();
 })();

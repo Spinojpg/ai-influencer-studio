@@ -830,6 +830,8 @@
             <div class="persona-picker" id="personaPicker" role="radiogroup" aria-label="Odabir osobe"></div>
             <select id="osoba" class="persona-select"></select>
             <div class="persona-status" id="personaStatus" aria-live="polite"></div>
+            <div class="hint persona-cons-note" id="personaConsNote" hidden>Konzistentnost lica ide s profila osobe.</div>
+            <div class="hint hint-warn" id="genNotice" hidden aria-live="polite"></div>
             <div class="appear-summary" id="appearSummary">
               <div class="appear-text" id="appearText"></div>
               <div class="appear-meta" id="appearMeta"></div>
@@ -936,49 +938,11 @@
               <div class="hint" id="sizeHint">IG formati (4:5, 1:1, 9:16) generiraju se na manjem platnu pa se povećaju na točnih 1080 piksela, da stanu u 8 GB VRAM-a.</div>
             </section>
 
-            <section class="adv-group" data-group="face" aria-labelledby="advGFace">
-              <header class="adv-card-head"><span class="adv-ico ico-rose" aria-hidden="true">◎</span><div><h3 class="adv-group-title" id="advGFace">Lice i konzistencija</h3><p class="adv-card-sub">Dosljednost i detalji lica: referenca, InstantID, Face Detailer, 8 GB zaštita</p></div></header>
-              <div class="field" id="ipaField">
-                <label class="lbl" for="ipaWeight">Jačina referentne slike lica <button type="button" class="tip" data-tip="IP-Adapter Plus Face uzima do 8 slika lica s profila osobe i drži isto lice na svakoj slici. 0,7–0,85 je prirodno; 1,0 jače kopira referencu ali može ukočiti izraz." aria-label="Objašnjenje: referentna slika">?</button></label>
-                <div class="range-row">
-                  <input type="range" id="ipaWeight" min="0.2" max="1.0" step="0.05" value="0.8" aria-label="Jačina referentne slike" />
-                  <span class="range-val" id="ipaWeightVal">0.80</span>
-                </div>
-                <label class="lbl" for="ipaEndAt" style="margin-top:10px">Kraj utjecaja <button type="button" class="tip" data-tip="Do kojeg dijela koraka IP-Adapter još drži referentno lice. Zadano 1,0 (cijeli prolaz); 0,8 ostavlja više slobode za izraz." aria-label="Objašnjenje: kraj utjecaja">?</button></label>
-                <div class="range-row">
-                  <input type="range" id="ipaEndAt" min="0.5" max="1.0" step="0.05" value="1.0" aria-label="Kraj utjecaja IP-Adaptera" />
-                  <span class="range-val" id="ipaEndAtVal">1.00</span>
-                </div>
-                <div class="hint" id="ipaHint">IP-Adapter Plus Face primjenjuje do 8 slika lica s profila osobe. Nije dostupno uz Krea 2. Ako paket ili čvor nedostaje, pojavi se gumb za instalaciju.</div>
-                <div class="actions" id="ipaInstallRow" hidden style="margin-top:8px">
-                  <button type="button" class="btn primary" id="installIpaAdv">Instaliraj IP-Adapter</button>
-                  <button type="button" class="btn" id="repairIpaAdv" hidden>Popravi</button>
-                </div>
-              </div>
-              <div class="field" id="faceDetailerField" hidden>
-                <label class="lbl check"><input type="checkbox" id="faceDetailer" /> Face Detailer (dodatni prolaz po licu) <button type="button" class="tip" data-tip="Nakon slike pronađe lice i ponovno ga iscrta u većoj rezoluciji: oštrije oči, zubi i koža. Uz 8 GB zaštitu denoise ostaje ≤ 0,5 (prirodno lice) i koraci ≤ 12, pa dodaje samo ~15–30 s." aria-label="Objašnjenje: Face Detailer">?</button></label>
-                <div class="hint" id="faceHint">Po zadanom isključeno. Na RX 6600 (8 GB) može biti sporo i tijesno s memorijom.</div>
-                <div class="actions" id="faceInstallRow" hidden style="margin-top:8px">
-                  <button type="button" class="btn" id="installFaceAdv">Instaliraj Face Detailer</button>
-                  <button type="button" class="btn" id="repairFaceAdv" hidden>Popravi</button>
-                </div>
-              </div>
-              <div class="v11-slot" id="v11GenFace"></div>
-            </section>
-
             <div class="adv-group" id="v11GenBox" data-group="misc" aria-labelledby="advGMisc">
               <header class="adv-card-head"><span class="adv-ico ico-amber" aria-hidden="true">✎</span><div><h3 class="adv-group-title" id="advGMisc">Prompt, seed i ostalo</h3><p class="adv-card-sub">Negativni prompt, kvaliteta, seed, predlošci i serija</p></div></header>
               <div class="field">
                 <label class="lbl" for="appearExtra">Dodatno uz izgled <button type="button" class="tip" data-tip="Privremeni dodatak opisu izgleda samo za ovu sliku (npr. crvena haljina). Profil osobe se ne mijenja." aria-label="Objašnjenje: Dodatno uz izgled">?</button></label>
                 <input type="text" id="appearExtra" placeholder="Privremeno, samo za ovu sliku (npr. crvena haljina)…" />
-              </div>
-              <div class="field" id="appearWeightField">
-                <label class="lbl" for="appearWeight">Težina opisa izgleda <button type="button" class="tip" data-tip="Koliko jako model prati izgled s profila (kosa, oči, tetovaže). 1,2–1,35 je ravnoteža; više od 1,4 zna potisnuti scenu i dati „AI” izgled." aria-label="Objašnjenje: Težina izgleda">?</button></label>
-                <div class="range-row">
-                  <input type="range" id="appearWeight" min="1.0" max="1.5" step="0.05" value="1.3" aria-label="Težina opisa izgleda" />
-                  <span class="range-val" id="appearWeightVal">1.30</span>
-                </div>
-                <div class="hint">Jači broj više prati izgled s profila (kosa, oči, tetovaže). Zadano 1,3.</div>
               </div>
               <div class="field">
                 <label class="lbl" for="seed">Seed <button type="button" class="tip" data-tip="Početni šum slike. Isti seed + iste postavke = ista slika (dobro za male izmjene). −1 = svaki put nova slika." aria-label="Objašnjenje: Seed">?</button></label>
@@ -1285,6 +1249,80 @@
             <label class="lbl" for="pStyle">Osobnost / stil</label>
             <textarea id="pStyle" style="min-height:70px" placeholder="kako se ponaša, humor, energija…"></textarea>
           </div>
+          <details class="pf-more" id="pfCons" open>
+            <summary>Konzistentnost lica</summary>
+            <div class="pf-more-inner">
+            <div class="hint">Ove postavke vrijede kad je ova osoba odabrana na Generiranju. U Naprednom ih više nema — tamo ostaju model, sampler, hires, seed, negativni prompt, FreeU, VAE i LoRA stack.</div>
+            <div class="field">
+              <label class="lbl" for="pRefMode">Način konzistentnosti lica</label>
+              <select id="pRefMode">
+                <option value="auto">Automatski</option>
+                <option value="ipadapter">IP-Adapter</option>
+                <option value="instantid">InstantID</option>
+              </select>
+              <div class="hint">Automatski: IP-Adapter ako je instaliran, inače InstantID (SDXL). Postavke se spremaju s profilom.</div>
+            </div>
+            <div class="field">
+              <label class="lbl" for="pAppearWeight">Težina opisa izgleda <button type="button" class="tip" data-tip="Koliko jako model prati izgled s profila (kosa, oči, tetovaže). 1,10 je zadano; više od 1,4 zna potisnuti scenu." aria-label="Objašnjenje: Težina izgleda">?</button></label>
+              <div class="range-row">
+                <input type="range" id="pAppearWeight" min="1.0" max="1.5" step="0.05" value="1.10" />
+                <span class="range-val" id="pAppearWeightVal">1.10</span>
+              </div>
+            </div>
+            <div class="field">
+              <label class="lbl" for="pIpaWeight">Jačina referentnih slika (IP-Adapter) <button type="button" class="tip" data-tip="IP-Adapter Plus Face uzima do 8 slika lica s profila. 0,40 je zadano i prirodnije; 0,7–0,85 jače kopira referencu." aria-label="Objašnjenje: referentna slika">?</button></label>
+              <div class="range-row">
+                <input type="range" id="pIpaWeight" min="0.2" max="1.0" step="0.05" value="0.40" />
+                <span class="range-val" id="pIpaWeightVal">0.40</span>
+              </div>
+              <label class="lbl" for="pIpaEnd" style="margin-top:10px">Kraj utjecaja IP-Adaptera</label>
+              <div class="range-row">
+                <input type="range" id="pIpaEnd" min="0.5" max="1.0" step="0.05" value="1.0" />
+                <span class="range-val" id="pIpaEndVal">1.00</span>
+              </div>
+            </div>
+            <div class="field">
+              <label class="lbl" for="pIid">Jačina InstantID <button type="button" class="tip" data-tip="Jačina InstantID identiteta. Zadano 0,40 je prirodnije; iznad 0,8 lice može postati ukočeno." aria-label="Objašnjenje: InstantID">?</button></label>
+              <div class="range-row">
+                <input type="range" id="pIid" min="0.3" max="1.2" step="0.05" value="0.40" />
+                <span class="range-val" id="pIidVal">0.40</span>
+              </div>
+              <label class="lbl" for="pIidEnd" style="margin-top:10px">Kraj utjecaja InstantID-a</label>
+              <div class="range-row">
+                <input type="range" id="pIidEnd" min="0.5" max="1.0" step="0.05" value="0.80" />
+                <span class="range-val" id="pIidEndVal">0.80</span>
+              </div>
+            </div>
+            <div class="field">
+              <label class="lbl check"><input type="checkbox" id="pFaceDetailer" /> Face Detailer za ovu osobu <button type="button" class="tip" data-tip="Nakon slike pronađe lice i ponovno ga iscrta. Zadani denoise je 0,25. Na 8 GB ostavi isključeno osim kad treba dodatni prolaz." aria-label="Objašnjenje: Face Detailer">?</button></label>
+              <div class="hint">Po zadanom isključeno. Kad je uključen, denoise 0,20–0,25 je prirodniji.</div>
+              <label class="lbl" for="pFdDenoise" style="margin-top:10px">Face Detailer denoise</label>
+              <div class="range-row">
+                <input type="range" id="pFdDenoise" min="0.1" max="0.8" step="0.02" value="0.25" />
+                <span class="range-val" id="pFdDenoiseVal">0.25</span>
+              </div>
+              <div class="v11-grid2" style="margin-top:8px">
+                <label class="lbl" for="pFdGuide">Veličina vodiča
+                  <div class="range-row">
+                    <input type="range" id="pFdGuide" min="256" max="768" step="64" value="384" />
+                    <span class="range-val" id="pFdGuideVal">384</span>
+                  </div>
+                </label>
+                <label class="lbl" for="pFdMax">Najveća veličina
+                  <div class="range-row">
+                    <input type="range" id="pFdMax" min="512" max="1024" step="64" value="768" />
+                    <span class="range-val" id="pFdMaxVal">768</span>
+                  </div>
+                </label>
+              </div>
+              <label class="lbl" for="pFdBbox" style="margin-top:8px">Prag detektora lica</label>
+              <div class="range-row">
+                <input type="range" id="pFdBbox" min="0.2" max="0.9" step="0.05" value="0.50" />
+                <span class="range-val" id="pFdBboxVal">0.50</span>
+              </div>
+            </div>
+            </div>
+          </details>
           <details class="pf-more" id="pfTech">
             <summary>Model, LoRA i tehničke postavke</summary>
             <div class="pf-more-inner">
@@ -1318,24 +1356,6 @@
             <div class="field">
               <label class="lbl" for="pNeg">Negativni prompt za slike</label>
               <textarea id="pNeg" style="min-height:70px"></textarea>
-            </div>
-            <div class="field">
-              <label class="lbl" for="pAppearWeight">Težina opisa izgleda</label>
-              <div class="range-row">
-                <input type="range" id="pAppearWeight" min="1.0" max="1.5" step="0.05" value="1.3" />
-                <span class="range-val" id="pAppearWeightVal">1.30</span>
-              </div>
-            </div>
-            <div class="field">
-              <label class="lbl" for="pIpaWeight">Jačina referentnih slika lica</label>
-              <div class="range-row">
-                <input type="range" id="pIpaWeight" min="0.2" max="1.0" step="0.05" value="0.8" />
-                <span class="range-val" id="pIpaWeightVal">0.80</span>
-              </div>
-            </div>
-            <div class="field">
-              <label class="lbl check"><input type="checkbox" id="pFaceDetailer" /> Face Detailer za ovu osobu</label>
-              <div class="hint">Po zadanom isključeno. Na 8 GB VRAM-a ostavi isključeno osim kad želiš dodatni prolaz po licu.</div>
             </div>
             <div class="field">
               <label class="lbl check"><input type="checkbox" id="pLockSeed" /> Zaključaj seed</label>
@@ -1651,6 +1671,8 @@
         edit.disabled = none;
         edit.title = none ? "Odaberi osobu da urediš njezin profil" : "Otvori profil u kartici Osobe";
       }
+      const note = $("personaConsNote");
+      if (note) note.hidden = none;
     }
 
     function appearanceFromProfile(prof, extra) {
@@ -1773,11 +1795,6 @@
         const exists = Array.from(modelEl.options).some((o) => o.value === prof.preferred_model);
         if (exists) modelEl.value = prof.preferred_model;
       }
-      if ($("appearWeight") && prof.appearance_weight != null) $("appearWeight").value = String(prof.appearance_weight);
-      if ($("ipaWeight") && prof.ipadapter_weight != null) $("ipaWeight").value = String(prof.ipadapter_weight);
-      setRangeVal("appearWeight", "appearWeightVal", 2);
-      setRangeVal("ipaWeight", "ipaWeightVal", 2);
-      if ($("faceDetailer") && typeof prof.face_detailer !== "undefined") $("faceDetailer").checked = !!prof.face_detailer;
       if (prof.lock_seed && seedEl) {
         const locked = Number(prof.locked_seed);
         if (!Number.isNaN(locked) && locked >= 0) seedEl.value = String(locked);
@@ -2714,10 +2731,6 @@
         lora: currentArch === "krea2" ? "" : (loraEl ? loraEl.value : ""),
         lora_strength: currentArch === "krea2" ? 0.8 : (loraStrengthEl ? Number(loraStrengthEl.value) : 0.8),
         model_type: currentArch === "sdxl" ? "sdxl" : (currentArch === "sd15" ? "sd15" : (currentArch === "krea2" ? "krea2" : "auto")),
-        appearance_weight: $("appearWeight") ? Number($("appearWeight").value) : 1.3,
-        ipadapter_weight: $("ipaWeight") ? Number($("ipaWeight").value) : 0.8,
-        ipadapter_end_at: $("ipaEndAt") ? Number($("ipaEndAt").value) : 1.0,
-        face_detailer: currentArch === "krea2" ? false : !!( $("faceDetailer") && $("faceDetailer").checked ),
         lock_seed: !!(prof && prof.lock_seed)
       };
       try {
@@ -2757,13 +2770,23 @@
       applyProfileToImageForm(selectedPersona());
       updateNoPersonaUi();
     });
-    ["appearWeight", "ipaWeight", "ipaEndAt"].forEach((id) => {
+    const personaRangeMap = {
+      pAppearWeight: ["pAppearWeightVal", 2],
+      pIpaWeight: ["pIpaWeightVal", 2],
+      pIpaEnd: ["pIpaEndVal", 2],
+      pIid: ["pIidVal", 2],
+      pIidEnd: ["pIidEndVal", 2],
+      pFdDenoise: ["pFdDenoiseVal", 2],
+      pFdGuide: ["pFdGuideVal", 0],
+      pFdMax: ["pFdMaxVal", 0],
+      pFdBbox: ["pFdBboxVal", 2]
+    };
+    Object.keys(personaRangeMap).forEach((id) => {
       const el = $(id);
-      if (el) el.addEventListener("input", () => setRangeVal(id, id + "Val", 2));
+      const pair = personaRangeMap[id];
+      if (el) el.addEventListener("input", () => setRangeVal(id, pair[0], pair[1]));
+      setRangeVal(id, pair[0], pair[1]);
     });
-    setRangeVal("appearWeight", "appearWeightVal", 2);
-    setRangeVal("ipaWeight", "ipaWeightVal", 2);
-    setRangeVal("ipaEndAt", "ipaEndAtVal", 2);
     if (loraEl) loraEl.addEventListener("change", () => { syncLoraStrengthUi(); rememberLoraForModel(); });
     if ($("loraRefresh")) $("loraRefresh").addEventListener("click", () => refreshLoras(true));
     if (loraStrengthEl) loraStrengthEl.addEventListener("input", () => { syncLoraStrengthUi(); rememberLoraForModel(); });
@@ -2788,7 +2811,13 @@
         const r = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payloadBase()) });
         const d = await r.json();
         if (!r.ok || !d.ok) { goBtn.disabled = false; progWrap.hidden = true; resultsEl.innerHTML = ""; if ($("resultsHead")) $("resultsHead").hidden = true; showErr(errEl, d.error || "ComfyUI nije prihvatio zadatak."); return; }
-        const meta = { prompt: d.prompt, seed: d.seed, width: d.width, height: d.height, model: d.model, steps: d.steps, turbo: !!(d.turbo || turboMode), quality_profile: d.quality_profile || "", rx_notes: d.rx_notes || [] };
+        const meta = { prompt: d.prompt, seed: d.seed, width: d.width, height: d.height, model: d.model, steps: d.steps, turbo: !!(d.turbo || turboMode), quality_profile: d.quality_profile || "", rx_notes: d.rx_notes || [], warnings: d.warnings || [] };
+        const gn = $("genNotice");
+        if (gn) {
+          const warns = (d.warnings || d.rx_notes || []).filter(Boolean);
+          gn.textContent = warns.join(" ");
+          gn.hidden = !warns.length;
+        }
         lastMeta = meta;
         setProgress(0.08, "U redu. Seed " + d.seed + " — čekam slike… Prvo pokretanje može trajati dulje.", true);
         stopPoll();
@@ -3211,6 +3240,15 @@
       }).join("");
     }
 
+    function refreshPersonaPanels(pid) {
+      try { if (window.StudioV11 && typeof window.StudioV11.refreshPersona === "function") window.StudioV11.refreshPersona(); } catch (e) { /* */ }
+      try {
+        if (window.StudioLoraTrainer) {
+          if (pid) window.StudioLoraTrainer.follow(pid, true);
+          else if (window.StudioLoraTrainer.follow) window.StudioLoraTrainer.follow(null, true);
+        }
+      } catch (e) { /* */ }
+    }
     function fillProfileForm(id) {
       const p = (state.profiles || []).find((x) => x.id === id);
       if (!p) return;
@@ -3239,9 +3277,24 @@
       $("pVibe").value = p.age_vibe || "";
       if ($("pAppearWeight") && p.appearance_weight != null) $("pAppearWeight").value = String(p.appearance_weight);
       if ($("pIpaWeight") && p.ipadapter_weight != null) $("pIpaWeight").value = String(p.ipadapter_weight);
+      if ($("pIpaEnd") && p.ipadapter_end_at != null) $("pIpaEnd").value = String(p.ipadapter_end_at);
+      if ($("pRefMode") && p.ref_mode) $("pRefMode").value = p.ref_mode;
+      if ($("pIid") && p.instantid_weight != null) $("pIid").value = String(p.instantid_weight);
+      if ($("pIidEnd") && p.instantid_end_at != null) $("pIidEnd").value = String(p.instantid_end_at);
+      if ($("pFaceDetailer")) $("pFaceDetailer").checked = !!p.face_detailer;
+      if ($("pFdDenoise") && p.fd_denoise != null) $("pFdDenoise").value = String(p.fd_denoise);
+      if ($("pFdGuide") && p.fd_guide_size != null) $("pFdGuide").value = String(p.fd_guide_size);
+      if ($("pFdMax") && p.fd_max_size != null) $("pFdMax").value = String(p.fd_max_size);
+      if ($("pFdBbox") && p.fd_bbox_threshold != null) $("pFdBbox").value = String(p.fd_bbox_threshold);
       setRangeVal("pAppearWeight", "pAppearWeightVal", 2);
       setRangeVal("pIpaWeight", "pIpaWeightVal", 2);
-      if ($("pFaceDetailer")) $("pFaceDetailer").checked = !!p.face_detailer;
+      setRangeVal("pIpaEnd", "pIpaEndVal", 2);
+      setRangeVal("pIid", "pIidVal", 2);
+      setRangeVal("pIidEnd", "pIidEndVal", 2);
+      setRangeVal("pFdDenoise", "pFdDenoiseVal", 2);
+      setRangeVal("pFdGuide", "pFdGuideVal", 0);
+      setRangeVal("pFdMax", "pFdMaxVal", 0);
+      setRangeVal("pFdBbox", "pFdBboxVal", 2);
       if ($("pLockSeed")) $("pLockSeed").checked = !!p.lock_seed;
       if ($("pLockedSeed")) $("pLockedSeed").value = p.locked_seed || "";
       if ($("pLockedSeedRow")) $("pLockedSeedRow").hidden = !p.lock_seed;
@@ -3253,6 +3306,7 @@
       $("pOk").hidden = true;
       showErr($("pErr"), "");
       renderProfileList();
+      refreshPersonaPanels(id);
     }
     function renderExamples(list) {
       $("pExamples").innerHTML = (list || []).map((ex, i) => {
@@ -3284,8 +3338,24 @@
       applyAllPresets(null);
       renderExamples([]);
       pendingRefs = []; if ($("pRefList")) renderProfileRefs(null);
+      if ($("pRefMode")) $("pRefMode").value = "auto";
+      if ($("pAppearWeight")) $("pAppearWeight").value = "1.10";
+      if ($("pIpaWeight")) $("pIpaWeight").value = "0.40";
+      if ($("pIpaEnd")) $("pIpaEnd").value = "1.0";
+      if ($("pIid")) $("pIid").value = "0.40";
+      if ($("pIidEnd")) $("pIidEnd").value = "0.80";
+      if ($("pFaceDetailer")) $("pFaceDetailer").checked = false;
+      if ($("pFdDenoise")) $("pFdDenoise").value = "0.25";
+      if ($("pFdGuide")) $("pFdGuide").value = "384";
+      if ($("pFdMax")) $("pFdMax").value = "768";
+      if ($("pFdBbox")) $("pFdBbox").value = "0.50";
+      ["pAppearWeight","pIpaWeight","pIpaEnd","pIid","pIidEnd","pFdDenoise","pFdGuide","pFdMax","pFdBbox"].forEach((id) => {
+        const map = {pAppearWeight:2,pIpaWeight:2,pIpaEnd:2,pIid:2,pIidEnd:2,pFdDenoise:2,pFdGuide:0,pFdMax:0,pFdBbox:2};
+        setRangeVal(id, id + "Val", map[id]);
+      });
       $("pOk").hidden = true;
       showErr($("pErr"), "");
+      refreshPersonaPanels(null);
     });
     $("profileForm").addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -3296,9 +3366,17 @@
         negative_prompt: $("pNeg").value, preferred_model: $("pModel").value, model_type: ($("pModelType") && $("pModelType").value) || "auto",
         preferred_lora: $("pLora") ? $("pLora").value : "",
         preferred_lora_strength: $("pLoraStrength") ? Number($("pLoraStrength").value) : 0.8,
-        appearance_weight: $("pAppearWeight") ? Number($("pAppearWeight").value) : 1.3,
-        ipadapter_weight: $("pIpaWeight") ? Number($("pIpaWeight").value) : 0.8,
+        appearance_weight: $("pAppearWeight") ? Number($("pAppearWeight").value) : 1.1,
+        ipadapter_weight: $("pIpaWeight") ? Number($("pIpaWeight").value) : 0.4,
+        ipadapter_end_at: $("pIpaEnd") ? Number($("pIpaEnd").value) : 1.0,
+        instantid_weight: $("pIid") ? Number($("pIid").value) : 0.4,
+        instantid_end_at: $("pIidEnd") ? Number($("pIidEnd").value) : 0.8,
+        ref_mode: $("pRefMode") ? $("pRefMode").value : "auto",
         face_detailer: !!( $("pFaceDetailer") && $("pFaceDetailer").checked ),
+        fd_denoise: $("pFdDenoise") ? Number($("pFdDenoise").value) : 0.25,
+        fd_guide_size: $("pFdGuide") ? Number($("pFdGuide").value) : 384,
+        fd_max_size: $("pFdMax") ? Number($("pFdMax").value) : 768,
+        fd_bbox_threshold: $("pFdBbox") ? Number($("pFdBbox").value) : 0.5,
         lock_seed: !!( $("pLockSeed") && $("pLockSeed").checked ),
         locked_seed: $("pLockedSeed") ? $("pLockedSeed").value : "",
         style: $("pStyle").value, age_vibe: $("pVibe").value,

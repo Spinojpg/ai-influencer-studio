@@ -551,10 +551,12 @@ def test_static():
     lt_js = (ROOT / "static" / "lora_trainer.js").read_text(encoding="utf-8")
     check(html.index("/static/ui_v120.css") < html.index("/static/ui_v130.css"), "ui_v130.css se učitava nakon ui_v120.css")
     check(html.index("/static/ui_v120.js") < html.index("/static/ui_v130.js"), "ui_v130.js se učitava zadnji")
-    for g in ("model", "format", "face", "lora", "misc"):
+    for g in ("model", "format", "lora", "misc"):
         check(f'data-group="{g}"' in html, f"Napredno grupa {g}")
+    check('data-group="face"' not in html, "konzistentnost lica više nije grupa u Naprednom")
+    check('id="pfCons"' in html, "konzistentnost lica je na profilu osobe")
     check(html.count('class="tip"') >= 10, f"? objašnjenja u HTML-u ({html.count('class=\"tip\"')})")
-    check("function tip(" in v11 and v11.count("TIPS.") >= 18, f"? objašnjenja u v11 poljima ({v11.count('TIPS.')})")
+    check("function tip(" in v11 and v11.count("TIPS.") >= 12, f"? objašnjenja u v11 poljima ({v11.count('TIPS.')})")
     for pid in ("realism", "fast", "turbo"):
         check(f'data-profile="{pid}"' in html, f"#quality profil {pid}")
     check('id="gpuLive"' in html and 'id="v11GalChips"' in html and 'id="v13HomeKpis"' in html, "GPU bar, filtar ocjena, Početna KPI")

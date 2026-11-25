@@ -77,18 +77,21 @@ CACHE_OVERHEAD_S = {"sdxl": 240, "sd15": 90}
 PRESETS = {
     "fast": {
         "label": "Brzi test", "hint": "Brza provjera dataseta, otprilike 15–25 min na RX 6600.",
-        "epochs": 4, "target_steps": {"sdxl": 400, "sd15": 700}, "lr": 2e-4,
+        "epochs": 4, "target_steps": {"sdxl": 400, "sd15": 700}, "lr": 2e-4, "max_resolution": 768,
     },
     "balanced": {
-        "label": "Preporučeno za RX 6600", "hint": "Dobra sličnost lica, sigurno za 8 GB VRAM-a.",
-        "epochs": 8, "target_steps": {"sdxl": 1000, "sd15": 1500}, "lr": 1e-4,
+        "label": "Preporučeno za RX 6600", "hint": "Dobra sličnost lica, sigurno za 8 GB VRAM-a (maks. 768 px).",
+        "epochs": 8, "target_steps": {"sdxl": 800, "sd15": 1200}, "lr": 1e-4, "max_resolution": 768,
     },
+    # fast/detailed max_resolution se postavlja ispod u PRESET_MAX_RES
     "detailed": {
         "label": "Detaljnije", "hint": "Više koraka i epoha za finije detalje; traje dulje.",
         "epochs": 10, "target_steps": {"sdxl": 1600, "sd15": 2400}, "lr": 1e-4,
     },
 }
 DEFAULT_PRESET = "balanced"
+# 1.4.0: na 8 GB VRAM-a balanced i brzi test ostaju na 768; 1024 samo u „Detaljnije”.
+PRESET_MAX_RES = {"fast": 768, "balanced": 768, "detailed": 1024}
 
 TEMP_DEFAULTS = {"lora_temp_warn": "80", "lora_temp_critical": "88", "lora_temp_stop": "92", "lora_temp_autostop": "1"}
 # 1.3.0: slike ocijenjene „Dobra” same idu u LoRA dataset osobe (može se isključiti u treneru).
@@ -97,7 +100,7 @@ STALL_AUTOSTOP_KEY = "lora_stall_autostop"
 STALL_WARN_DEFAULT_S = 600
 STALL_STOP_DEFAULT_S = 1200
 STALL_MESSAGE = ("Trening se nije pomaknuo 10 min — vjerojatno je VRAM pun. "
-                 "Zaustavi i nastavi od zadnje epohe.")
+                 "Zaustavi trening pa pritisni „Nastavi od zadnje epohe”.")
 _EPOCH_FILE_RE = re.compile(r"^(.+)-(\d{6})\.safetensors$", re.I)
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]")
 
@@ -1012,6 +1015,9 @@ def compute_plan(pid: int, preset: str = DEFAULT_PRESET, advanced: dict | None =
     res = clamp_int(adv.get("resolution"), 256, 2048, DEFAULT_RESOLUTION[arch])
     if res not in ALLOWED_RESOLUTIONS[arch]:
         res = DEFAULT_RESOLUTION[arch]
+    cap = int(p.get("max_resolution") or PRESET_MAX_RES.get(preset) or DEFAULT_RESOLUTION[arch])
+    if res > cap:
+        res = cap if cap in ALLOWED_RESOLUTIONS[arch] else DEFAULT_RESOLUTION[arch]
     rank = clamp_int(adv.get("rank") or adv.get("network_dim"), 4, 64, 16)
     if rank not in RANKS:
         rank = 16
@@ -1031,7 +1037,10 @@ def compute_plan(pid: int, preset: str = DEFAULT_PRESET, advanced: dict | None =
         th["autostop"] = truthy(adv.get("autostop"), True)
     warnings = []
     if arch == "sdxl" and res > 768:
-        warnings.append("1024 px na 8 GB VRAM-a je na rubu; ako javi „out of memory”, vrati na 768.")
+        warnings.append("Više od 768 px na 8 GB VRAM-a je na rubu; ako javi „out of memory”, vrati na 768.")
+    cap = int(p.get("max_resolution") or PRESET_MAX_RES.get(preset) or 0)
+    if cap and int(adv.get("resolution") or res) > cap and preset in {"fast", "balanced"}:
+        warnings.append(f"Profil „{p['label']}” na 8 GB ograničava rezoluciju na {cap} px.")
     if not th["autostop"]:
         warnings.append("Auto-stop zbog temperature je isključen.")
     if "stall_autostop" in adv:
@@ -1207,7 +1216,36 @@ def torch_status(refresh: bool = False) -> dict:
     return res
 
 
+def _gpu_monitor() -> dict:
+    """Temperatura + VRAM bez novih ovisnosti (Windows GPU brojači / sysfs / ComfyUI)."""
+    out = {"temp_c": None, "temp_available": False, "vram_used_mb": None, "vram_total_mb": None,
+           "vram_available": False, "source": "", "message": ""}
+    try:
+        temp = hardware_service.read_gpu_temperature()
+        if temp.get("available") and temp.get("temp_c") is not None:
+            out["temp_c"] = temp.get("temp_c")
+            out["temp_available"] = True
+            out["source"] = temp.get("source") or ""
+    except Exception:
+        pass
+    try:
+        live = hardware_service.gpu_live(wait_s=0)
+        if live.get("vram_used_mb") is not None or live.get("vram_total_mb") is not None:
+            out["vram_used_mb"] = live.get("vram_used_mb")
+            out["vram_total_mb"] = live.get("vram_total_mb")
+            out["vram_available"] = live.get("vram_used_mb") is not None
+            if live.get("vram_source") or live.get("source"):
+                out["source"] = (live.get("vram_source") or live.get("source") or out["source"])
+        elif not out["vram_available"]:
+            out["message"] = "VRAM brojač nije dostupan na ovom sustavu (bez dodatnih paketa)."
+    except Exception:
+        if not out["vram_available"]:
+            out["message"] = "VRAM brojač nije dostupan na ovom sustavu (bez dodatnih paketa)."
+    return out
+
+
 def status(refresh: bool = False) -> dict:
+
     cdir = comfy_launch.comfy_dir()
     py, py_src = comfy_python()
     cks = list_base_checkpoints()
@@ -1229,6 +1267,7 @@ def status(refresh: bool = False) -> dict:
         "checkpoints": cks,
         "has_sdxl": any(c["arch"] == "sdxl" for c in cks), "has_sd15": any(c["arch"] == "sd15" for c in cks),
         "gpu_temp": {**temp, "status": t_status, "message": t_msg},
+        "gpu_live": _gpu_monitor(),
         "temp_settings": temp_settings(),
         "loras_dir": str(lt), "loras_in_comfy": in_comfy,
         "pil": pil_ok(),
@@ -1469,6 +1508,76 @@ try:
     print("STUDIO: dtype usklađivanje slojeva uključeno (ZLUDA)", flush=True)
 except Exception as exc:
     print("STUDIO: dtype upozorenje:", exc, flush=True)
+# 1.4.0: agresivno čišćenje VRAM-a između epoha (gc + empty_cache) i ispis za nadzor.
+try:
+    import gc
+    import torch
+    def _studio_epoch_cleanup(tag="epoch"):
+        try:
+            gc.collect()
+            if torch.cuda.is_available():
+                try:
+                    torch.cuda.synchronize()
+                except Exception:
+                    pass
+                torch.cuda.empty_cache()
+                try:
+                    torch.cuda.ipc_collect()
+                except Exception:
+                    pass
+                alloc = torch.cuda.memory_allocated(0) / (1024 * 1024)
+                reserved = torch.cuda.memory_reserved(0) / (1024 * 1024)
+                print("STUDIO: VRAM allocated=%.0fMB reserved=%.0fMB (%s)" % (alloc, reserved, tag), flush=True)
+            else:
+                print("STUDIO: VRAM očišćen (%s, CUDA nije dostupna)" % tag, flush=True)
+        except Exception as exc:
+            print("STUDIO: VRAM cleanup upozorenje:", exc, flush=True)
+    def _studio_wrap_save(mod, name):
+        fn = getattr(mod, name, None)
+        if not callable(fn) or getattr(fn, "_studio_wrapped", False):
+            return False
+        def _wrapped(*a, **k):
+            r = fn(*a, **k)
+            _studio_epoch_cleanup(name)
+            return r
+        _wrapped._studio_wrapped = True
+        setattr(mod, name, _wrapped)
+        return True
+    _SAVE_HOOKS = (
+        "save_sd_model_on_epoch_end",
+        "save_sd_model_on_epoch_end_or_step",
+        "save_sd_model_on_epoch_end_common",
+        "save_sd_model_on_train_end",
+    )
+    import importlib
+    class _StudioEpochFinder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+        def find_module(self, fullname, path=None):
+            return None
+    # Omatač se postavlja kad sd-scripts uveze library.train_util / sdxl_train_util.
+    _orig_import = __import__
+    def _studio_import(name, globals=None, locals=None, fromlist=(), level=0):
+        mod = _orig_import(name, globals, locals, fromlist, level)
+        try:
+            targets = []
+            if name in {"library.train_util", "library.sdxl_train_util"} or (fromlist and name == "library"):
+                targets.append(mod)
+            for sub in fromlist or ():
+                submod = getattr(mod, sub, None)
+                if submod is not None and getattr(submod, "__name__", "").startswith("library"):
+                    targets.append(submod)
+            for target in targets:
+                for hook in _SAVE_HOOKS:
+                    _studio_wrap_save(target, hook)
+        except Exception:
+            pass
+        return mod
+    try:
+        import builtins
+        builtins.__import__ = _studio_import
+    except Exception as exc:
+        print("STUDIO: import hook upozorenje:", exc, flush=True)
+except Exception as exc:
+    print("STUDIO: VRAM hook upozorenje:", exc, flush=True)
 script = os.path.abspath(sys.argv[1])
 sys.argv = sys.argv[1:]
 sys.path.insert(0, os.path.dirname(script))
@@ -1510,6 +1619,9 @@ def _job_row(row) -> dict:
     cfg = d.get("config") or {}
     d["stall_warning"] = bool(cfg.get("stall_warning"))
     d["stall_message"] = cfg.get("stall_message") or ""
+    d["gpu_vram_used_mb"] = cfg.get("gpu_vram_used_mb")
+    d["gpu_vram_reserved_mb"] = cfg.get("gpu_vram_reserved_mb")
+    d["gpu_vram_total_mb"] = cfg.get("gpu_vram_total_mb")
     return d
 
 
@@ -1526,6 +1638,26 @@ def list_jobs(profile_id=None, limit: int = 20) -> list:
         else:
             rows = c.execute("SELECT * FROM lora_training_jobs ORDER BY id DESC LIMIT ?", (int(limit),)).fetchall()
     return [_job_row(r) for r in rows]
+
+
+def attach_resume(jobs: list) -> list:
+    """Dodaj podatke o nastavku na već izgrađene retke. Ne zovi iz find_resume (koristi list_jobs)."""
+    if not jobs:
+        return jobs
+    cache = {}
+    for j in jobs:
+        if not j or j.get("active") or not j.get("profile_id"):
+            if j is not None:
+                j["resume"] = j.get("resume")
+            continue
+        pid = int(j["profile_id"])
+        if pid not in cache:
+            try:
+                cache[pid] = find_resume(pid, (j.get("config") or {}).get("plan") or {})
+            except Exception:
+                cache[pid] = None
+        j["resume"] = cache[pid]
+    return jobs
 
 
 def active_job():
@@ -1673,6 +1805,7 @@ _STEP_LOOSE_RE = re.compile(r"steps:\s*(?:\d+%\|[^|]*\|\s*)?(\d+)/(\d+)")
 _LOSS_RE = re.compile(r"avr_loss=([-+\d.eE]+|nan)")
 _EPOCH_RE = re.compile(r"^\s*epoch\s+(\d+)\s*/\s*(\d+)", re.I)
 _OOM_RE = re.compile(r"(?i)out of memory|DefaultCPUAllocator: not enough memory")
+_VRAM_RE = re.compile(r"STUDIO:\s*VRAM\s+allocated=([0-9.]+)MB\s+reserved=([0-9.]+)MB", re.I)
 
 
 def _hms(text: str):
@@ -1715,6 +1848,13 @@ def parse_progress_line(line: str) -> dict:
         out["caching"] = True
     if _OOM_RE.search(line):
         out["oom"] = True
+    mv = _VRAM_RE.search(line)
+    if mv:
+        try:
+            out["vram_allocated_mb"] = float(mv.group(1))
+            out["vram_reserved_mb"] = float(mv.group(2))
+        except ValueError:
+            pass
     return out
 
 
@@ -1846,6 +1986,12 @@ def _run_job(jid: int) -> None:
             state["epoch"], state["epochs"] = info["epoch"], info["epochs"]
         if info.get("oom"):
             state["oom"] = True
+        if "vram_reserved_mb" in info or "vram_allocated_mb" in info:
+            state["vram_allocated_mb"] = info.get("vram_allocated_mb")
+            state["vram_reserved_mb"] = info.get("vram_reserved_mb")
+            cfgd["gpu_vram_used_mb"] = info.get("vram_allocated_mb")
+            cfgd["gpu_vram_reserved_mb"] = info.get("vram_reserved_mb")
+            _set_job(jid, config=cfgd)
         flush()
 
     try:
