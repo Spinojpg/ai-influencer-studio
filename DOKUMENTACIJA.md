@@ -27,7 +27,7 @@ Izgled je prerađen, a funkcije su ostale iste: sve kontrole, prečaci i API-ji 
 
 - **Tamna minimalistička tema**: mirna tamna podloga, kartice s tankim rubovima, jedan indigo naglasak, a zelena, narančasta i crvena samo za stvarna stanja (spojeno, upozorenje, greška). Gornja traka ima kartice s podcrtom, kompaktne statuse i izbornik influencera.
 - **Generiranje – glavni ekran**: samo ono što treba za sliku.
-  1. **Osoba**: avatari svih osoba; odabrana ima obrub, zelena točka znači da osoba ima LoRA-u. Ispod piše „LoRA aktivna” / „Bez LoRA-e”, broj referentnih slika i kratki opis izgleda. „Uredi profil” vodi u karticu Osobe, a „+ Nova” otvara novi profil.
+  1. **Osoba**: avatari svih osoba i na vrhu opcija **Bez osobe** (za testiranje promptova: bez LoRA-e osobe, okidača i referenci lica; LoRA stack, VAE i ostale opće postavke i dalje vrijede). Odabrana ima obrub, zelena točka znači da osoba ima LoRA-u. Ispod piše „LoRA aktivna” / „Bez LoRA-e”, broj referentnih slika i kratki opis izgleda. „Uredi profil” vodi u karticu Osobe, a „+ Nova” otvara novi profil.
   2. **Opis scene**: veliko polje (Ctrl+Enter pokreće) i brzi stilovi.
   3. **Format** i **Brzina** (Turbo / Kvaliteta) kao mali gumbi, uz naziv aktivnog modela.
   4. **Generiraj**. Ispod je kratki red s 8 GB sigurnim modom, VAE načinom i GPU-om.

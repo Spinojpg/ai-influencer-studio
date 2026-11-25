@@ -239,10 +239,38 @@ def turbo_lora_present() -> bool:
     return image_gen.lora_available(image_gen.TURBO_SDXL["lora_filename"])
 
 
+def persona_choice(body: dict) -> tuple[object, bool]:
+    """(sirovi id, jesu li persona_id/profile_id eksplicitno poslani)."""
+    if "persona_id" in body:
+        return body.get("persona_id"), True
+    if "profile_id" in body:
+        return body.get("profile_id"), True
+    return None, False
+
+
+def is_blank_persona(raw) -> bool:
+    """Prazan odabir: Bez osobe (None, '', 0, 'none', 'bez'…)."""
+    if raw is None or raw is False:
+        return True
+    if isinstance(raw, (int, float)):
+        try:
+            return int(raw) == 0
+        except (TypeError, ValueError):
+            return True
+    s = str(raw).strip().lower()
+    return s in {"", "0", "none", "null", "false", "bez", "bez osobe", "bez-osobe"}
+
+
 def resolve_generation_profile(body: dict, fallback: dict | None = None) -> dict | None:
-    """Profil osobe za sliku (persona_id), inače predani fallback (aktivni)."""
-    raw = body.get("persona_id", body.get("profile_id"))
-    if raw not in (None, ""):
+    """Profil osobe za sliku (persona_id).
+
+    Eksplicitno prazan persona_id (Bez osobe) ne pada na aktivni profil.
+    Ako ključ nije poslan (stari klijenti / testovi), ostaje fallback.
+    """
+    raw, explicit = persona_choice(body)
+    if explicit and is_blank_persona(raw):
+        return None
+    if not is_blank_persona(raw):
         try:
             pid = int(raw)
         except (TypeError, ValueError):
@@ -264,9 +292,15 @@ def resolve_generation_profile(body: dict, fallback: dict | None = None) -> dict
 
 
 def resolve_appearance(body: dict, profile: dict | None) -> str:
-    """Izgled iz odabrane osobe + Dodatno, ili ručni body['persona'] (stari klijenti/testovi)."""
+    """Izgled iz odabrane osobe + Dodatno, ili ručni body['persona'] (stari klijenti/testovi).
+
+    Uz eksplicitno 'Bez osobe' ne ubacuje izgled ni okidač osobe; ostaje samo Dodatno.
+    """
     extra = (body.get("appearance_extra") or body.get("dodatno") or "").strip()
-    has_id = body.get("persona_id", body.get("profile_id")) not in (None, "")
+    raw, explicit = persona_choice(body)
+    if explicit and is_blank_persona(raw):
+        return extra
+    has_id = not is_blank_persona(raw)
     if has_id and profile:
         return image_gen.appearance_from_profile(profile, extra)
     typed = (body.get("persona") or "").strip()
@@ -886,7 +920,7 @@ def plan_image_generation(
         body.get("instantid_weight") if body.get("instantid_weight") not in (None, "") else ((prof or {}).get("instantid_weight") if (prof or {}).get("instantid_weight") not in (None, "") else generation_service.profile_extras((prof or {}).get("id")).get("instantid_weight", 0.8)),
         0.0, 1.5, 0.8,
     )
-    if arch == "sdxl" and ref_mode in {"instantid", "auto"}:
+    if prof and arch == "sdxl" and ref_mode in {"instantid", "auto"}:
         iid_ok = image_gen.instantid_available(object_info)
         ipa_state = character.ipadapter_nodes_ok(object_info)
         if ref_mode == "instantid":
@@ -901,7 +935,7 @@ def plan_image_generation(
             use_instantid = True
         elif ipa_state is False and iid_ok:
             use_instantid = True
-    if use_instantid:
+    if prof and use_instantid:
         paths = []
         if prof and prof.get("id") is not None:
             try:
@@ -918,7 +952,7 @@ def plan_image_generation(
                 return {"ok": False, "status": 500, "error": f"Ne mogu pripremiti referentnu sliku: {exc}"}
 
     ipadapter_images: list[str] = []
-    if arch != "krea2" and not use_instantid:
+    if prof and arch != "krea2" and not use_instantid:
         staged = body.get("ipadapter_images") or body.get("ref_images")
         if isinstance(staged, list) and staged and all(isinstance(x, str) and x.strip() for x in staged):
             ipadapter_images = [x.replace("\\", "/").strip() for x in staged][: character.MAX_REFS]
@@ -942,6 +976,12 @@ def plan_image_generation(
             err = character.ipadapter_error(arch, object_info, want_refs=True)
             if err:
                 return err
+
+    if not prof:
+        # Bez osobe: nikakve referentne slike lica (ni iz bodyja).
+        use_instantid = False
+        instantid_image = ""
+        ipadapter_images = []
 
     if face_detailer:
         err = character.face_detailer_error(object_info, want=True)

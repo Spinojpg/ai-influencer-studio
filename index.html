@@ -1604,26 +1604,53 @@
       fillOsobaSelect();
     }
 
+    const LS_PERSONA = "studio.gen_persona_id";
+    function rememberedPersona() {
+      try { return localStorage.getItem(LS_PERSONA); } catch (e) { return null; }
+    }
+    function rememberPersona(id) {
+      try { localStorage.setItem(LS_PERSONA, id == null ? "" : String(id)); } catch (e) { /* ignore */ }
+    }
+
     function fillOsobaSelect() {
       if (!osobaEl) return;
       const keep = osobaEl.value;
       const profiles = state.profiles || [];
-      const preferred = keep || String(state.active_profile_id || "");
-      osobaEl.innerHTML = profiles.map((p) => {
-        const sel = String(p.id) === String(preferred) ? " selected" : "";
-        return '<option value="' + p.id + '"' + sel + ">" + escapeHtml(p.name) + "</option>";
+      const remembered = rememberedPersona();
+      // Prvi put (select još nema opcija): zapamćeni odabir, inače aktivni profil. "Bez osobe" je prazan string.
+      const firstFill = !osobaEl.options.length;
+      let preferred;
+      if (!firstFill) preferred = keep;
+      else if (remembered != null) preferred = remembered;
+      else preferred = String(state.active_profile_id || "");
+      osobaEl.innerHTML = '<option value="">Bez osobe</option>' + profiles.map((p) => {
+        return '<option value="' + p.id + '">' + escapeHtml(p.name) + "</option>";
       }).join("");
-      if (preferred && Array.from(osobaEl.options).some((o) => o.value === String(preferred))) {
+      if (preferred === "" || Array.from(osobaEl.options).some((o) => o.value === String(preferred))) {
         osobaEl.value = String(preferred);
-      } else if (state.active_profile_id) {
+      } else if (state.active_profile_id && Array.from(osobaEl.options).some((o) => o.value === String(state.active_profile_id))) {
         osobaEl.value = String(state.active_profile_id);
+      } else {
+        osobaEl.value = "";
       }
       updateAppearanceSummary();
+      updateNoPersonaUi();
     }
 
     function selectedPersona() {
-      const id = Number(osobaEl && osobaEl.value);
-      return (state.profiles || []).find((p) => Number(p.id) === id) || state.active_profile || null;
+      const raw = osobaEl && osobaEl.value;
+      if (!raw) return null;
+      const id = Number(raw);
+      return (state.profiles || []).find((p) => Number(p.id) === id) || null;
+    }
+
+    function updateNoPersonaUi() {
+      const none = !selectedPersona();
+      const edit = $("uiEditPersona");
+      if (edit) {
+        edit.disabled = none;
+        edit.title = none ? "Odaberi osobu da urediš njezin profil" : "Otvori profil u kartici Osobe";
+      }
     }
 
     function appearanceFromProfile(prof, extra) {
@@ -1686,7 +1713,11 @@
       if (!el || !box) return;
       const prof = selectedPersona();
       const text = appearanceFromProfile(prof, "");
-      if (text) {
+      if (!prof) {
+        el.textContent = "Bez osobe: slika ide samo iz opisa scene i općih postavki (LoRA stack, VAE…). Nema LoRA-e osobe, okidača ni referenci lica.";
+        box.classList.add("empty");
+        box.hidden = false;
+      } else if (text) {
         el.textContent = text;
         box.classList.remove("empty");
         box.hidden = false;
@@ -1719,7 +1750,19 @@
     }
 
     function applyProfileToImageForm(prof) {
-      if (!prof) { updateAppearanceSummary(); updateConsistencyUi(); return; }
+      if (!prof) {
+        if (loraEl && loraEl.value) {
+          const wasPersonaLora = (state.profiles || []).some((p) => p && p.preferred_lora && p.preferred_lora === loraEl.value);
+          if (wasPersonaLora) {
+            loraEl.value = "";
+            if (typeof syncLoraStrengthUi === "function") syncLoraStrengthUi();
+          }
+        }
+        updateAppearanceSummary();
+        updateConsistencyUi();
+        updateNoPersonaUi();
+        return;
+      }
       if (osobaEl && prof.id != null) {
         if (Array.from(osobaEl.options).some((o) => o.value === String(prof.id))) {
           osobaEl.value = String(prof.id);
@@ -1770,7 +1813,7 @@
       setGrok(!!(state.settings && state.settings.xai_configured), state.settings && state.settings.xai_configured ? "xAI ključ je spreman" : "Nema XAI_API_KEY. Uredi .env");
       fillProfileSelects();
       applySettingsForm();
-      applyProfileToImageForm(selectedPersona() || state.active_profile);
+      applyProfileToImageForm(selectedPersona());
       renderProfileList();
       updateConsistencyUi();
       renderCharacterStatus();
@@ -2053,7 +2096,7 @@
         window._loras = d.loras_info || window._loras || [];
         if (d.turbo) window._turbo = d.turbo;
         fillProfileModelSelects();
-        applyProfileToImageForm(selectedPersona() || state.active_profile);
+        applyProfileToImageForm(selectedPersona());
         applyArchFromModel();
         fillLoraSelect();
         updateConsistencyUi();
@@ -2525,10 +2568,11 @@
         + '<button type="button" class="shot-act danger" data-act="remove">Obriši</button>'
         + "</div>";
       const r = Number(item.rating || (item.gallery_id && window.StudioV11 && window.StudioV11.ratingOf ? window.StudioV11.ratingOf(item.gallery_id) : 0) || 0);
+      const hasPersona = item && item.persona_id != null && item.persona_id !== "";
       const rateBar = isVideoItem(item) ? "" : ('<div class="rate-bar" role="group" aria-label="Ocjena slike">'
-        + '<button type="button" class="rate-btn good' + (r > 0 ? " on" : "") + '" data-rate="1" title="Dobra – ide u LoRA dataset osobe" aria-pressed="' + (r > 0) + '">Dobra</button>'
-        + '<button type="button" class="rate-btn bad' + (r < 0 ? " on" : "") + '" data-rate="-1" title="Loša – ne ide u LoRA dataset" aria-pressed="' + (r < 0) + '">Loša</button></div>');
-      return '<figure class="shot" data-filename="' + fnAttr + '" data-subfolder="' + escapeHtml(item.subfolder || "") + '" data-type="' + escapeHtml(item.type || "output") + '" data-seed="' + seedVal + '" data-prompt="' + promptAttr + '" data-url="' + escapeHtml(safeUrl) + '"' + (item.gallery_id ? ' data-gid="' + escapeHtml(String(item.gallery_id)) + '"' : "") + '>'
+        + '<button type="button" class="rate-btn good' + (r > 0 ? " on" : "") + '" data-rate="1" title="' + (hasPersona ? "Dobra – ide u LoRA dataset osobe" : "Dobra (bez osobe – ne ide u LoRA dataset)") + '" aria-pressed="' + (r > 0) + '">Dobra</button>'
+        + '<button type="button" class="rate-btn bad' + (r < 0 ? " on" : "") + '" data-rate="-1" title="Loša" aria-pressed="' + (r < 0) + '">Loša</button></div>');
+      return '<figure class="shot" data-filename="' + fnAttr + '" data-subfolder="' + escapeHtml(item.subfolder || "") + '" data-type="' + escapeHtml(item.type || "output") + '" data-seed="' + seedVal + '" data-prompt="' + promptAttr + '" data-url="' + escapeHtml(safeUrl) + '" data-persona="' + escapeHtml(hasPersona ? String(item.persona_id) : "") + '"' + (item.gallery_id ? ' data-gid="' + escapeHtml(String(item.gallery_id)) + '"' : "") + '>'
         + '<div class="shot-media">' + media + hover + rateBar + "</div>"
         + '<figcaption><span class="shot-cap">' + cap + "</span></figcaption></figure>";
     }
@@ -2565,7 +2609,8 @@
         url: img.url, filename: img.filename, subfolder: img.subfolder, type: img.type,
         gallery_id: img.gallery_id, rating: img.rating,
         seed: meta && meta.seed, prompt: meta && meta.prompt,
-        model: meta && meta.model, turbo: !!(meta && meta.turbo), kind: img.kind
+        model: meta && meta.model, turbo: !!(meta && meta.turbo), kind: img.kind,
+        persona_id: (img.persona_id != null && img.persona_id !== "") ? img.persona_id : (meta && meta.persona_id)
       });
       resultsEl.innerHTML = '<div class="gallery results">' + list.map(card).join("") + "</div>";
     }
@@ -2654,9 +2699,9 @@
       const prof = selectedPersona();
       const core = {
         prompt: promptEl.value.trim(),
-        persona_id: prof && prof.id != null ? prof.id : state.active_profile_id,
+        persona_id: prof && prof.id != null ? prof.id : null,
         appearance_extra: appearExtraEl ? appearExtraEl.value.trim() : "",
-        persona: currentAppearance(),
+        persona: prof ? currentAppearance() : "",
         negative: negEl.value,
         model: modelEl.value,
         width: width, height: height, batch: batch, steps: steps,
@@ -2708,7 +2753,9 @@
     if (promptEl) promptEl.addEventListener("input", updateTokenCount);
     if (appearExtraEl) appearExtraEl.addEventListener("input", updateTokenCount);
     if (osobaEl) osobaEl.addEventListener("change", () => {
+      rememberPersona(osobaEl.value);
       applyProfileToImageForm(selectedPersona());
+      updateNoPersonaUi();
     });
     ["appearWeight", "ipaWeight", "ipaEndAt"].forEach((id) => {
       const el = $(id);
@@ -3318,8 +3365,10 @@
           $("ipaHint").textContent = ipa.message || "Za referentne slike treba instalirati IP-Adapter (čvor + paket modela).";
         } else if (hasRefs) {
           $("ipaHint").textContent = "Uključene referentne slike s profila ići će u generaciju (Plus Face, do 8). Zadana jačina je 0,8. Nije dostupno uz Krea 2.";
+        } else if (!prof) {
+          $("ipaHint").textContent = "Nema odabrane osobe — referentne slike lica (InstantID / IP-Adapter) se ne koriste.";
         } else {
-          $("ipaHint").textContent = "Dodaj 4-8 slika lica u kartici Influenceri. Zatim se ovdje podešava jačina (0,6–1,0).";
+          $("ipaHint").textContent = "Dodaj 4-8 slika lica u kartici Influenceri. Zatim se ovdje podešava jačina (0,2–1,0).";
         }
       }
       const faceReady = !!(face.ready || (face.nodes !== false && face.model));
@@ -3928,9 +3977,12 @@
       saveSettings: () => $("saveSettings").click(),
       refreshLoras: () => refreshLoras(false),
       selectPersonaForGeneration: (id) => {
-        if (osobaEl && Array.from(osobaEl.options).some((o) => o.value === String(id))) {
-          osobaEl.value = String(id);
+        const val = (id == null || id === "") ? "" : String(id);
+        if (osobaEl && Array.from(osobaEl.options).some((o) => o.value === val)) {
+          osobaEl.value = val;
+          rememberPersona(val);
           applyProfileToImageForm(selectedPersona());
+          updateNoPersonaUi();
           return true;
         }
         return false;

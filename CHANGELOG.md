@@ -1,5 +1,8 @@
 # Promjene
 
+## 1.3.8 — 2026-11-25
+- Na Generiranju, na vrhu odabira osobe je opcija „Bez osobe” (prazno polje). Tako možeš testirati samo prompt, bez LoRA-e osobe, okidača i referenci lica (InstantID / IP-Adapter). Korisnički LoRA stack, VAE i ostale opće postavke i dalje vrijede. Odabir se pamti. Gumbi Dobra / Loša i dalje ocjenjuju sliku, ali je ne vežu uz osobu ni dataset.
+
 ## 1.3.7 — 2026-11-25
 - Padajući izbornik VAE: Iz checkpointa (zadano), sdxl_vae i sdxl-vae-fp16-fix za SDXL, vae-ft-mse-840000 samo za SD 1.5. Preuzimanje je u kartici Modeli. Odabrani VAE ide u sve VAEDecode/VAEEncode čvorove i u Face Detailer.
 - 1-klik detail LoRA-e (Realistična koža, Fini detalji…) imaju klizač jačine 0–1,5; više nisu fiksirane na 0,5/0,4. Uz uključenu Realističnu kožu Studio jednom doda okidač u prompt (bez duplikata).

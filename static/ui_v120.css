@@ -572,6 +572,10 @@ figure.shot figcaption:has(> .shot-cap:empty:only-child) { display: none; }
 .persona-chip.on .pc-name { color: var(--text); font-weight: 600; }
 .persona-chip .pc-lora { position: absolute; top: 2px; right: 12px; width: 11px; height: 11px; margin: 0; border: 2px solid var(--bg1); box-shadow: none; }
 .persona-chip.add .pc-av { background: transparent; color: var(--muted); font-size: 1.3rem; font-weight: 400; box-shadow: none; border: 1px dashed rgba(255, 255, 255, 0.2); }
+.persona-chip.none .pc-av, .persona-chip.none .none-av { background: transparent; color: var(--muted); font-size: 0.95rem; font-weight: 500; box-shadow: none; border: 1px dashed rgba(255, 255, 255, 0.28); }
+.persona-chip.none.on .pc-av { color: var(--text); border-color: var(--accent); }
+.persona-chip.none .pc-name { font-style: italic; }
+.link-btn:disabled, #uiEditPersona:disabled { opacity: 0.4; pointer-events: none; }
 .persona-chip.add:hover .pc-av { color: var(--text); border-color: rgba(255, 255, 255, 0.4); }
 
 /* --- 1.2.0: dorade napredno / v11 polja --- */

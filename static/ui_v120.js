@@ -52,11 +52,11 @@
     const sig = cur + "|" + list.map((p) => [p.id, p.name, p.has_reference, p.reference_count, hasLora(p), p.updated_at].join(":")).join(",");
     if (!force && sig === U.pickSig) return;
     U.pickSig = sig;
-    if (!list.length) {
-      box.innerHTML = '<div class="picker-empty">Još nema osoba. <button type="button" class="link-btn" data-ui-new>Dodaj prvu osobu</button></div>';
-      return;
-    }
-    box.innerHTML = list.map((p) => {
+    const noneOn = !cur;
+    const noneChip = '<button type="button" class="persona-chip none' + (noneOn ? " on" : "") + '" role="radio" aria-checked="' + noneOn + '" data-pid="" title="Bez osobe — samo prompt, bez LoRA-e i referenci lica">'
+      + '<span class="pc-av none-av" aria-hidden="true">&#8709;</span><span class="pc-name">Bez osobe</span></button>';
+    const addChip = '<button type="button" class="persona-chip add" data-ui-new title="Dodaj novu osobu"><span class="pc-av">+</span><span class="pc-name">Nova</span></button>';
+    const people = list.map((p) => {
       const on = String(p.id) === String(cur);
       const lora = hasLora(p);
       return '<button type="button" class="persona-chip' + (on ? " on" : "") + (lora ? " has-lora" : "") + '" role="radio" aria-checked="' + on + '" data-pid="' + p.id + '" title="' + esc(p.name) + (lora ? " · LoRA aktivna" : "") + '">'
@@ -64,7 +64,9 @@
         + '<span class="pc-name">' + esc(p.name) + "</span>"
         + (lora ? '<span class="pc-lora" aria-label="LoRA aktivna"></span>' : "")
         + "</button>";
-    }).join("") + '<button type="button" class="persona-chip add" data-ui-new title="Dodaj novu osobu"><span class="pc-av">+</span><span class="pc-name">Nova</span></button>';
+    }).join("");
+    box.innerHTML = noneChip + people + addChip
+      + (!list.length ? '<div class="picker-empty">Još nema osoba. Možeš generirati bez osobe ili <button type="button" class="link-btn" data-ui-new>dodati prvu</button>.</div>' : "");
     renderStatus();
   }
   function renderStatus() {
@@ -72,7 +74,14 @@
     const sel = $("osoba");
     if (!el || !sel) return;
     const p = profiles().find((x) => String(x.id) === String(sel.value));
-    if (!p) { el.innerHTML = ""; return; }
+    if (!p) {
+      el.innerHTML = '<span class="pill">Bez osobe — samo prompt, bez LoRA-e osobe i bez referenci lica</span>';
+      const edit = $("uiEditPersona");
+      if (edit) { edit.disabled = true; edit.title = "Odaberi osobu da urediš njezin profil"; }
+      return;
+    }
+    const editOn = $("uiEditPersona");
+    if (editOn) { editOn.disabled = false; editOn.title = "Otvori profil u kartici Osobe"; }
     const n = Number(p.reference_count || 0);
     const bits = [hasLora(p) ? '<span class="pill pill-ok" title="' + esc(p.preferred_lora || "") + '">LoRA aktivna</span>' : '<span class="pill">Bez LoRA-e</span>'];
     bits.push('<span class="pill">' + (n ? n + (n === 1 ? " ref. slika" : (n < 5 ? " ref. slike" : " ref. slika")) : "Bez ref. slika") + "</span>");
@@ -87,8 +96,9 @@
       if (e.target.closest("[data-ui-new]")) { openProfiles(null, true); return; }
       const b = e.target.closest("[data-pid]");
       if (!b) return;
-      if (sel.value !== b.dataset.pid) {
-        sel.value = b.dataset.pid;
+      const pid = b.getAttribute("data-pid") || "";
+      if (sel.value !== pid) {
+        sel.value = pid;
         sel.dispatchEvent(new Event("change", { bubbles: true }));
       }
       renderPicker(true);
@@ -103,7 +113,10 @@
     sel.addEventListener("change", () => renderPicker(true));
     new MutationObserver(() => renderPicker(false)).observe(sel, { childList: true });
     const edit = $("uiEditPersona");
-    if (edit) edit.addEventListener("click", () => openProfiles(Number(sel.value) || null, false));
+    if (edit) edit.addEventListener("click", () => {
+      if (!sel.value) return;
+      openProfiles(Number(sel.value) || null, false);
+    });
   }
 
   /* ---------- Generiranje: sažetak „Napredno” ---------- */
