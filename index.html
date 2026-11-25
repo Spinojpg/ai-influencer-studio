@@ -941,8 +941,13 @@
               <div class="field" id="ipaField">
                 <label class="lbl" for="ipaWeight">Jačina referentne slike lica <button type="button" class="tip" data-tip="IP-Adapter Plus Face uzima do 8 slika lica s profila osobe i drži isto lice na svakoj slici. 0,7–0,85 je prirodno; 1,0 jače kopira referencu ali može ukočiti izraz." aria-label="Objašnjenje: referentna slika">?</button></label>
                 <div class="range-row">
-                  <input type="range" id="ipaWeight" min="0.6" max="1.0" step="0.05" value="0.8" aria-label="Jačina referentne slike" />
+                  <input type="range" id="ipaWeight" min="0.2" max="1.0" step="0.05" value="0.8" aria-label="Jačina referentne slike" />
                   <span class="range-val" id="ipaWeightVal">0.80</span>
+                </div>
+                <label class="lbl" for="ipaEndAt" style="margin-top:10px">Kraj utjecaja <button type="button" class="tip" data-tip="Do kojeg dijela koraka IP-Adapter još drži referentno lice. Zadano 1,0 (cijeli prolaz); 0,8 ostavlja više slobode za izraz." aria-label="Objašnjenje: kraj utjecaja">?</button></label>
+                <div class="range-row">
+                  <input type="range" id="ipaEndAt" min="0.5" max="1.0" step="0.05" value="1.0" aria-label="Kraj utjecaja IP-Adaptera" />
+                  <span class="range-val" id="ipaEndAtVal">1.00</span>
                 </div>
                 <div class="hint" id="ipaHint">IP-Adapter Plus Face primjenjuje do 8 slika lica s profila osobe. Nije dostupno uz Krea 2. Ako paket ili čvor nedostaje, pojavi se gumb za instalaciju.</div>
                 <div class="actions" id="ipaInstallRow" hidden style="margin-top:8px">
@@ -1324,7 +1329,7 @@
             <div class="field">
               <label class="lbl" for="pIpaWeight">Jačina referentnih slika lica</label>
               <div class="range-row">
-                <input type="range" id="pIpaWeight" min="0.6" max="1.0" step="0.05" value="0.8" />
+                <input type="range" id="pIpaWeight" min="0.2" max="1.0" step="0.05" value="0.8" />
                 <span class="range-val" id="pIpaWeightVal">0.80</span>
               </div>
             </div>
@@ -2235,6 +2240,7 @@
       const arch = (override === "sdxl" || override === "sd15" || override === "krea2") ? override : (opt && opt.dataset.arch) || detectArch(modelEl.value);
       const prev = currentArch;
       currentArch = arch;
+      try { if (window.StudioV11 && typeof window.StudioV11.onArch === "function") window.StudioV11.onArch(currentArch, prev); } catch (e) {}
       const presets = (window._presets && window._presets[arch]) || (arch === "krea2"
         ? [{width:1024,height:1024,label:"Kvadrat"},{width:832,height:1216,label:"Portret"},{width:1216,height:832,label:"Pejzaž"}]
         : (arch === "sdxl"
@@ -2646,7 +2652,7 @@
     }
     function payloadBaseCore() {
       const prof = selectedPersona();
-      return {
+      const core = {
         prompt: promptEl.value.trim(),
         persona_id: prof && prof.id != null ? prof.id : state.active_profile_id,
         appearance_extra: appearExtraEl ? appearExtraEl.value.trim() : "",
@@ -2665,9 +2671,17 @@
         model_type: currentArch === "sdxl" ? "sdxl" : (currentArch === "sd15" ? "sd15" : (currentArch === "krea2" ? "krea2" : "auto")),
         appearance_weight: $("appearWeight") ? Number($("appearWeight").value) : 1.3,
         ipadapter_weight: $("ipaWeight") ? Number($("ipaWeight").value) : 0.8,
+        ipadapter_end_at: $("ipaEndAt") ? Number($("ipaEndAt").value) : 1.0,
         face_detailer: currentArch === "krea2" ? false : !!( $("faceDetailer") && $("faceDetailer").checked ),
         lock_seed: !!(prof && prof.lock_seed)
       };
+      try {
+        if (window.StudioV11 && typeof window.StudioV11.getStack === "function") {
+          const st = window.StudioV11.getStack().filter((x) => x && x.name);
+          if (st.length) core.loras = st;
+        }
+      } catch (e) { /* stack je opcionalan */ }
+      return core;
     }
 
     function estimateClipTokens(text) {
@@ -2696,12 +2710,13 @@
     if (osobaEl) osobaEl.addEventListener("change", () => {
       applyProfileToImageForm(selectedPersona());
     });
-    ["appearWeight", "ipaWeight"].forEach((id) => {
+    ["appearWeight", "ipaWeight", "ipaEndAt"].forEach((id) => {
       const el = $(id);
       if (el) el.addEventListener("input", () => setRangeVal(id, id + "Val", 2));
     });
     setRangeVal("appearWeight", "appearWeightVal", 2);
     setRangeVal("ipaWeight", "ipaWeightVal", 2);
+    setRangeVal("ipaEndAt", "ipaEndAtVal", 2);
     if (loraEl) loraEl.addEventListener("change", () => { syncLoraStrengthUi(); rememberLoraForModel(); });
     if ($("loraRefresh")) $("loraRefresh").addEventListener("click", () => refreshLoras(true));
     if (loraStrengthEl) loraStrengthEl.addEventListener("input", () => { syncLoraStrengthUi(); rememberLoraForModel(); });

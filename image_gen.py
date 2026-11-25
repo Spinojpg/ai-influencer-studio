@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from comfy_launch import COMFY_LORA_SUFFIXES, list_files, list_files_recursive, loras_dir
+from comfy_launch import COMFY_LORA_SUFFIXES, list_files, list_files_recursive, loras_dir, vae_dir
 
 QUALITY_PREFIX = "RAW photo, best quality, highly detailed skin"
 DEFAULT_NEGATIVE = (
@@ -960,6 +960,151 @@ INSTANTID_NODES = ("InstantIDModelLoader", "InstantIDFaceAnalysis", "ApplyInstan
 INSTANTID_MODEL = "ip-adapter.bin"
 INSTANTID_CONTROLNET = "instantid/diffusion_pytorch_model.safetensors"
 
+VAE_LOADER_NODE = "19"
+# Prazan odabir = VAE iz checkpointa (CheckpointLoaderSimple izlaz 2).
+VAE_FROM_CHECKPOINT = ("", "checkpoint", "iz_checkpointa", "iz checkpointa", "none", "default")
+SDXL_VAE_FILES = ("sdxl_vae.safetensors", "sdxl-vae-fp16-fix.safetensors")
+SD15_VAE_FILES = ("vae-ft-mse-840000-ema-pruned.safetensors", "vae-ft-mse-840000-ema-pruned.ckpt")
+KREA_VAE_FILES = ("qwen_image_vae.safetensors",)
+SKIN_REALISM_TRIGGER = "Detailed natural skin and blemishes without-makeup and acne"
+INSTANTID_DEFAULT_END_AT = 0.8
+IPADAPTER_DEFAULT_END_AT = 1.0
+VAE_CONSUMER_CLASSES = (
+    "VAEDecode", "VAEDecodeTiled", "VAEEncode", "VAEEncodeTiled",
+    "FaceDetailer", "FaceDetailerPipe", "VAEEncodeForInpaint",
+)
+
+
+def list_vaes() -> list[str]:
+    """VAE datoteke u models/vae (uključujući podmape)."""
+    try:
+        return list_files_recursive(vae_dir())
+    except Exception:
+        return []
+
+
+def vae_available(name: str, folder: Path | None = None) -> bool:
+    name = (name or "").strip()
+    if not name:
+        return False
+    folder = Path(folder) if folder is not None else vae_dir()
+    if _lora_path(folder, name).is_file():
+        return True
+    key = lora_key(name)
+    return any(lora_key(n) == key for n in list_vaes())
+
+
+def vae_arch_of(name: str) -> str:
+    """'sdxl', 'sd15', 'krea2' ili '' ako je nepoznato."""
+    key = lora_key(name).rsplit("/", 1)[-1]
+    if key in {lora_key(x) for x in KREA_VAE_FILES} or "qwen" in key:
+        return "krea2"
+    if key in {lora_key(x) for x in SD15_VAE_FILES} or "840000" in key or "ft-mse" in key or "ft_mse" in key:
+        return "sd15"
+    if key in {lora_key(x) for x in SDXL_VAE_FILES} or "sdxl" in key:
+        return "sdxl"
+    return ""
+
+
+def normalize_vae_name(name: str | None, arch: str = "") -> str:
+    """Vrati ime datoteke za VAELoader, ili '' za VAE iz checkpointa.
+
+    SD 1.5 VAE se ne koristi uz SDXL (i obrnuto). Krea 2 ima vlastiti VAE.
+    """
+    n = (name or "").strip().replace("\\", "/")
+    n = n.split("/")[-1].strip()
+    if n.lower() in VAE_FROM_CHECKPOINT:
+        return ""
+    arch = (arch or "").lower()
+    kind = vae_arch_of(n)
+    if arch == "krea2":
+        return ""
+    if arch == "sdxl" and kind == "sd15":
+        return ""
+    if arch == "sd15" and kind == "sdxl":
+        return ""
+    return n
+
+
+def attach_vae(wf: dict, vae_name: str | None, *, arch: str = "", object_info: dict | None = None) -> list:
+    """Dodaj VAELoader (čvor 19) ili vrati VAE iz checkpointa ["4", 2]."""
+    filename = normalize_vae_name(vae_name, arch)
+    if not filename:
+        return ["4", 2]
+    nid = VAE_LOADER_NODE
+    wf[nid] = {"class_type": "VAELoader", "inputs": {"vae_name": filename}}
+    return [nid, 0]
+
+
+def rewrite_vae_refs(wf: dict, vae_ref: list) -> None:
+    """Sve VAEDecode/VAEEncode/Face Detailer (i sl.) prebaci na odabrani VAE."""
+    if not vae_ref or vae_ref == ["4", 2]:
+        return
+    for node in wf.values():
+        if not isinstance(node, dict):
+            continue
+        cls = str(node.get("class_type") or "")
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict) or "vae" not in inputs:
+            continue
+        if cls in VAE_CONSUMER_CLASSES or inputs.get("vae") == ["4", 2]:
+            inputs["vae"] = vae_ref
+
+
+def is_skin_realism_lora(name: str) -> bool:
+    key = lora_key(name).rsplit("/", 1)[-1]
+    return "skin_realism" in key
+
+
+def skin_realism_active(loras=None, *, user_lora: str = "", detail_keys=None) -> bool:
+    names: list[str] = []
+    if user_lora:
+        names.append(user_lora)
+    for item in loras or []:
+        if isinstance(item, str):
+            names.append(item)
+        elif isinstance(item, dict) and item.get("enabled", True) is not False:
+            names.append(str(item.get("name") or ""))
+        elif isinstance(item, (tuple, list)) and item:
+            names.append(str(item[0]))
+    if any(is_skin_realism_lora(n) for n in names):
+        return True
+    keys = detail_keys
+    if isinstance(keys, str):
+        keys = [k.strip() for k in keys.split(",") if k.strip()]
+    out = []
+    for it in keys or []:
+        if isinstance(it, str):
+            out.append(it.strip())
+        elif isinstance(it, dict) and it.get("key"):
+            out.append(str(it.get("key")).strip())
+    return "skin_realism" in out
+
+
+def apply_skin_realism_trigger(
+    prompt: str = "",
+    chunks: list[str] | None = None,
+    *,
+    loras=None,
+    user_lora: str = "",
+    detail_keys=None,
+) -> tuple[str, list[str] | None]:
+    """Dodaj Skin Realism okidač točno jednom u pozitivni prompt (i zadnji chunk)."""
+    if not skin_realism_active(loras, user_lora=user_lora, detail_keys=detail_keys):
+        return prompt, chunks
+    trig = SKIN_REALISM_TRIGGER
+    blob = " ".join([prompt or ""] + [c for c in (chunks or []) if isinstance(c, str)]).lower()
+    if trig.lower() in blob:
+        return prompt, chunks
+    new_prompt = ((prompt or "").rstrip(" ,") + ", " + trig) if (prompt or "").strip() else trig
+    new_chunks = list(chunks) if chunks else None
+    if new_chunks:
+        last = new_chunks[-1] if new_chunks[-1] is not None else ""
+        new_chunks[-1] = (str(last).rstrip(" ,") + ", " + trig) if str(last).strip() else trig
+    return new_prompt, new_chunks
+
+
+
 
 def normalize_lora_stack(loras) -> list[tuple[str, float, float]]:
     """[{name, strength_model, strength_clip, enabled}] -> [(name, sm, sc)] (najviše 5, bez duplikata)."""
@@ -1025,7 +1170,7 @@ def instantid_available(object_info: dict | None) -> bool:
     return all(_node_exists(object_info, n) for n in INSTANTID_NODES)
 
 
-def apply_instantid(wf: dict, model_ref: list, pos_ref: list, neg_ref: list, image: str, *, weight: float = 0.8, object_info: dict | None = None):
+def apply_instantid(wf: dict, model_ref: list, pos_ref: list, neg_ref: list, image: str, *, weight: float = 0.8, end_at: float | None = None, object_info: dict | None = None):
     """cubiq ComfyUI_InstantID: loader + FaceAnalysis (CPU, bez CUDA na AMD-u) + ControlNet + ApplyInstantID."""
     ids = _option_list(object_info, "InstantIDModelLoader", "instantid_file")
     model_file = next((x for x in ids if "ip-adapter" in x.lower() or "instantid" in x.lower()), ids[0] if ids else INSTANTID_MODEL)
@@ -1034,6 +1179,11 @@ def apply_instantid(wf: dict, model_ref: list, pos_ref: list, neg_ref: list, ima
     providers = _option_list(object_info, "InstantIDFaceAnalysis", "provider")
     provider = "CPU" if (not providers or "CPU" in providers) else providers[0]
     w = max(0.0, min(1.5, float(weight if weight not in (None, "") else 0.8)))
+    try:
+        end = INSTANTID_DEFAULT_END_AT if end_at in (None, "") else float(end_at)
+    except (TypeError, ValueError):
+        end = INSTANTID_DEFAULT_END_AT
+    end = max(0.0, min(1.0, end))
     wf["40"] = {"class_type": "InstantIDModelLoader", "inputs": {"instantid_file": model_file}}
     wf["41"] = {"class_type": "InstantIDFaceAnalysis", "inputs": {"provider": provider}}
     wf["42"] = {"class_type": "ControlNetLoader", "inputs": {"control_net_name": cn_file}}
@@ -1050,7 +1200,7 @@ def apply_instantid(wf: dict, model_ref: list, pos_ref: list, neg_ref: list, ima
             "negative": neg_ref,
             "weight": w,
             "start_at": 0.0,
-            "end_at": 1.0,
+            "end_at": end,
         },
     }
     return ["44", 0], ["44", 1], ["44", 2]
@@ -1093,7 +1243,10 @@ def build_workflow(
     vae_tile_size: int = 512,
     instantid_image: str = "",
     instantid_weight: float = 0.8,
+    instantid_end_at: float | None = None,
+    ipadapter_end_at: float | None = None,
     face_detailer_params: dict | None = None,
+    vae: str = "",
 ) -> dict:
     if (arch or "").lower() in {"krea2", "krea"} or detect_model_arch(model, arch) == "krea2":
         return build_krea2_workflow(
@@ -1189,6 +1342,7 @@ def build_workflow(
             model_ref,
             refs,
             weight=ipadapter_weight,
+            end_at=ipadapter_end_at,
             object_info=object_info,
         )
     if freeu and (not object_info or _node_exists(object_info, "FreeU_V2")):
@@ -1210,10 +1364,10 @@ def build_workflow(
     }
     pos_ref = _encode_positive(wf, clip_ref, prompt, prompt_chunks, object_info)
     neg_ref: list = ["7", 0]
-    fd_pos_ref, fd_neg_ref = pos_ref, neg_ref
     if instantid_image and str(instantid_image).strip():
         model_ref, pos_ref, neg_ref = apply_instantid(
-            wf, model_ref, pos_ref, neg_ref, str(instantid_image), weight=instantid_weight, object_info=object_info
+            wf, model_ref, pos_ref, neg_ref, str(instantid_image),
+            weight=instantid_weight, end_at=instantid_end_at, object_info=object_info
         )
     wf["3"] = {
         "class_type": "KSampler",
@@ -1272,12 +1426,13 @@ def build_workflow(
             },
         }
         latent_from = ["11", 0]
+    vae_ref = attach_vae(wf, vae, arch=arch, object_info=object_info)
     if (vae_mode or "standard") in {"tiled", "cpu"} and (not object_info or _node_exists(object_info, "VAEDecodeTiled")):
-        wf["8"] = vae_decode_tiled_node(latent_from, ["4", 2], tile_size=vae_tile_size, object_info=object_info)
+        wf["8"] = vae_decode_tiled_node(latent_from, vae_ref, tile_size=vae_tile_size, object_info=object_info)
     else:
         wf["8"] = {
             "class_type": "VAEDecode",
-            "inputs": {"samples": latent_from, "vae": ["4", 2]},
+            "inputs": {"samples": latent_from, "vae": vae_ref},
         }
     image_from = ["8", 0]
     if face_detailer:
@@ -1287,9 +1442,9 @@ def build_workflow(
             image_ref=["8", 0],
             model_ref=model_ref,
             clip_ref=clip_ref,
-            vae_ref=["4", 2],
-            positive_ref=fd_pos_ref,
-            negative_ref=fd_neg_ref,
+            vae_ref=vae_ref,
+            positive_ref=pos_ref,
+            negative_ref=neg_ref,
             seed=int(seed),
             steps=int(steps),
             cfg=float(cfg),
@@ -1300,6 +1455,7 @@ def build_workflow(
         )
     if output_width and output_height and (int(output_width), int(output_height)) != (int(width), int(height)):
         image_from = apply_output_scale(wf, image_from, int(output_width), int(output_height))
+    rewrite_vae_refs(wf, vae_ref)
     wf["9"] = {
         "class_type": "SaveImage",
         "inputs": {"filename_prefix": "studio", "images": image_from},

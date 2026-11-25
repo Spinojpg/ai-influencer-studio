@@ -1,5 +1,12 @@
 # Promjene
 
+## 1.3.7 — 2026-11-25
+- Padajući izbornik VAE: Iz checkpointa (zadano), sdxl_vae i sdxl-vae-fp16-fix za SDXL, vae-ft-mse-840000 samo za SD 1.5. Preuzimanje je u kartici Modeli. Odabrani VAE ide u sve VAEDecode/VAEEncode čvorove i u Face Detailer.
+- 1-klik detail LoRA-e (Realistična koža, Fini detalji…) imaju klizač jačine 0–1,5; više nisu fiksirane na 0,5/0,4. Uz uključenu Realističnu kožu Studio jednom doda okidač u prompt (bez duplikata).
+- Face Detailer sada prima InstantID conditioning (prije je lice doradio bez InstantID-a). Zadani denoise je 0,25 (klizač i dalje od 0,1).
+- Novi klizač Kraj utjecaja (end_at): InstantID zadano 0,8, IP-Adapter 1,0. Jačina IP-Adaptera može ići od 0,2 (prije od 0,6).
+- FreeU je po zadanom isključen, i na profilu Realizam. LoRA stack s Generiranja (+ Dodaj LoRA) uvijek stiže u workflow, čak i ako Napredno nije učitano.
+
 ## 1.3.6 — 2026-11-24
 - Na glavnom ekranu Generiranja je odjeljak LoRA s gumbom + Dodaj LoRA (ista lista kao u Napredno, jačina od −2 do 2; LoRA osobe i dalje ide zasebno).
 - U kartici Modeli je dodana Realistična koža (Skin Realism, SDXL) za preuzimanje; Detail Tweaker XL je već bio u katalogu (Hugging Face).

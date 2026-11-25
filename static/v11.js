@@ -156,16 +156,19 @@
     hiresSteps: "Koraci drugog prolaza. 6–10 je dovoljno uz nizak denoise; više samo produžuje generiranje.",
     refMode: "Kako se drži isto lice: IP-Adapter (do 8 slika s profila, lakši) ili InstantID (jedna referenca, jači identitet, SDXL). Automatski bira ono što je instalirano.",
     iid: "Jačina InstantID identiteta. 0,6–0,85 je prirodno; iznad 1,0 lice postaje ukočeno i „zalijepljeno”. Uz InstantID 8 GB zaštita smanjuje hires.",
-    fdDenoise: "Koliko Face Detailer smije preslikati lice. 0,3–0,45 = prirodno; više mijenja crte lica. 8 GB zaštita ograničava na 0,5.",
+    fdDenoise: "Koliko Face Detailer smije preslikati lice. 0,20–0,25 je prirodnije (zadano 0,25); 0,3–0,45 jače doradi; više mijenja crte lica. 8 GB zaštita ograničava na 0,5.",
     fdGuide: "Veličina na kojoj se lice ponovno crta. 384–512 je oštro i sigurno za 8 GB.",
     fdMax: "Najveća veličina izreza lica. 768 je gornja sigurna granica za RX 6600.",
     fdBbox: "Koliko siguran mora biti detektor da je to lice. Niže hvata i manja/profilna lica, ali i lažne pogotke.",
     guard: "Automatski sprječava „out of memory” na RX 6600: smanji hires skalu, uz InstantID + Face Detailer isključi hires, uz SDXL + hires generira 1 sliku, prebaci VAE na tiled. Ništa ne briše iz tvojih postavki.",
-    detail: "Kurirane SFW LoRA-e za realizam (preuzimaju se u kartici Modeli). Dodaju se na kraj LoRA stacka s umjerenom jačinom; uz Turbo najviše dvije.",
+    detail: "Kurirane SFW LoRA-e za realizam (preuzimaju se u kartici Modeli). Uključi prekidač i podesi jačinu (0–1,5). Uz Realističnu kožu Studio sam doda okidač u prompt, bez duplikata. Uz Turbo najviše dvije.",
     stack: "Do 5 LoRA-a odjednom, svaka s vlastitom jačinom od −2 do 2. Ista lista je i na glavnom ekranu Generiranja. Popunjava se iz profila osobe; LoRA osobe i dalje ide zasebno. Više LoRA-a = sporije i veći rizik od „AI” izgleda i od popunjenog VRAM-a (8 GB).",
     series: "Dodaje više poslova u red čekanja. Red radi jedan po jedan posao (sigurno za 8 GB) i preživi restart Studija.",
     seedMode: "Nasumični: svaka slika nova. Uzastopni: seed, seed+1… — dobro za varijacije iste scene.",
-    multiTpl: "Isti opis scene kroz više predložaka odjednom (npr. kafić, ulica, studio) — po jedan posao za svaki."
+    multiTpl: "Isti opis scene kroz više predložaka odjednom (npr. kafić, ulica, studio) — po jedan posao za svaki.",
+    vae: "Odvojeni VAE dekoder umjesto onog iz checkpointa. Za SDXL: sdxl_vae ili sdxl-vae-fp16-fix (manje crnih slika u fp16). vae-ft-mse-840000 je samo za SD 1.5. \u201eIz checkpointa\u201d ostavlja postojeće ponašanje.",
+    iidEnd: "Do kojeg dijela koraka InstantID još drži lice. 0,8 je prirodnije (zadano); 1,0 drži identitet do kraja i može učiniti lice ukočenim.",
+    ipaEnd: "Do kojeg dijela koraka IP-Adapter još drži referentno lice. Zadano 1,0 (cijeli prolaz); malo niže (0,8) ostavlja više slobode za izraz."
   };
   function slot(id) { return $(id) || $("v11Gen"); }
   async function renderGen() {
@@ -183,7 +186,9 @@
       + '<div class="field"><label class="lbl" for="v11Cfg">CFG ' + tip(TIPS.cfg, "CFG") + ' <span class="range-val" id="v11CfgVal">auto</span></label>'
       + '<div class="v11-inline"><label><input type="checkbox" id="v11CfgOn" /> Ručno</label><input type="range" id="v11Cfg" min="1.5" max="8" step="0.1" value="4.3" disabled /></div>'
       + '<div class="hint">Auto = profil kvalitete (Realizam 4,3 · Brzo 4,0 · Turbo 2,2). Niži CFG = manje plastičan izgled.</div></div>'
-      + '<div class="field"><label class="lbl"><input type="checkbox" id="v11Freeu" checked /> FreeU_V2 ' + tip(TIPS.freeu, "FreeU") + " " + badge(n.freeu_v2, "čvor postoji", "nema čvora – preskače se") + "</label></div>";
+      + '<div class="field"><label class="lbl"><input type="checkbox" id="v11Freeu" /> FreeU_V2 ' + tip(TIPS.freeu, "FreeU") + " " + badge(n.freeu_v2, "čvor postoji", "nema čvora – preskače se") + "</label></div>"
+      + '<div class="field"><label class="lbl" for="v11VaeFile">VAE ' + tip(TIPS.vae, "VAE") + '</label><select id="v11VaeFile"></select>'
+      + '<div class="hint">Preuzimanje: kartica Modeli → „VAE (dekoder slike)”. Ako datoteka nije preuzeta, pokretanje javi jasnu grešku.</div></div>';
     const hiresHtml = '<div class="field"><label class="lbl">Hires postavke (kad je uključen)</label><div class="v11-grid3">'
       + rangeLabel("Skala", "v11HiresScale", "v11HsVal", 1.2, 1.6, 0.01, num(d.hires_scale, 1.33), 2, TIPS.hiresScale)
       + rangeLabel("Denoise", "v11HiresDenoise", "v11HdVal", 0.25, 0.5, 0.01, num(d.hires_denoise, 0.35), 2, TIPS.hiresDenoise)
@@ -193,9 +198,10 @@
       + '<div class="v11-inline"><select id="v11RefMode"><option value="">Kao na profilu osobe</option><option value="auto">Automatski</option><option value="ipadapter">IP-Adapter</option><option value="instantid">InstantID</option></select>'
       + "IP-Adapter " + badge(n.ipadapter, "spreman", "nedostaje") + " InstantID " + badge(n.instantid, "spreman", "nedostaje") + "</div>"
       + rangeLabel("Jačina InstantID", "v11IidWeight", "v11IidVal", 0.3, 1.2, 0.05, 0.8, 2, TIPS.iid)
-      + '<div class="hint">Automatski: IP-Adapter ako je instaliran, inače InstantID (SDXL, treba ComfyUI_InstantID + antelopev2). Na AMD-u InsightFace radi na CPU-u.</div></div>'
+      + rangeLabel("Kraj utjecaja", "v11IidEnd", "v11IidEndVal", 0.5, 1.0, 0.05, num(d.instantid_end_at, 0.8), 2, TIPS.iidEnd)
+      + '<div class="hint">Automatski: IP-Adapter ako je instaliran, inače InstantID (SDXL, treba ComfyUI_InstantID + antelopev2). Na AMD-u InsightFace radi na CPU-u. Kraj utjecaja 0,8 je prirodniji od 1,0.</div></div>'
       + '<div class="field"><label class="lbl">Face Detailer postavke (kad je uključen)</label><div class="v11-grid2">'
-      + rangeLabel("Denoise", "v11FdDenoise", "v11FdDVal", 0.1, 0.8, 0.02, num(fd.denoise, 0.4), 2, TIPS.fdDenoise)
+      + rangeLabel("Denoise", "v11FdDenoise", "v11FdDVal", 0.1, 0.8, 0.02, num(fd.denoise, 0.25), 2, TIPS.fdDenoise)
       + rangeLabel("Guide size", "v11FdGuide", "v11FdGVal", 256, 768, 32, num(fd.guide_size, 384), 0, TIPS.fdGuide)
       + rangeLabel("Max size", "v11FdMax", "v11FdMVal", 512, 1024, 64, num(fd.max_size, 768), 0, TIPS.fdMax)
       + rangeLabel("Prag detekcije", "v11FdBbox", "v11FdBVal", 0.2, 0.9, 0.05, num(fd.bbox_threshold, 0.5), 2, TIPS.fdBbox)
@@ -205,8 +211,13 @@
     const dl = o.detail_loras || [];
     const loraHtml = '<div class="field"><label class="lbl">Detail LoRA-e (SFW, 1 klik) ' + tip(TIPS.detail, "Detail LoRA-e") + "</label>"
       + '<div class="detail-toggles" id="v11DetailLoras">' + (dl.length ? dl.map((x) => '<label class="dtoggle' + (x.available ? "" : " missing") + '" title="' + esc(x.hint || "") + '">'
-        + '<input type="checkbox" value="' + esc(x.key) + '" /><span class="dt-name">' + esc(x.label) + '</span><span class="dt-meta">' + (x.available ? "jačina " + num(x.weight, 0.4).toFixed(2) : "nije preuzeta") + "</span></label>").join("") : '<span class="hint">Nema kuriranih detail LoRA-a.</span>') + "</div>"
-      + '<div class="hint">Preuzimanje: Modeli → „Preporučene SDXL LoRA-e”. Ako datoteka nedostaje, preskače se uz poruku (ne ruši generiranje).</div></div>'
+        + '<input type="checkbox" class="dt-on" value="' + esc(x.key) + '" />'
+        + '<span class="dt-name">' + esc(x.label) + "</span>"
+        + (x.available
+          ? '<span class="dt-str"><input type="range" class="dt-w" min="0" max="1.5" step="0.05" value="' + num(x.weight, 0.5) + '" aria-label="Jačina: ' + esc(x.label) + '" /><span class="dt-wval">' + num(x.weight, 0.5).toFixed(2) + "</span></span>"
+          : '<span class="dt-meta">nije preuzeta</span>')
+        + "</label>").join("") : '<span class="hint">Nema kuriranih detail LoRA-a.</span>') + "</div>"
+      + '<div class="hint">Preuzimanje: Modeli → „Preporučene SDXL LoRA-e”. Jačina 0–1,5 (korak 0,05) ide u workflow. Ako datoteka nedostaje, preskače se uz poruku.</div></div>'
       + '<div class="field"><label class="lbl">LoRA stack (do ' + (o.max_loras || 5) + ") " + tip(TIPS.stack, "LoRA stack") + '</label><div id="v11Stack" class="js-lora-stack"></div>'
       + '<div class="hint">Ista lista kao odjeljak LoRA na glavnom ekranu. Popunjava se iz profila osobe. LoRA osobe i dalje ide zasebno.</div></div>';
     const miscHtml = '<div class="field"><label class="lbl" for="v11Tpl">Predložak sadržaja ' + tip(TIPS.tpl, "Predložak") + "</label>"
@@ -225,6 +236,7 @@
     box.innerHTML = parts.filter((p) => own.indexOf(p[0]) < 0).map((p) => p[1]).join("") + miscHtml;
     syncStackFromPersona(true);
     bindGen();
+    fillVaeOptions();
     try { document.dispatchEvent(new CustomEvent("studio:gen-rendered", { detail: { options: o } })); } catch (e) { /* stari preglednik */ }
   }
   function renderStackUi() {
@@ -262,8 +274,23 @@
   let genBound = false;
   function bindGen() {
     const pairs = [["v11HiresScale", "v11HsVal", 2], ["v11HiresDenoise", "v11HdVal", 2], ["v11HiresSteps", "v11HstVal", 0], ["v11IidWeight", "v11IidVal", 2],
+      ["v11IidEnd", "v11IidEndVal", 2],
       ["v11FdDenoise", "v11FdDVal", 2], ["v11FdGuide", "v11FdGVal", 0], ["v11FdMax", "v11FdMVal", 0], ["v11FdBbox", "v11FdBVal", 2], ["v11Cfg", "v11CfgVal", 1]];
     pairs.forEach((pr) => { const el = $(pr[0]); if (el) el.addEventListener("input", () => { $(pr[1]).textContent = num(el.value, 0).toFixed(pr[2]); }); });
+    const dbox = $("v11DetailLoras");
+    if (dbox && dbox.dataset.wBound !== "1") {
+      dbox.dataset.wBound = "1";
+      dbox.addEventListener("input", (e) => {
+        if (!e.target.classList.contains("dt-w")) return;
+        const lab = e.target.closest(".dtoggle");
+        const val = lab && lab.querySelector(".dt-wval");
+        if (val) val.textContent = num(e.target.value, 0).toFixed(2);
+      });
+    }
+    if ($("v11VaeFile") && $("v11VaeFile").dataset.bound !== "1") {
+      $("v11VaeFile").dataset.bound = "1";
+      $("v11VaeFile").addEventListener("change", () => saveVaeChoice($("v11VaeFile").value));
+    }
     $("v11CfgOn").addEventListener("change", () => { $("v11Cfg").disabled = !$("v11CfgOn").checked; $("v11CfgVal").textContent = $("v11CfgOn").checked ? num($("v11Cfg").value, 5).toFixed(1) : "auto"; });
     $("v11Enqueue").addEventListener("click", enqueueBatch);
     $("v11TplManage").addEventListener("click", () => { const ed = $("v11TplEditor"); ed.hidden = !ed.hidden; if (!ed.hidden) renderTplEditor(); });
@@ -309,10 +336,63 @@
     if ($("tplDel")) $("tplDel").onclick = () => act(async () => { if (!confirm("Obrisati predložak?")) return; await api("DELETE", "/api/templates/" + t.id); await after("", "Predložak obrisan."); });
     $("tplNew").onclick = () => act(async () => { const d = await post("/api/templates", payload()); await after(d.template.id, "Novi predložak spremljen."); });
   }
+  function loadVaeChoice() {
+    const d = (V.opts && V.opts.defaults) || {};
+    try { return localStorage.getItem("studio.gen_vae") || d.vae || ""; } catch (e) { return d.vae || ""; }
+  }
+  function saveVaeChoice(v) {
+    try { localStorage.setItem("studio.gen_vae", v || ""); } catch (e) { /* ignore */ }
+  }
+  function currentArch() {
+    const c = C();
+    return (c && typeof c.arch === "function" && c.arch()) || "sdxl";
+  }
+  function fillVaeOptions() {
+    const sel = $("v11VaeFile");
+    if (!sel) return;
+    const arch = currentArch();
+    const list = (V.opts && V.opts.vaes) || [{ id: "checkpoint", filename: "", label: "Iz checkpointa", arch: "all", available: true }];
+    const cur = sel.value || loadVaeChoice();
+    const ok = (it) => !it.arch || it.arch === "all" || it.arch === arch;
+    const filtered = list.filter((it) => (arch === "krea2" ? it.id === "checkpoint" : ok(it)));
+    sel.innerHTML = filtered.map((it) => {
+      const val = it.filename || "";
+      const miss = it.filename && it.available === false ? " — nije preuzet" : "";
+      return '<option value="' + esc(val) + '"' + (val === cur ? " selected" : "") + ">" + esc(it.label || it.filename || "Iz checkpointa") + miss + "</option>";
+    }).join("");
+    if (cur && ![...sel.options].some((o) => o.value === cur)) {
+      sel.insertAdjacentHTML("beforeend", '<option value="' + esc(cur) + '" selected>' + esc(cur) + "</option>");
+    }
+    if (arch === "krea2") sel.value = "";
+    sel.disabled = arch === "krea2";
+  }
+  function readDetailLoras() {
+    const keys = [];
+    const weights = {};
+    document.querySelectorAll("#v11DetailLoras .dtoggle").forEach((lab) => {
+      const on = lab.querySelector(".dt-on, input[type=checkbox]");
+      if (!on || !on.checked || !on.value) return;
+      keys.push(on.value);
+      const w = lab.querySelector(".dt-w");
+      if (w) weights[on.value] = num(w.value, 0.5);
+    });
+    return { keys: keys, weights: weights };
+  }
   function genExtras() {
     const out = {};
     const hwq = hwQuickValues();
     if (hwq) Object.assign(out, hwq);
+    // Mora ići i kad Napredno još nije učitano: LoRA s Generiranja, profil, VAE, detail LoRA-e.
+    const qb = document.querySelector("#quality button.on");
+    if (qb && qb.dataset.profile) out.quality_profile = qb.dataset.profile;
+    const st = (V.stack || []).filter((x) => x.name);
+    if (st.length || V.stackTouched) out.loras = st;
+    const dl = readDetailLoras();
+    if (dl.keys.length) { out.detail_loras = dl.keys; out.detail_lora_weights = dl.weights; }
+    if ($("v11VaeFile")) out.vae = $("v11VaeFile").value;
+    else out.vae = loadVaeChoice();
+    if ($("ipaEndAt")) out.ipadapter_end_at = num($("ipaEndAt").value, 1.0);
+    if ($("v11VramGuard")) out.vram_guard = $("v11VramGuard").checked;
     if (!$("v11Sampler")) return out;
     out.sampler = $("v11Sampler").value;
     out.scheduler = $("v11Scheduler").value;
@@ -323,20 +403,13 @@
     out.freeu = $("v11Freeu").checked;
     if ($("v11RefMode").value) out.ref_mode = $("v11RefMode").value;
     out.instantid_weight = num($("v11IidWeight").value, 0.8);
-    out.fd_denoise = num($("v11FdDenoise").value, 0.4);
+    if ($("v11IidEnd")) out.instantid_end_at = num($("v11IidEnd").value, 0.8);
+    out.fd_denoise = num($("v11FdDenoise").value, 0.25);
     out.fd_guide_size = num($("v11FdGuide").value, 384);
     out.fd_max_size = num($("v11FdMax").value, 768);
     out.fd_bbox_threshold = num($("v11FdBbox").value, 0.5);
     const tpl = $("v11Tpl").value;
     if (tpl) out.template_id = Number(tpl);
-    const st = V.stack.filter((x) => x.name);
-    if (st.length || V.stackTouched) out.loras = st;
-    // 1.3.0: RX 6600 profil kvalitete, SFW detail LoRA-e i 8 GB zaštita
-    const qb = document.querySelector("#quality button.on");
-    if (qb && qb.dataset.profile) out.quality_profile = qb.dataset.profile;
-    const dls = [...document.querySelectorAll("#v11DetailLoras input:checked")].map((i) => i.value);
-    if (dls.length) out.detail_loras = dls;
-    if ($("v11VramGuard")) out.vram_guard = $("v11VramGuard").checked;
     return out;
   }
   async function enqueueBatch() {
@@ -364,7 +437,7 @@
     const p = V.hw.profile || {};
     const vaeLabels = { standard: "standard", tiled: "tiled (512)", cpu: "CPU" };
     el.innerHTML = '<label title="Niža bazna rezolucija pa upscale – stane u 8 GB VRAM-a"><input type="checkbox" id="v11Safe"' + (s.hw_safe_mode === "1" ? " checked" : "") + " /> 8 GB siguran mod</label>"
-      + '<label>VAE <select id="v11Vae">' + ["standard", "tiled", "cpu"].map((m) => '<option value="' + m + '"' + (s.hw_vae_mode === m ? " selected" : "") + ">" + vaeLabels[m] + "</option>").join("") + "</select></label>"
+      + '<label>VAE način <select id="v11Vae">' + ["standard", "tiled", "cpu"].map((m) => '<option value="' + m + '"' + (s.hw_vae_mode === m ? " selected" : "") + ">" + vaeLabels[m] + "</option>").join("") + "</select></label>"
       + "<span>" + esc(p.name || "GPU nepoznat") + (p.vram_gb ? " · " + p.vram_gb + " GB" : "") + ' <span class="v11-badge gold">' + esc(V.hw.effective_backend || "auto") + "</span>"
       + (V.hw.disable_cudnn ? ' <span class="v11-badge ok" title="TORCH_BACKENDS_CUDNN_ENABLED=0">cuDNN isključen</span>' : ' <span class="v11-badge bad">cuDNN uključen</span>') + "</span>";
     const save = async () => {
@@ -1104,7 +1177,7 @@
     if (c && c.currentTab() !== "slike") onTab(c.currentTab());
   }
 
-  window.StudioV11 = { genExtras: genExtras, onTab: onTab, refreshQueue: refreshQueue, loadGallery: loadGallery, ratingOf: ratingOf, renderStackUi: renderStackUi, version: "1.3.0" };
+  window.StudioV11 = { genExtras: genExtras, onTab: onTab, refreshQueue: refreshQueue, loadGallery: loadGallery, ratingOf: ratingOf, renderStackUi: renderStackUi, getStack: function () { return (V.stack || []).slice(); }, onArch: fillVaeOptions, version: "1.3.7" };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
   else boot();
 })();

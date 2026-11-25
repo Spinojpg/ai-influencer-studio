@@ -784,6 +784,18 @@ def plan_image_generation(
     if vae_mode not in hardware_service.VAE_MODES:
         vae_mode = "standard"
     vae_tile = clamp_int(body.get("vae_tile"), 256, 1024, 512)
+    vae_name = image_gen.normalize_vae_name(
+        body.get("vae") if body.get("vae") not in (None, "") else body.get("vae_name"),
+        arch,
+    )
+    instantid_end_at = clamp_float(
+        body.get("instantid_end_at") if body.get("instantid_end_at") not in (None, "") else image_gen.INSTANTID_DEFAULT_END_AT,
+        0.0, 1.0, image_gen.INSTANTID_DEFAULT_END_AT,
+    )
+    ipadapter_end_at = clamp_float(
+        body.get("ipadapter_end_at") if body.get("ipadapter_end_at") not in (None, "") else image_gen.IPADAPTER_DEFAULT_END_AT,
+        0.0, 1.0, image_gen.IPADAPTER_DEFAULT_END_AT,
+    )
     lora_stack = generation_service.resolve_lora_stack(body, prof, arch)
 
     if arch == "krea2":
@@ -945,6 +957,33 @@ def plan_image_generation(
     if arch in {"sdxl", "sd15"} and body.get("detail_loras"):
         lora_stack, dl_notes = generation_service.add_detail_loras(lora_stack, body, arch, turbo=bool(turbo))
         rx_notes += dl_notes
+    if vae_name and arch in {"sdxl", "sd15"} and not image_gen.vae_available(vae_name):
+        return {
+            "ok": False,
+            "status": 400,
+            "error": (
+                f"VAE „{vae_name}” nije preuzet. Otvori karticu Modeli i preuzmi VAE "
+                "(sdxl_vae ili sdxl-vae-fp16-fix za SDXL, vae-ft-mse-840000 za SD 1.5)."
+            ),
+            "need": "vae",
+            "vae": vae_name,
+        }
+    prompt, chunks = image_gen.apply_skin_realism_trigger(
+        prompt, built.get("chunks"), loras=lora_stack, user_lora=user_lora, detail_keys=body.get("detail_loras"),
+    )
+    built["prompt"] = prompt
+    if chunks is not None:
+        built["chunks"] = chunks
+    if vae_name:
+        try:
+            inbox.set_setting("gen_vae", vae_name)
+        except Exception:
+            pass
+    elif "vae" in body or "vae_name" in body:
+        try:
+            inbox.set_setting("gen_vae", "")
+        except Exception:
+            pass
     guard_on = character.truthy(body.get("vram_guard"), bool(rx_info.get("profile")))
     if guard_on and arch in {"sdxl", "sd15"}:
         guarded, g_notes = generation_service.vram_guard({
@@ -994,7 +1033,10 @@ def plan_image_generation(
         vae_tile_size=vae_tile,
         instantid_image=instantid_image if arch == "sdxl" else "",
         instantid_weight=instantid_weight,
+        instantid_end_at=instantid_end_at,
+        ipadapter_end_at=ipadapter_end_at,
         face_detailer_params=fd_params,
+        vae=vae_name if arch in {"sdxl", "sd15"} else "",
     )
     return {
         "ok": True,
@@ -1032,6 +1074,9 @@ def plan_image_generation(
             "lora_trigger": lora_trigger or "",
             "freeu": bool(freeu) and arch != "krea2" and (not object_info or "FreeU_V2" in (object_info or {})),
             "vae_mode": vae_mode,
+            "vae": vae_name,
+            "instantid_end_at": instantid_end_at if instantid_image else None,
+            "ipadapter_end_at": ipadapter_end_at if ipadapter_images else None,
             "safe_mode": bool(canvas.get("safe_mode")),
             "ref_mode": "instantid" if instantid_image else ("ipadapter" if ipadapter_images else ref_mode),
             "hires_scale": hires_scale if hires else None,

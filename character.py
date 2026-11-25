@@ -18,7 +18,7 @@ REF_SQUARE_MIN = 512
 REF_SQUARE_MAX = 640
 REF_EMBED_BATCH = 4
 DEFAULT_IPADAPTER_WEIGHT = 0.8
-IPADAPTER_WEIGHT_MIN = 0.6
+IPADAPTER_WEIGHT_MIN = 0.2
 IPADAPTER_WEIGHT_MAX = 1.0
 DEFAULT_APPEARANCE_WEIGHT = 1.3
 APPEARANCE_WEIGHT_MIN = 1.0
@@ -48,7 +48,7 @@ FACE_DETAILER_DEFAULTS = {
     "guide_size": 384.0,
     "guide_size_for": True,
     "max_size": 768.0,
-    "denoise": 0.4,
+    "denoise": 0.25,
     "feather": 5,
     "noise_mask": True,
     "force_inpaint": True,
@@ -89,7 +89,7 @@ def clamp_weight(value, lo: float, hi: float, default: float) -> float:
 
 
 def clamp_ipadapter_weight(value, default: float = DEFAULT_IPADAPTER_WEIGHT) -> float:
-    # UI je 0.6–1.0; API dopušta malo širi raspon da testovi mogu stati na rub.
+    # UI je 0.2–1.0; API dopušta malo širi raspon da testovi mogu stati na rub.
     return clamp_weight(value, 0.0, 1.5, default)
 
 
@@ -505,6 +505,7 @@ def apply_ipadapter_to_workflow(
     image_names: list[str],
     *,
     weight: float = DEFAULT_IPADAPTER_WEIGHT,
+    end_at: float | None = None,
     object_info: dict | None = None,
 ) -> list:
     """Dodaj LoadImage (+ ImageBatch ili usrednjeni embed) + UnifiedLoader + IPAdapter.
@@ -518,6 +519,11 @@ def apply_ipadapter_to_workflow(
     if not names:
         return model_ref
     weight_f = float(clamp_ipadapter_weight(weight))
+    try:
+        end_f = float(image_gen.IPADAPTER_DEFAULT_END_AT if end_at in (None, "") else end_at)
+    except (TypeError, ValueError):
+        end_f = float(image_gen.IPADAPTER_DEFAULT_END_AT)
+    end_f = max(0.0, min(1.0, end_f))
 
     def _loader():
         wf["85"] = {
@@ -537,7 +543,7 @@ def apply_ipadapter_to_workflow(
                 "image": image_ref,
                 "weight": weight_f,
                 "start_at": 0.0,
-                "end_at": 1.0,
+                "end_at": end_f,
                 "weight_type": IPADAPTER_WEIGHT_TYPE,
             },
         }
@@ -598,7 +604,8 @@ def apply_ipadapter_to_workflow(
             "weight": weight_f,
             "weight_type": IPADAPTER_WEIGHT_TYPE,
             "start_at": 0.0,
-            "end_at": 1.0,
+            "end_at": end_f,
+            "embeds_scaling": "V only",
         },
     }
     return ["86", 0]

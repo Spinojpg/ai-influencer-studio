@@ -256,6 +256,11 @@ textarea:focus, input:focus, select:focus { border-color: rgba(184, 147, 255, 0.
 .dtoggle:hover { border-color: rgba(186, 164, 255, 0.4); }
 .dtoggle:has(input:checked) { border-color: rgba(92, 232, 176, 0.5); background: rgba(92, 232, 176, 0.08); }
 .dtoggle.missing .dt-meta { color: var(--warn); }
+
+.dtoggle .dt-str { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.dtoggle .dt-str input[type="range"] { flex: 1; min-width: 0; }
+.dtoggle .dt-wval { font-size: 0.72rem; color: var(--muted); min-width: 2.2em; text-align: right; font-variant-numeric: tabular-nums; }
+.dtoggle:not(:has(.dt-on:checked)) .dt-str { opacity: 0.55; }
 .guard-field { padding: 12px 14px; border-radius: 14px; border: 1px solid rgba(92, 232, 176, 0.22); background: rgba(92, 232, 176, 0.05); }
 
 /* ? objašnjenja */

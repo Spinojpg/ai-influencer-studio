@@ -53,7 +53,7 @@ DEFAULT_TEMPLATES = [
         "prompt_prefix": "candid lifestyle photo, sitting at a sunny street cafe, holding a cup of coffee, casual chic outfit",
         "prompt_suffix": "natural daylight, shallow depth of field, 35mm photo, film grain",
         "size_preset": "ig_portrait", "sampler": "dpmpp_2m_sde", "scheduler": "karras", "steps": 30, "cfg": 5.0,
-        "hires": 0, "freeu": 1, "face_detailer": 1,
+        "hires": 0, "freeu": 0, "face_detailer": 1,
     },
     {
         "key": "teaser_fashion_street", "name": "Javni teaser · Ulična moda", "tier": "public_teaser",
@@ -61,7 +61,7 @@ DEFAULT_TEMPLATES = [
         "prompt_prefix": "street style fashion photo, full body, walking in an old town street, trendy autumn outfit, confident pose",
         "prompt_suffix": "golden hour light, editorial fashion photography, sharp focus",
         "size_preset": "ig_portrait", "sampler": "dpmpp_2m_sde", "scheduler": "karras", "steps": 30, "cfg": 5.0,
-        "hires": 0, "freeu": 1, "face_detailer": 1,
+        "hires": 0, "freeu": 0, "face_detailer": 1,
     },
     {
         "key": "teaser_bts_story", "name": "Javni teaser · Behind the scenes (Story)", "tier": "public_teaser",
@@ -69,7 +69,7 @@ DEFAULT_TEMPLATES = [
         "prompt_prefix": "behind the scenes photo at a photo studio, laughing, softbox lights and camera gear in background, casual outfit",
         "prompt_suffix": "candid moment, warm tones, smartphone photo look",
         "size_preset": "ig_story", "sampler": "dpmpp_2m_sde", "scheduler": "karras", "steps": 28, "cfg": 5.0,
-        "hires": 0, "freeu": 1, "face_detailer": 1,
+        "hires": 0, "freeu": 0, "face_detailer": 1,
     },
     {
         "key": "premium_studio_glamour", "name": "Premium · Studio glamur portret", "tier": "premium",
@@ -77,7 +77,7 @@ DEFAULT_TEMPLATES = [
         "prompt_prefix": "elegant studio glamour portrait, elegant evening gown, tasteful jewelry, professional makeup, seated pose",
         "prompt_suffix": "beauty dish lighting, dark backdrop, high-end magazine editorial, 85mm lens",
         "size_preset": "ig_portrait", "sampler": "dpmpp_3m_sde", "scheduler": "exponential", "steps": 32, "cfg": 4.5,
-        "hires": 1, "freeu": 1, "face_detailer": 1,
+        "hires": 1, "freeu": 0, "face_detailer": 1,
     },
     {
         "key": "premium_editorial_fashion", "name": "Premium · Modni editorial", "tier": "premium",
@@ -85,7 +85,7 @@ DEFAULT_TEMPLATES = [
         "prompt_prefix": "high fashion editorial photoshoot, designer blazer outfit, dramatic pose, minimalist set design",
         "prompt_suffix": "cinematic lighting, vogue style editorial, ultra detailed fabric texture",
         "size_preset": "ig_portrait", "sampler": "dpmpp_2m_sde", "scheduler": "karras", "steps": 32, "cfg": 5.0,
-        "hires": 1, "freeu": 1, "face_detailer": 1,
+        "hires": 1, "freeu": 0, "face_detailer": 1,
     },
     {
         "key": "premium_travel_set", "name": "Premium · Putovanje (ekskluzivni set)", "tier": "premium",
@@ -93,7 +93,7 @@ DEFAULT_TEMPLATES = [
         "prompt_prefix": "travel lifestyle photo on a sailboat on the Adriatic coast, linen summer dress, sun hat, smiling",
         "prompt_suffix": "bright summer light, turquoise sea, travel magazine photography",
         "size_preset": "ig_portrait", "sampler": "dpmpp_2m_sde", "scheduler": "karras", "steps": 30, "cfg": 5.0,
-        "hires": 1, "freeu": 1, "face_detailer": 1,
+        "hires": 1, "freeu": 0, "face_detailer": 1,
     },
     {
         "key": "premium_custom_portrait", "name": "Premium · Personalizirani portret / shoutout", "tier": "premium",
@@ -101,7 +101,7 @@ DEFAULT_TEMPLATES = [
         "prompt_prefix": "personalized friendly portrait, holding a small handwritten greeting card, warm smile, cozy home interior",
         "prompt_suffix": "soft natural window light, authentic photo, sharp focus on face",
         "size_preset": "ig_portrait", "sampler": "dpmpp_2m_sde", "scheduler": "karras", "steps": 30, "cfg": 5.0,
-        "hires": 0, "freeu": 1, "face_detailer": 1,
+        "hires": 0, "freeu": 0, "face_detailer": 1,
     },
 ]
 
@@ -233,6 +233,22 @@ def ensure_schema() -> None:
                 )
         # Poslovi koji su ostali "U tijeku" nakon gašenja Studija vraćaju se u red.
         c.execute("UPDATE generation_queue SET status='queued', prompt_id='', progress=0 WHERE status='running'")
+        # 1.3.7: FreeU isključen po zadanom na ugrađenim fotorealističnim predlošcima (jednom).
+        # Koristi isti cursor (ne inbox.get/set_setting) da se ne zaključa SQLite drugim spojem.
+        try:
+            row = c.execute("SELECT value FROM settings WHERE key=?", ("freeu_default_off_137",)).fetchone()
+            if not row or str(row[0] or "") != "1":
+                keys = [tpl["key"] for tpl in DEFAULT_TEMPLATES]
+                c.execute(
+                    f"UPDATE content_templates SET freeu=0 WHERE builtin=1 AND key IN ({','.join('?' * len(keys))})",
+                    keys,
+                )
+                c.execute(
+                    "INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    ("freeu_default_off_137", "1"),
+                )
+        except Exception:
+            pass
 
 
 # ---------- profil: LoRA stack i referentni način ----------
@@ -446,17 +462,18 @@ def resolve_sampling(body: dict, arch: str) -> tuple[str, str] | None:
 
 
 def resolve_lora_stack(body: dict, profile: dict | None, arch: str) -> list[dict]:
+    """LoRA stack iz tijela (Generiranje / Napredno) ili, ako nije poslan, iz profila osobe.
+
+    Polje `lora` / `user_lora` je LoRA osobe i ide zasebno — ne smije poništiti stack.
+    """
     if arch == "krea2":
         return []
     if "loras" in body:
         stack = clean_lora_stack(body.get("loras"))
-    elif "lora" in body or "user_lora" in body:
-        stack = []  # stari klijent: samo jedna LoRA kroz postojeći put
+    elif profile and "lora_stack" in profile:
+        stack = clean_lora_stack(profile.get("lora_stack"))
     else:
-        if profile and "lora_stack" in profile:
-            stack = clean_lora_stack(profile.get("lora_stack"))
-        else:
-            stack = clean_lora_stack(profile_extras((profile or {}).get("id")).get("lora_stack") if profile else [])
+        stack = clean_lora_stack(profile_extras((profile or {}).get("id")).get("lora_stack") if profile else [])
     return [x for x in stack if x.get("enabled", True)]
 
 
@@ -595,6 +612,8 @@ def prepare_rx6600(body: dict, arch: str) -> tuple[dict, dict]:
             out[k] = prof[k]
     if arch == "sdxl" and out.get("rx_base_long") in (None, ""):
         out["rx_base_long"] = prof["base_long"]
+    if "freeu" not in out:
+        out["freeu"] = False
     if prof["natural"]:
         info["natural"] = True
         info["quality_text"] = image_gen.NATURAL_QUALITY
@@ -661,11 +680,47 @@ def vram_guard(settings: dict, *, arch: str, enabled: bool = True) -> tuple[dict
     return s, notes
 
 
-def add_detail_loras(stack: list[dict], body: dict, arch: str, *, turbo: bool = False, available=None) -> tuple[list[dict], list[str]]:
-    """Brzi prekidači za kurirane SFW detail LoRA-e (body.detail_loras = ["skin", "detail", ...])."""
+def _detail_lora_keys(body: dict) -> list[str]:
     keys = body.get("detail_loras")
     if isinstance(keys, str):
-        keys = [k.strip() for k in keys.split(",") if k.strip()]
+        return [k.strip() for k in keys.split(",") if k.strip()]
+    out: list[str] = []
+    for it in keys or []:
+        if isinstance(it, str) and it.strip():
+            out.append(it.strip())
+        elif isinstance(it, dict) and it.get("key"):
+            out.append(str(it.get("key")).strip())
+    return out
+
+
+def _detail_lora_weight(preset: dict, body: dict, *, turbo: bool = False) -> tuple[float, bool]:
+    """(jačina, je_li_ručna). Ručna jačina (klizač) se ne reže na 0,6."""
+    raw = None
+    weights = body.get("detail_lora_weights")
+    if isinstance(weights, dict) and weights.get(preset["key"]) not in (None, ""):
+        raw = weights.get(preset["key"])
+    keys = body.get("detail_loras")
+    if raw in (None, "") and isinstance(keys, list):
+        for it in keys:
+            if isinstance(it, dict) and it.get("key") == preset["key"] and it.get("strength") not in (None, ""):
+                raw = it.get("strength")
+                break
+    custom = raw not in (None, "")
+    if custom:
+        wgt = clamp_float(raw, 0.0, 1.5, float(preset["weight"]))
+    else:
+        wgt = min(float(preset["weight"]), VRAM_GUARD["detail_max_weight"])
+        if turbo:
+            wgt *= 0.8
+    return round(float(wgt), 2), custom
+
+
+def add_detail_loras(stack: list[dict], body: dict, arch: str, *, turbo: bool = False, available=None) -> tuple[list[dict], list[str]]:
+    """Brzi prekidači za kurirane SFW detail LoRA-e (body.detail_loras = ["skin", "detail", ...]).
+
+    Jačina može doći iz body.detail_lora_weights ili stavke {key, strength}.
+    """
+    keys = _detail_lora_keys(body)
     if not keys or arch != "sdxl":
         return list(stack or []), ([] if not keys else ["Detail LoRA-e su za SDXL modele — preskočene."])
     available = available or image_gen.lora_available
@@ -678,7 +733,15 @@ def add_detail_loras(stack: list[dict], body: dict, arch: str, *, turbo: bool = 
         if preset["key"] not in keys or used >= limit:
             continue
         name = preset["lora"]
+        wgt, custom = _detail_lora_weight(preset, body, turbo=turbo)
         if name in names:
+            if custom:
+                for item in out:
+                    if item.get("name") == name:
+                        item["strength_model"] = wgt
+                        item["strength_clip"] = wgt
+                        item["detail"] = preset["key"]
+                        break
             used += 1
             continue
         if not available(name):
@@ -687,15 +750,55 @@ def add_detail_loras(stack: list[dict], body: dict, arch: str, *, turbo: bool = 
         if len(out) >= image_gen.MAX_LORA_STACK:
             notes.append("LoRA stack je pun (najviše 5) — detail LoRA preskočena.")
             break
-        wgt = min(float(preset["weight"]), VRAM_GUARD["detail_max_weight"]) * (0.8 if turbo else 1.0)
-        out.append({"name": name, "strength_model": round(wgt, 2), "strength_clip": round(wgt, 2), "enabled": True, "detail": preset["key"]})
+        out.append({"name": name, "strength_model": wgt, "strength_clip": wgt, "enabled": True, "detail": preset["key"]})
         names.add(name)
         used += 1
     return out, notes
 
 
+def _saved_gen_vae() -> str:
+    try:
+        return str(inbox.get_setting("gen_vae", "") or "")
+    except Exception:
+        return ""
+
+
+def vae_choices() -> list[dict]:
+    """Opcije za padajući izbornik VAE (Iz checkpointa + kurirane datoteke + instalirane)."""
+    installed = set()
+    try:
+        installed = {image_gen.lora_key(n).rsplit("/", 1)[-1] for n in image_gen.list_vaes()}
+    except Exception:
+        installed = set()
+    curated = [
+        {"id": "checkpoint", "filename": "", "label": "Iz checkpointa", "arch": "all", "available": True},
+        {"id": "sdxl_vae", "filename": "sdxl_vae.safetensors", "label": "sdxl_vae.safetensors", "arch": "sdxl"},
+        {"id": "sdxl-vae-fp16-fix", "filename": "sdxl-vae-fp16-fix.safetensors", "label": "sdxl-vae-fp16-fix (madebyollin)", "arch": "sdxl"},
+        {"id": "vae-ft-mse-840000", "filename": "vae-ft-mse-840000-ema-pruned.safetensors", "label": "vae-ft-mse-840000 (samo SD 1.5)", "arch": "sd15"},
+    ]
+    seen = {image_gen.lora_key(x["filename"]) for x in curated if x["filename"]}
+    out = []
+    for item in curated:
+        row = dict(item)
+        if item["filename"]:
+            row["available"] = image_gen.lora_key(item["filename"]) in installed
+        out.append(row)
+    for name in sorted(installed):
+        if not name or image_gen.lora_key(name) in seen:
+            continue
+        if image_gen.vae_arch_of(name) == "krea2":
+            continue
+        seen.add(image_gen.lora_key(name))
+        out.append({
+            "id": name, "filename": name, "label": name,
+            "arch": image_gen.vae_arch_of(name) or "all", "available": True, "extra": True,
+        })
+    return out
+
+
 def ui_options() -> dict:
     hw = hardware_service.generation_defaults()
+    saved_vae = image_gen.normalize_vae_name(_saved_gen_vae())
     return {
         "samplers": list(SAMPLERS),
         "schedulers": list(SCHEDULERS),
@@ -703,12 +806,17 @@ def ui_options() -> dict:
             "sampler": DEFAULT_SAMPLER, "scheduler": DEFAULT_SCHEDULER, "steps": 30, "cfg_sdxl": 5.0, "cfg_sd15": 5.5,
             "hires_scale": UI_HIRES_SCALE, "hires_denoise": UI_HIRES_DENOISE, "hires_steps": UI_HIRES_STEPS,
             "quality_profile": DEFAULT_RX_PROFILE,
-            "freeu": image_gen.FREEU_V2_SDXL, "face_detailer": {k: character.FACE_DETAILER_DEFAULTS[k] for k in ("denoise", "guide_size", "max_size", "bbox_threshold")},
+            "freeu": False,
+            "freeu_params": image_gen.FREEU_V2_SDXL,
+            "face_detailer": {k: character.FACE_DETAILER_DEFAULTS[k] for k in ("denoise", "guide_size", "max_size", "bbox_threshold")},
+            "vae": saved_vae, "instantid_end_at": image_gen.INSTANTID_DEFAULT_END_AT,
+            "ipadapter_end_at": image_gen.IPADAPTER_DEFAULT_END_AT,
             **hw,
         },
         "max_loras": image_gen.MAX_LORA_STACK,
         "quality_profiles": [{"key": k, **{f: v for f, v in p.items()}} for k, p in RX_PROFILES.items()],
         "detail_loras": [{**d, "available": _lora_ok(d["lora"])} for d in DETAIL_LORA_PRESETS],
+        "vaes": vae_choices(),
         "vram_guard": dict(VRAM_GUARD),
     }
 
@@ -726,7 +834,7 @@ def default_body_options() -> dict:
     return {
         "sampler": DEFAULT_SAMPLER, "scheduler": DEFAULT_SCHEDULER, "steps": 30,
         "vae_mode": hw["vae_mode"], "vae_tile": hw["vae_tile"], "safe_mode": hw["safe_mode"],
-        "freeu": True, "hires": False,
+        "freeu": False, "hires": False,
     }
 
 

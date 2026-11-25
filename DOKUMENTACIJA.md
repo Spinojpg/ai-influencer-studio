@@ -56,10 +56,10 @@ Izgled je prerađen, a funkcije su ostale iste: sve kontrole, prečaci i API-ji 
 
 ### Napredno: 5 kartica s objašnjenjima
 
-1. **Model i sampler**: model, LoRA osobe i jačina, sampler, scheduler, CFG (auto ili ručno), FreeU_V2.
+1. **Model i sampler**: model, LoRA osobe i jačina, sampler, scheduler, CFG (auto ili ručno), FreeU_V2 (po zadanom isključen), padajući izbornik **VAE** (Iz checkpointa, sdxl_vae, sdxl-vae-fp16-fix; vae-ft-mse-840000 samo za SD 1.5).
 2. **Format i hires**: broj slika, Hires pass i njegove postavke (skala 1,2–1,6, denoise 0,25–0,5, koraci 4–16).
-3. **Lice i konzistencija**: jačina referentne slike (IP-Adapter), Face Detailer i njegove postavke, IP-Adapter / InstantID i jačina, **8 GB zaštita**.
-4. **LoRA i detalji**: 1 klik SFW detail LoRA-e (Prirodna koža 0,5 · Fini detalji 0,4 · Prirodni kontrast 0,35 · Realistična koža 0,5; preuzimaju se u Modeli → Preporučene SDXL LoRA-e, a ako nedostaju, preskaču se uz poruku) i LoRA stack (do 5, jačina od −2 do 2). Isti stack je i na glavnom ekranu Generiranja (odjeljak **LoRA**, gumb **+ Dodaj LoRA**).
+3. **Lice i konzistencija**: jačina referentne slike (IP-Adapter, od 0,2), klizač **Kraj utjecaja** (end_at, InstantID zadano 0,8 / IP-Adapter 1,0), Face Detailer (zadani denoise 0,25) i njegove postavke, InstantID jačina, **8 GB zaštita**.
+4. **LoRA i detalji**: 1 klik SFW detail LoRA-e s klizačem jačine 0–1,5 (zadano: Prirodna koža 0,5 · Fini detalji 0,4 · Prirodni kontrast 0,35 · Realistična koža 0,5; preuzimaju se u Modeli → Preporučene SDXL LoRA-e, a ako nedostaju, preskaču se uz poruku). Uz uključenu Realističnu kožu Studio jednom doda okidač `Detailed natural skin and blemishes without-makeup and acne`. LoRA stack (do 5, jačina od −2 do 2) je isti i na glavnom ekranu Generiranja (odjeljak **LoRA**, gumb **+ Dodaj LoRA**) i stiže u workflow i kad Napredno nije otvoreno.
 5. **Prompt, seed i ostalo**: Dodatno uz izgled, težina izgleda, seed, negativni prompt, oznake kvalitete, predložak sadržaja i serija u redu čekanja.
 
 Uz svaku opciju je „?”: prijeđi mišem, fokusiraj tipkovnicom ili klikni za kratko objašnjenje (Escape zatvara).
@@ -100,8 +100,9 @@ Zadane postavke (SDXL, 8 GB):
 
 - Sampler `dpmpp_2m_sde`, scheduler `karras`.
 - **Hires**: od 1.3.0 zadano 1,33×, denoise 0,35, 8 koraka (brzi drugi prolaz preko manje baze), dekodiranje preko `VAEDecodeTiled`; raspon u Napredno 1,2–1,6 / 0,25–0,5 / 4–16.
-- **FreeU_V2**: b1 1,3 · b2 1,4 · s1 0,9 · s2 0,2 (uključi/isključi).
-- **Face Detailer** (Impact Pack + Subpack): jačina (denoise), guide size, koraci. Ako čvorovi nisu instalirani, predlošci ga preskoče umjesto da javljaju grešku.
+- **FreeU_V2**: po zadanom isključen (i na profilu Realizam). Parametri ako ga uključiš: b1 1,3 · b2 1,4 · s1 0,9 · s2 0,2.
+- **VAE**: zadano „Iz checkpointa”. Za SDXL možeš odabrati `sdxl_vae.safetensors` ili `sdxl-vae-fp16-fix` (madebyollin); za SD 1.5 `vae-ft-mse-840000`. Preuzimanje je u kartici Modeli → „VAE (dekoder slike)”. Odabrani VAE ide u sve VAEDecode/VAEEncode čvorove i u Face Detailer.
+- **Face Detailer** (Impact Pack + Subpack): zadani denoise 0,25 (klizač i dalje od 0,1). Kad je InstantID uključen, Face Detailer prima isti positive/negative kao i KSampler (izlaz ApplyInstantID). Ako čvorovi nisu instalirani, predlošci ga preskoče umjesto da javljaju grešku.
 - **Multi-LoRA**: do 5 LoRA-a s vlastitim jačinama (stack osobe + ručno dodane).
 - **Reference lica**: izbornik `Bez reference`, `IP-Adapter` ili `InstantID`. Bedž pokazuje što će se stvarno koristiti. InstantID treba čvor ComfyUI_InstantID, antelopev2 i InstantID model; FaceAnalysis radi na CPU-u da štedi VRAM.
 
