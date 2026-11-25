@@ -1,5 +1,8 @@
 # Promjene
 
+## 1.3.9 — 2026-11-25
+- Popravak: IP-Adapter s 5+ referentnih slika više ne javlja grešku 'weight_type standard' (sada linear).
+
 ## 1.3.8 — 2026-11-25
 - Na Generiranju, na vrhu odabira osobe je opcija „Bez osobe” (prazno polje). Tako možeš testirati samo prompt, bez LoRA-e osobe, okidača i referenci lica (InstantID / IP-Adapter). Korisnički LoRA stack, VAE i ostale opće postavke i dalje vrijede. Odabir se pamti. Gumbi Dobra / Loša i dalje ocjenjuju sliku, ali je ne vežu uz osobu ni dataset.
 

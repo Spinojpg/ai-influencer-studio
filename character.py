@@ -25,7 +25,7 @@ APPEARANCE_WEIGHT_MIN = 1.0
 APPEARANCE_WEIGHT_MAX = 1.5
 
 IPADAPTER_PRESET = "PLUS FACE (portraits)"
-IPADAPTER_WEIGHT_TYPE = "standard"
+IPADAPTER_WEIGHT_TYPE = "linear"
 
 CLIP_VISION_NAME = "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"
 IPADAPTER_SDXL_NAME = "ip-adapter-plus-face_sdxl_vit-h.safetensors"

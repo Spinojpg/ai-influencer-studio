@@ -219,7 +219,7 @@ def test_ipadapter_and_detailer_graphs():
     check("insightface" not in json.dumps(wf["85"]).lower(), "nema InsightFace u loaderu")
     check(types.get("86") == "IPAdapter", "IPAdapter apply")
     check(wf["86"]["inputs"]["weight"] == 0.85, "jačina 0.85")
-    check(wf["86"]["inputs"]["weight_type"] == "standard", "weight_type standard")
+    check(wf["86"]["inputs"]["weight_type"] == "linear", "weight_type linear")
     check(types.get("12") == "LoraLoader", "korisnička LoRA")
     check(types.get("22") == "LoraLoader", "Turbo LoRA u lancu")
     # model ulazi u IP-Adapter nakon LoRA lanca
